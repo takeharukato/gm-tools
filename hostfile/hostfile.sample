@@ -1,0 +1,20 @@
+# - *- coding: utf-8; mode: textfile -*-
+# gm-gather.py用ホストファイル
+# このファイルは、gm-gather.pyスクリプトによって処理されるホスト名のリストを含んでいます。
+# これはサンプルのホストファイルです。
+# 1行に1つのホスト名を記述します。
+# コメントは'#'で始まります。
+#
+# This file contains a list of hostnames to be processed by the gm-gather.py script.
+# This is a sample hosts file.
+# One hostname per line.
+# Comments start with '#'.
+#
+# 以下の行は例です。
+# The following lines are examples.
+# host1
+# host2
+# host3
+
+k8sctrlplane01.local
+k8sctrlplane02.local

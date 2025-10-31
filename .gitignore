@@ -64,3 +64,12 @@ __pycache__/
 
 # logファイル
 *.log
+
+# autoconf/automake
+Makefile.in
+aclocal.m4
+autom4te.cache
+install-sh
+missing
+
+dest/
