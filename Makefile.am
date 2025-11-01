@@ -1,9 +1,14 @@
 ## サブディレクトリのみ
-SUBDIRS = src compl scripts docs
+SUBDIRS = src compl scripts docs locale samples
 # 配布物
 EXTRA_DIST=requirements.txt LICENSE autogen.sh
 
-## （任意）元の便利ターゲットを置きたい場合はここに追加できます。
+# Install the top-level license into $(docdir) (defaults to $(datarootdir)/doc/$(PACKAGE))
+dist_doc_DATA = LICENSE
+
+
+
+## 便利ターゲットを置きたい場合はここに追加できます。
 .PHONY: cloc gtags doxygen api-doc gen-pot
 CLOC               ?= cloc
 CLOC_EXCLUDE_DIRS  ?= .git,autom4te.cache,build-aux,.venv,.vscode

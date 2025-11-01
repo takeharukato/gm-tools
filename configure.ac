@@ -61,6 +61,8 @@ AC_CONFIG_FILES([
   src/Makefile
   compl/Makefile
   docs/Makefile
+  samples/Makefile
   scripts/Makefile
+  locale/Makefile
 ])
 AC_OUTPUT

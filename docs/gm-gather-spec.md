@@ -183,3 +183,7 @@ Collection mode:
 本ツールの動作には以下のパッケージが必要となる:
 
 - Paramiko ( OS パッケージ `python3-paramiko` または `pip install paramiko` )
+
+## 使用例
+
+### 基本的な使用法
