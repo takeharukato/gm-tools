@@ -291,7 +291,7 @@ def list_files_remote(ssh: paramiko.SSHClient, roots: List[str], use_sudo: bool,
         raise RuntimeError(f"find failed (rc={rc}): {err.decode(errors='ignore')}")
     if not out:
         return []
-    return [p for p in out.decode("utf-8", errors="").split("\x00") if p]
+    return [p for p in out.decode("utf-8", errors="surrogateescape").split("\x00") if p]
 
 def _best_root_for(abs_path: str, roots: List[str]) -> str:
     """abs_path に最も長く一致する root を返す ( なければ空文字ではなく '/' を返す ) 。"""
@@ -348,7 +348,8 @@ def pack_matches_remote_bsdtar(
                 # リストファイルを使って tar -T で投入 ( 改行区切り )
                 list_ident = f"/tmp/collect_list_{os.getpid()}_{random.randint(10**6,10**7-1)}.lst"
                 list_content = "\n".join(chunk) + "\n"
-                rc, _, err = run_cmd(ssh, f"{sudo}sh -c 'LC_ALL=C cd {shlex.quote(root)} && cat > {shlex.quote(list_ident)} <<\"EOF\"\n{list_content}EOF'", timeout)
+                delim = f"__GG_{os.getpid()}_{random.randint(10**6,10**7-1)}__"
+                rc, _, err = run_cmd(ssh, f"{sudo}sh -c 'LC_ALL=C cd {shlex.quote(root)} && cat > {shlex.quote(list_ident)} <<\"{delim}\"\n{list_content}{delim}'", timeout)
                 if rc != 0:
                     raise RuntimeError(f"prepare list failed: {err.decode(errors='ignore')}")
                 op = "c" if first else "r"
@@ -375,7 +376,8 @@ def pack_matches_remote_bsdtar(
             chunk = clean[i:i+CHUNK]
             list_ident = f"/tmp/collect_list_{os.getpid()}_{random.randint(10**6,10**7-1)}.lst"
             list_content = "\n".join(chunk) + "\n"
-            rc, _, err = run_cmd(ssh, f"{sudo}sh -c 'LC_ALL=C cd {shlex.quote(root)} && cat > {shlex.quote(list_ident)} <<\"EOF\"\n{list_content}EOF'", timeout)
+            delim = f"__GG_{os.getpid()}_{random.randint(10**6,10**7-1)}__"
+            rc, _, err = run_cmd(ssh, f"{sudo}sh -c 'LC_ALL=C cd {shlex.quote(root)} && cat > {shlex.quote(list_ident)} <<\"{delim}\"\n{list_content}{delim}'", timeout)
             if rc != 0:
                 raise RuntimeError(f"prepare list failed: {err.decode(errors='ignore')}")
             op = "c" if first else "r"
@@ -427,9 +429,10 @@ def pack_abs_hits_remote_bsdtar(
             list_content = "\n".join(chunk) + "\n"
 
             # リストファイル投入
+            delim = f"__GG_{os.getpid()}_{random.randint(10**6,10**7-1)}__"
             rc, _, err = run_cmd(
                 ssh,
-                f"{sudo}sh -c 'LC_ALL=C cat > {shlex.quote(list_ident)} <<\"EOF\"\n{list_content}EOF'",
+                f"{sudo}sh -c 'LC_ALL=C cat > {shlex.quote(list_ident)} <<\"{delim}\"\n{list_content}{delim}'",
                 timeout,
             )
             if rc != 0:
@@ -463,9 +466,10 @@ def pack_abs_hits_remote_bsdtar(
             list_content = "\n".join(chunk) + "\n"
 
             # リストファイル投入
+            delim = f"__GG_{os.getpid()}_{random.randint(10**6,10**7-1)}__"
             rc, _, err = run_cmd(
                 ssh,
-                f"{sudo}sh -c 'LC_ALL=C cat > {shlex.quote(list_ident)} <<\"EOF\"\n{list_content}EOF'",
+                f"{sudo}sh -c 'LC_ALL=C cat > {shlex.quote(list_ident)} <<\"{delim}\"\n{list_content}{delim}'",
                 timeout,
             )
             if rc != 0:
