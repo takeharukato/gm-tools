@@ -1,0 +1,692 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the gm-tools package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: gm-tools e63ba9b\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-11-01 22:53+0900\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/gm-scatter.py src/gm-gather.py
+msgid ""
+"This script requires 'paramiko'. Install via OS package (python3-paramiko) "
+"or pip."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[i18n] skip {loc}: {etype}: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid ""
+"command timed out after {sec:.1f}s: {cmd}\n"
+"[stdout(head)] {out}\n"
+"[stderr(head)] {err}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "mkdir failed for {path}: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"[FATAL] External 'tar' is required for --pack with any --preserve-* options, "
+"but not found."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[local] scanned {n} files under {roots}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Error] unsafe relative path derived: {src} -> {rel}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[local] pack (python) -> {path}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[local] Error staging {src} -> {dst}: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[local] Error creating empty dir {dst}: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"[local] Warning: The behavior of storing/restoring ACLs/extended attributes "
+"in local bsdtar/libarchive is environment-dependent."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[local] exec: {cmd}"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "remote host has no 'tar' in PATH"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[remote] detected tar flavor: {kind}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[remote] extract: {cmd}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "remote unpack failed: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Error] unsafe dir rel (leading '/'): {drel}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[mkdir(empty)] {dir}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Error] mkdir(empty) failed: {dir}: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Error] unsafe rel (leading '/'): {rel}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[put][{tag}] {src} -> {dst}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Error] sftp.put failed: {src} -> {dst}: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"SELinux policy required but not available on remote (selinuxfs or restorecon "
+"missing)."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[remote] restorecon: {cmd}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "restorecon failed: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "SELinux not supported on remote; skipped restorecon"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[{host}] DRY-RUN {mode}: -> {dest} files={n}{extra}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid ""
+"{msg} (host={host}, ssh_user={ssh_user}, account={account}, "
+"use_sudo={use_sudo}, dest={dest}). If sudo is required, configure NOPASSWD "
+"for the ssh_user on the remote or run with --ssh-user equal to --user when "
+"appropriate."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "--selinux=archive requires --pack and --preserve-xattrs (both)."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"remote host not xattr-capable for --selinux=archive (setfattr not found)."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"ACL: remote 'setfacl' not found; ACL restore may be skipped or incomplete."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "xattr: remote 'setfattr' not found"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid " (required for --selinux=archive)."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "; xattr restore may be skipped."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "{name}: non-GNU tar on remote; option may be ignored."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "preserve-owner: may fail without sudo/root privileges."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"preserve-perms: some permission restorations may fail without sudo/root "
+"privileges."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "{etype}: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"Distribute local files/dirs to multiple remote hosts under a destination "
+"directory."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"0 or more local files/dirs. Relative src is resolved from the current "
+"directory."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"Remote destination directory. If relative, it is resolved from the remote "
+"target account's HOME (i.e., --user). This is independent of the SSH login "
+"user (--ssh-user)."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "ABSOLUTE local path regex (repeatable)."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "RELATIVE path regex to each --root (repeatable)."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "Local search root(s). Default: current directory."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "Compile regexes with IGNORECASE."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "Hosts file. Default: hostfile."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "Target account semantics on remote. Default: local user."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "SSH login user. Default: same as --user."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "SSH port. Default: {port}."
+msgstr ""
+
+#: src/gm-scatter.py src/gm-gather.py
+msgid "SSH private key file."
+msgstr ""
+
+#: src/gm-scatter.py src/gm-gather.py
+msgid "SSH password (not recommended)."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "SSH/command timeout seconds. Default: {sec}."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "Enable strict host key checking."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "Create local tar.gz -> upload -> remote extract."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"Preserve permissions on extract (tar -p). Use --no-preserve-perms to disable."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"Preserve owner/group on extract (if supported). Use --no-preserve-owner to "
+"disable."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"Preserve ACLs on extract (if supported). Use --no-preserve-acls to disable."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"Preserve xattrs on extract (if supported). Use --no-preserve-xattrs to "
+"disable."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Parallel hosts. Default: {n}."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "Show plan only; do not upload or extract."
+msgstr ""
+
+#: src/gm-scatter.py src/gm-gather.py
+msgid "Verbose logs."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "Follow symlinks when scanning locals."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"SFTP mode: also create empty directories found under explicit src "
+"directories."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "SELinux handling mode. Default: auto."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "dest is required as the last positional argument."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "dest is required."
+msgstr ""
+
+#: src/gm-scatter.py src/gm-gather.py
+msgid "No hosts found in hosts file."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid ""
+"No src and no patterns provided. At least one src or a pattern must be "
+"specified."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Invalid regex: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Warning] src not found (skipped): {src}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid ""
+"[Warning] symlinked directory skipped (SFTP mode without --follow-symlinks): "
+"{dir}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Warning] broken symlink (skipped): {path}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Warning] symlink (skipped on SFTP without --follow-symlinks): {path}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Warning] non-regular file (skipped): {path}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Warning] vanished during scan (skipped): {path}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Error] unsafe derived relative path: {src} -> {rel}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Warning] duplicate src ignored: {src}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Error] unsafe empty dir rel: {root} -> {rel}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Error] root not found: {root}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[Warning] duplicate (pattern vs src) ignored: {src}"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "No local files to distribute after selection."
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "[Warning] --preserve-* options are ignored without --pack."
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Hosts: {n}  Mode: {mode}  Dest: {dest}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Select: patterns ({na} abs, {nr} rel) roots={roots}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Sources: {n} (explicit)"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "SSH  : ssh-user={ssh_user} user={user} port={port} strict={strict}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Preserve: perms={perms} owner={owner} acls={acls} xattrs={xattrs}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "SELinux: {mode}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[{host}] ERROR x{n}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[{host}] {action}: {n}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[{host}] Warning: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "[{host}] Error: {msg}"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "[Info] Interrupted by user. Cancelling remaining tasks..."
+msgstr ""
+
+#: src/gm-scatter.py src/gm-gather.py
+msgid "=== Summary ==="
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Hosts processed: {n}"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "planned"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "packed(archives)"
+msgstr ""
+
+#: src/gm-scatter.py
+msgid "files/dirs created"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Total {label}: {n}"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Warnings: {cnt} on {hosts} host(s)"
+msgstr ""
+
+#: src/gm-scatter.py
+#, python-brace-format
+msgid "Errors (continuing): {cnt} on {hosts} host(s)"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Downloading {remote} -> {local}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Scanned {count} files under {roots} (sudo={use_sudo})"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "rel_hits={count} abs_hits={count2} total={total}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "match: {path}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "[{host}] ... ({count} more)"
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Collect remote files by regex (absolute & relative patterns supported)."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Local destination directory."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Target account (used to resolve ~) (default: current user)."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "SSH login user (default: same as --user)."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Regex for ABSOLUTE remote paths. Can be repeated."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Regex for paths RELATIVE to each --roots entry. Can be repeated."
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Concurrent hosts (default: {DEFAULT_PARALLEL})."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Compile regexes with re.IGNORECASE."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Hosts file (default: hostfile)."
+msgstr ""
+
+#: src/gm-gather.py
+msgid ""
+"Search roots (default: \"~\" => ACCOUNT's HOME). Use absolute paths; "
+"multiple allowed."
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "SSH port (default: {DEFAULT_SSH_PORT})."
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "SSH/command timeout seconds (default: {DEFAULT_TIMEOUT})."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Enable strict host key checking (off by default)."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Pack on the REMOTE host using tar command, then download and extract."
+msgstr ""
+
+#: src/gm-gather.py
+msgid ""
+"When packing remotely, combine all roots into a SINGLE tar (may collide if "
+"relative names overlap)."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "List matches only; do not download."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "At least one of --pattern-abs or --pattern-rel must be specified."
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Cannot determine target account. Please specify --user."
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Invalid regex: {err}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Targets: {length} host(s)"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "SSH user: {user}  Account: {account}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Roots: {roots}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "ABS patterns: {patterns}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "REL patterns: {patterns}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Dest: {dest}  Parallel: {parallel}  Dry-run: {dry_run}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "[{host}] ERROR: {err}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "[{host}] matches: {matched}, {action}: {downloaded}"
+msgstr ""
+
+#: src/gm-gather.py
+msgid ""
+"\n"
+"Interrupted by user (Ctrl-C)"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Hosts processed: {count} / {total}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Total matches:   {count}"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid "Total {action}: {count}"
+msgstr ""
+
+#: src/gm-gather.py
+msgid "Errors:"
+msgstr ""
+
+#: src/gm-gather.py
+#, python-brace-format
+msgid " - {host}: {err}"
+msgstr ""

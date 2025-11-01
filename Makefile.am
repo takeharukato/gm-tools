@@ -1,14 +1,20 @@
 ## サブディレクトリのみ
-SUBDIRS = src
+SUBDIRS = src compl scripts docs
+# 配布物
+EXTRA_DIST=requirements.txt LICENSE autogen.sh
 
 ## （任意）元の便利ターゲットを置きたい場合はここに追加できます。
-.PHONY: cloc gtags doxygen api-doc
+.PHONY: cloc gtags doxygen api-doc gen-pot
 CLOC               ?= cloc
 CLOC_EXCLUDE_DIRS  ?= .git,autom4te.cache,build-aux,.venv,.vscode
 CLOC_NOT_MATCH_F   ?= '(^|/)(configure|Makefile\.in|config\.h\.in|aclocal\.m4|ltmain\.sh|config\.guess|config\.sub|config\.status|compile|depcomp|install-sh|missing|stamp-h1|libtool)$$'
 
 GTAGS ?= gtags
 RM    ?= rm -f
+
+# gettextのpotファイルを生成する
+gen-pot:
+	${top_srcdir}/scripts/gen-pot.sh
 
 cloc:
 	$(CLOC) . --by-file \

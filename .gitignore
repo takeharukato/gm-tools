@@ -73,3 +73,6 @@ install-sh
 missing
 
 dest/
+config.status
+configure
+Makefile

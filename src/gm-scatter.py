@@ -38,6 +38,8 @@ import time
 import tarfile
 import tempfile
 import traceback
+import gettext
+import locale
 
 from uuid import uuid4
 from enum import Enum
@@ -72,11 +74,23 @@ EXIT_PARTIAL: int = 2
 EXIT_MODULE_MISSING: int = 4
 EXIT_INVALID_ARGS: int = 5
 
+APPNAME = "gm-tools"               # textdomain
+# スクリプト同梱の ./locale を優先。インストール形態では /usr/share/locale 等が使われるため
+# gettext 側の検索 ( translation(..., fallback=True) ) に任せつつ, ローカル同梱も見えるようにする。
+LOCALEDIR = (Path(__file__).resolve().parent / "locale")  # ./locale/
+
+# 初期値 ( 未初期化時の保険 )
+_ = gettext.gettext
+ngettext = gettext.ngettext
+DEFAULT_ENCODING = locale.getpreferredencoding(False)
+current_encoding = DEFAULT_ENCODING
+
+
 # ---- インポート必須モジュール ( Paramiko )  ----
 try:
     import paramiko  # type: ignore
 except Exception as _e:
-    print("This script requires 'paramiko'. Install via OS package (python3-paramiko) or pip.", file=sys.stderr)
+    print(_("This script requires 'paramiko'. Install via OS package (python3-paramiko) or pip."), file=sys.stderr)
     sys.exit(EXIT_MODULE_MISSING)
 
 
@@ -119,40 +133,139 @@ class HostResult:
     warnings: List[str]
     errors: List[str]
 
+# ------------------------- I18N setup -------------------------
+def setup_i18n(lang: Optional[str] = None) -> None:
+    """
+    機能概要:
+      指定された言語コード ( 未指定なら環境のロケール ) に基づき, gettext を初期化する。
+      翻訳辞書は ./locale, /usr/share/locale, /usr/local/share/locale 等から探索し,
+      見つからない場合は NullTranslations を用いる。副作用として `_`, `ngettext`,
+      `current_encoding` を設定する。
+
+    引数:
+      lang (Optional[str]): 言語コード ( 例: 'ja', 'en_US' ) 。None の場合は
+        環境変数 LANGUAGE / LC_ALL / LC_MESSAGES などに従う。
+
+    返り値:
+      None: 戻り値はない ( 副作用として翻訳関数・エンコーディングを設定 ) 。
+
+    生成値:
+      なし
+    """
+
+    global _, ngettext, current_encoding
+
+    # 1) OS ロケールを有効化 ( 失敗しても続行 )
+    try:
+        locale.setlocale(locale.LC_ALL, "")
+    except locale.Error:
+        pass
+
+    # 2) 言語選択 : 引数優先, 無指定時は環境変数 ( LANGUAGE/LC_ALL/… ) に従う
+    languages = [lang] if lang else None
+
+    # 3) 翻訳辞書の探索候補
+    #    - スクリプト同梱 ./locale
+    #    - /usr/share/locale, /usr/local/share/locale
+    #    - None ( 標準の検索パスを使う )
+    candidates: List[Optional[str]] = []
+    try:
+        if LOCALEDIR.exists():
+            candidates.append(str(LOCALEDIR))
+    except Exception:
+        pass
+    for d in ("/usr/share/locale", "/usr/local/share/locale"):
+        try:
+            if Path(d).exists():
+                candidates.append(d)
+        except Exception:
+            pass
+    candidates.append(None)
+
+    # 4) 翻訳辞書をロード ( 見つからなければ NullTranslations )
+    trans: Optional[gettext.NullTranslations] = None
+    debug_i18n = os.environ.get("GM_I18N_DEBUG") == "1"
+    for locdir in candidates:
+        try:
+            if locdir is None:
+                trans = gettext.translation(APPNAME, languages=languages, fallback=False)
+            else:
+                trans = gettext.translation(APPNAME, localedir=locdir, languages=languages, fallback=False)
+            break
+        except FileNotFoundError:
+            # この候補には .mo が無い  =>  次へ
+            continue
+        except Exception as e:
+            if debug_i18n:
+                print(_("[i18n] skip {loc}: {etype}: {msg}").format(loc=locdir, etype=type(e).__name__, msg=e), file=sys.stderr)
+            # 破損 .mo 等の異常でも次候補へフォールバック
+            continue
+    if trans is None:
+        trans = gettext.NullTranslations()
+
+    # 5) グローバルにバインド
+    _ = trans.gettext
+    ngettext = trans.ngettext
+
+    # 6) 表示用エンコーディング ( 推奨 API  =>  フォールバック )
+    try:
+        current_encoding = locale.getencoding()  # Py3.11+
+    except AttributeError:
+        current_encoding = locale.getpreferredencoding(False)
 
 # ========= 汎用ユーティリティ =========
 
 def is_windows() -> bool:
-    """ローカル OS が Windows であるかを返す。
+    """
+    機能概要:
+      実行環境が Windows かどうかを判定する。
 
-    Returns:
-        bool: Windows の場合 True, それ以外は False。
+    引数:
+      なし
+
+    返り値:
+      bool: Windows の場合 True, その他 OS の場合 False。
+
+    生成値:
+      なし
     """
     return os.name == "nt" or platform.system().lower().startswith("win")
 
 
 def to_posix_rel(rel: str) -> str:
-    """相対パス文字列を POSIX 形式 ( '/' 区切り ) へ変換する。
+    """
+    機能概要:
+      相対パス文字列を POSIX 形式 ( '/' 区切り ) へ変換する。
 
-    Args:
-        rel (str): 相対パス文字列 ( OS既定セパレータ ) 。
+    引数:
+      rel (str): 相対パス文字列。OS 既定セパレータ ( Windows の '\\\\' 等 ) を含み得る。
 
-    Returns:
-        str: '/' 区切りへ変換した相対パス。
+    返り値:
+      str: '/' 区切りに正規化した相対パス。入力に '\\\\' が含まれなければ原文を返す。
+
+    生成値:
+      なし
     """
     return rel.replace("\\", "/") if "\\" in rel else rel
 
 
 def safe_relpath_for_transfer(abs_path: str, base: str) -> Optional[str]:
-    """送信用の相対名を生成し, 安全性 ( 先頭セパレータ禁止, '..' 逸脱禁止 ) を検査する。
-
-    Args:
-        abs_path (str): ローカルの絶対パス。
-        base (str): 相対化の基点ディレクトリの絶対パス。
-
-    Returns:
-        Optional[str]: 安全な相対名 ( POSIX 風 ) を返す。安全でない場合は None。
     """
+    機能概要:
+      `base` を基点として `abs_path` の相対名を作成し, 送信に安全かを検証する。
+      先頭 '/' の禁止, '..' による上位逸脱を防止し, POSIX 区切りに正規化する。
+
+    引数:
+      abs_path (str): 絶対パスのローカルファイル/ディレクトリ。
+      base (str): 相対化の基点となる絶対パス。
+
+    返り値:
+      Optional[str]: 安全と判断される相対名 ( POSIX 形式 ) 。安全でない場合は None。
+
+    生成値:
+      なし
+    """
+
     try:
         rel = os.path.relpath(abs_path, base)
     except ValueError:
@@ -168,15 +281,21 @@ def safe_relpath_for_transfer(abs_path: str, base: str) -> Optional[str]:
 
 
 def best_root_for(abs_path: str, roots_abs: List[str]) -> str:
-    """abs_path に最長一致する root を返す。見つからなければ '/' を返す。
-
-    Args:
-        abs_path (str): 絶対パス。
-        roots_abs (List[str]): 絶対パス化された探索 root 一覧。
-
-    Returns:
-        str: 最適 root。
     """
+    機能概要:
+      `roots_abs` の中で `abs_path` に最長前方一致する root を返す。該当が無い場合は '/' を返す。
+
+    引数:
+      abs_path (str): 対象の絶対パス。
+      roots_abs (List[str]): 探索候補の root ディレクトリ ( 絶対パス ) 一覧。
+
+    返り値:
+      str: 最長一致した root。見つからない場合は '/'。
+
+    生成値:
+      なし
+    """
+
     best = ""
     for r in roots_abs:
         rr = r.rstrip(os.sep) or os.sep
@@ -188,19 +307,21 @@ def best_root_for(abs_path: str, roots_abs: List[str]) -> str:
 
 
 def parse_hosts_file(path: str) -> List[str]:
-    """ホストファイルを読み, ホスト名一覧を返す。
-
-    仕様:
-      - 1 行 1 ホスト
-      - 空行 / '#' 始まり
-      -  ( TAB または空白 ) に続く '#' 以降はコメント
-
-    Args:
-        path (str): ホストファイルのパス。
-
-    Returns:
-        List[str]: ホスト一覧。
     """
+    機能概要:
+      ホストファイルを読み取り, ホスト名 ( 1 行 1 エントリ ) のリストを返す。
+      空行と '#' から始まる行は無視し, {TAB or 空白}+ '#' 以降はコメントとして除去する。
+
+    引数:
+      path (str): ホストファイルのパス。
+
+    返り値:
+      List[str]: 抽出されたホスト名の一覧 ( 出現順 ) 。
+
+    生成値:
+      なし
+    """
+
     hosts: List[str] = []
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -209,8 +330,8 @@ def parse_hosts_file(path: str) -> List[str]:
                 continue
             if s.startswith("#"):
                 continue
-            # タブ or 空白 に続く # 以降をコメント扱い
-            m = re.search(r"[ \t]#", s)
+            # タブ や 空白文字 に続く # 以降をコメント扱い
+            m = re.search(r"\s+#", s)
             if m:
                 s = s[: m.start()].rstrip()
             if s:
@@ -221,14 +342,22 @@ def parse_hosts_file(path: str) -> List[str]:
 # ========= SSH / SFTP =========
 
 def ssh_open(cfg: SSHConfig) -> paramiko.SSHClient:
-    """SSH 接続を確立して返す。
-
-    Args:
-        cfg (SSHConfig): SSH 接続設定。
-
-    Returns:
-        paramiko.SSHClient: 接続済み SSH クライアント。
     """
+    機能概要:
+      `cfg` に基づいて Paramiko の SSHClient を生成し, 接続済みクライアントを返す。
+      厳格ホスト鍵チェックの有無は `cfg.strict_host_key_checking` に従う。
+
+    引数:
+      cfg (SSHConfig): 接続先ホスト名, ポート, ユーザ, 鍵/パスワード, タイムアウト,
+        厳格ホスト鍵チェック可否を含む設定。
+
+    返り値:
+      paramiko.SSHClient: 接続済み SSH クライアント。
+
+    生成値:
+      なし
+    """
+
     cli = paramiko.SSHClient()
     if cfg.strict_host_key_checking:
         cli.load_system_host_keys()
@@ -251,7 +380,27 @@ def ssh_open(cfg: SSHConfig) -> paramiko.SSHClient:
 
 
 def run_cmd(ssh: paramiko.SSHClient, cmd: str, timeout: float) -> Tuple[int, bytes, bytes]:
-    """リモートでコマンドを実行し, 終了コードと標準出力・標準エラーを返す ( 完了までのタイムアウト付き ) 。"""
+    """
+    機能概要:
+      リモートホスト上で `cmd` を実行し, 終了コード・標準出力・標準エラーを取得する。
+      ノンブロッキング読み取りで断片を収集し, `timeout` 超過時はチャネルを閉じて
+      部分出力のヘッドを含む TimeoutError を送出する。
+
+    引数:
+      ssh (paramiko.SSHClient): 接続済み SSH クライアント。
+      cmd (str): 実行するシェルコマンド文字列。リモート側の PATH/シェルに依存。
+      timeout (float): コマンドの総タイムアウト秒数 ( 開始〜終了まで ) 。
+
+    返り値:
+      Tuple[int, bytes, bytes]: (exit_code, stdout_bytes, stderr_bytes)。
+        - exit_code (int): コマンドの終了コード。
+        - stdout_bytes (bytes): 受信した標準出力のバイト列。
+        - stderr_bytes (bytes): 受信した標準エラーのバイト列。
+
+    生成値:
+      なし
+    """
+
     _stdin, stdout, _stderr = ssh.exec_command(cmd, timeout=timeout)  # 開始待ち
     try:
         # 以後このコマンドは標準入力を受け取らない前提
@@ -282,9 +431,9 @@ def run_cmd(ssh: paramiko.SSHClient, cmd: str, timeout: float) -> Tuple[int, byt
                     except Exception:
                         return ""
                 raise TimeoutError(
-                    f"command timed out after {timeout:.1f}s: {cmd}\n"
-                    f"[stdout(head)] {_head(partial_out)}\n"
-                    f"[stderr(head)] {_head(partial_err)}"
+                    _("command timed out after {sec:.1f}s: {cmd}\n[stdout(head)] {out}\n[stderr(head)] {err}").format(
+                        sec=timeout, cmd=cmd, out=_head(partial_out), err=_head(partial_err)
+                    )
                 )
         # 読み取り ( 溜まっている分だけ )
         while chan.recv_ready():
@@ -302,16 +451,23 @@ def run_cmd(ssh: paramiko.SSHClient, cmd: str, timeout: float) -> Tuple[int, byt
         time.sleep(RUN_CMD_POLL_INTERVAL)
 
 def resolve_remote_home(ssh: paramiko.SSHClient, account: str, timeout: float) -> str:
-    """リモートの account の HOME を返す。見つからない場合は慣習値を返す。
-
-    Args:
-        ssh (paramiko.SSHClient): SSH クライアント。
-        account (str): アカウント名。
-        timeout (float): タイムアウト秒。
-
-    Returns:
-        str: HOME ディレクトリの絶対パス。
     """
+    機能概要:
+      リモートで `getent passwd account` を参照し, HOME ディレクトリを取得する。
+      解決できない場合は 'root' なら '/root', それ以外は '/home/{account}' を慣習値として返す。
+
+    引数:
+      ssh (paramiko.SSHClient): 接続済み SSH クライアント。
+      account (str): HOME を解決したいアカウント名。
+      timeout (float): コマンドのタイムアウト秒数。
+
+    返り値:
+      str: HOME ディレクトリの絶対パス。
+
+    生成値:
+      なし
+    """
+
     rc, out, _ = run_cmd(ssh, f"getent passwd {shlex.quote(account)} | cut -d: -f6", timeout)
     if rc == 0:
         home = out.decode().strip()
@@ -321,28 +477,47 @@ def resolve_remote_home(ssh: paramiko.SSHClient, account: str, timeout: float) -
 
 
 def ensure_remote_dir(ssh: paramiko.SSHClient, path: str, use_sudo: bool, timeout: float) -> None:
-    """リモートで path を mkdir -p 相当で作成する。
-
-    Args:
-        ssh (paramiko.SSHClient): SSH クライアント。
-        path (str): 作成するディレクトリ ( POSIX パス ) 。
-        use_sudo (bool): sudo -n を付与するか。
-        timeout (float): タイムアウト秒。
     """
+    機能概要:
+      リモートで `mkdir -p -- {path}` を実行し, ディレクトリを作成する。
+      `use_sudo=True` の場合は `sudo -n` を付与する。失敗時は RuntimeError を送出。
+
+    引数:
+      ssh (paramiko.SSHClient): 接続済み SSH クライアント。
+      path (str): 作成対象ディレクトリ ( POSIX パス ) 。最終的に `posixpath.normpath` で正規化。
+      use_sudo (bool): sudo を付与する場合 True。
+      timeout (float): コマンドのタイムアウト秒数。
+
+    返り値:
+      None: 戻り値なし ( 失敗時は例外(RuntimeError)送出 )。
+
+    生成値:
+      なし
+    """
+
     path = posixpath.normpath(path)
     cmd = f"{'sudo -n ' if use_sudo else ''}mkdir -p -- {shlex.quote(path)}"
     rc, _out, err = run_cmd(ssh, cmd, timeout)
     if rc != 0:
         msg = err.decode(errors="ignore") or "<no stderr>"
-        raise RuntimeError(f"mkdir failed for {path}: {msg}")
+        raise RuntimeError(_("mkdir failed for {path}: {msg}").format(path=path, msg=msg))
 
 def sftp_mkdirs(sftp: paramiko.SFTPClient, dest_dir: str) -> None:
-    """SFTP で mkdir -p 相当の動作を行う。
-
-    Args:
-        sftp (paramiko.SFTPClient): SFTP クライアント。
-        dest_dir (str): 作成するディレクトリ ( POSIX パス ) 。
     """
+    機能概要:
+      SFTP API を用いて `dest_dir` までの各階層を順次 stat / mkdir し, mkdir -p 相当の作成を行う。
+
+    引数:
+      sftp (paramiko.SFTPClient): 接続済み SFTP クライアント。
+      dest_dir (str): 作成対象のディレクトリ ( POSIX パス ) 。
+
+    返り値:
+      None
+
+    生成値:
+      なし
+    """
+
     made: Set[str] = set()
     parts = dest_dir.split("/")
     cur = ""
@@ -362,19 +537,22 @@ def sftp_mkdirs(sftp: paramiko.SFTPClient, dest_dir: str) -> None:
 # ========= SELinux / tar 能力判定 =========
 
 def probe_selinux_capable(ssh: paramiko.SSHClient, timeout: float) -> bool:
-    """SELinux 対応可能ホストか判定する。
-
-    条件:
-      - test -d /sys/fs/selinux または mount | grep selinuxfs
-      - command -v restorecon
-
-    Args:
-        ssh (paramiko.SSHClient): SSH クライアント。
-        timeout (float): タイムアウト秒。
-
-    Returns:
-        bool: 対応可能なら True。
     """
+    機能概要:
+      リモートホストが SELinux の基本操作に対応可能かを判定する。
+      `/sys/fs/selinux` の存在または `selinuxfs` のマウント, かつ `restorecon` の存在を要件とする。
+
+    引数:
+      ssh (paramiko.SSHClient): 接続済み SSH クライアント。
+      timeout (float): コマンドのタイムアウト秒数。
+
+    返り値:
+      bool: 上記の条件を満たす場合 True, 満たさない場合 False。
+
+    生成値:
+      なし
+    """
+
     rc1, _o1, _e1 = run_cmd(ssh, "test -d /sys/fs/selinux || mount | grep -q selinuxfs", timeout)
     rc2, _o2, _e2 = run_cmd(ssh, "command -v restorecon >/dev/null 2>&1", timeout)
     return (rc1 == 0) and (rc2 == 0)
@@ -416,20 +594,20 @@ class RemoteTarFlavor(Enum):
 
 def probe_remote_tar(ssh: paramiko.SSHClient, timeout: float) -> RemoteTarFlavor:
     """
-    リモートホスト上の `tar` 実装を判別して返します。
+    機能概要:
+      リモートホスト上の `tar` 実装を判別し, GNU か BSD かを返す。
+      `tar --version` もしくは `tar --help` の先頭行から "GNU tar" / "bsdtar" /
+      "libarchive" / "FreeBSD" 等の文字列を手掛かりに分類する。判別不能な場合は BSD を既定とする。
 
-    判別方針:
-      1) `tar --version` の先頭行を確認し, "GNU tar" を含めば GNU と判定。
-      2) そうでなければ, "bsdtar" や "libarchive", "FreeBSD" を含めば BSD と判定。
-      3) `--version` が未対応などで判別できない場合は, `tar --help` を確認。
-      4) それでも不明なら, 互換性重視で BSD とみなします ( FreeBSD base tar 等の想定 ) 。
+    引数:
+      ssh (paramiko.SSHClient): 接続済み SSH クライアント。
+      timeout (float): コマンド実行のタイムアウト秒数。
 
-    Args:
-        ssh (paramiko.SSHClient): 既に接続済みの SSH クライアント。
-        timeout (float): コマンド実行のタイムアウト秒。
+    返り値:
+      RemoteTarFlavor: GNU または BSD を表す列挙値。
 
-    Returns:
-        RemoteTarFlavor: GNU もしくは BSD を表す列挙値。
+    生成値:
+      なし
     """
     # 1) --version を試す
     _rc, out, err = run_cmd(ssh, "tar --version 2>&1 | head -n1", timeout)
@@ -458,75 +636,126 @@ def probe_remote_tar(ssh: paramiko.SSHClient, timeout: float) -> RemoteTarFlavor
     return RemoteTarFlavor.BSD
 
 def shutil_which(exe: str) -> Optional[str]:
-    """shutil.which の簡易ラッパ。
+    """
+    機能概要:
+      `shutil.which` の薄いラッパ。実行ファイルが PATH から解決できるかを確認する。
 
-    Args:
-        exe (str): 実行ファイル名。
+    引数:
+      exe (str): 実行ファイル名 ( 拡張子含む場合あり ) 。
 
-    Returns:
-        Optional[str]: 見つかった場合はフルパス, 見つからない場合は None。
+    返り値:
+      Optional[str]: 見つかった場合はフルパス。見つからない場合は None。
+
+    生成値:
+      なし
     """
     from shutil import which as _which
     return _which(exe)
 
-
 def require_local_tar_when_preserve(preserve_owner: bool, preserve_acls: bool, preserve_xattrs: bool, preserve_perms: bool) -> None:
-    """ローカルで --pack かつ preserve-* オプションが有効時, 外部 tar コマンドが必要かを検査し, なければ致命エラー。
-
-    Args:
-        preserve_owner (bool): 所有者保持。
-        preserve_acls (bool): ACL 保持。
-        preserve_xattrs (bool): xattr 保持。
-        preserve_perms (bool): パーミッション保持。
-
-    Raises:
-        SystemExit: 外部 tar 利用不可の場合はプログラムを終了。
     """
+    機能概要:
+      `--pack` 時に preserve-* ( owner/acls/xattrs/perms ) のいずれかが有効であることを前提に,
+      ローカル外部 `tar` コマンドの存在を要求する。見つからない場合はエラーメッセージを出力して
+      EXIT_INVALID_ARGS で終了する ( SystemExit ) 。
+
+    引数:
+      preserve_owner (bool): 所有者保持が必要か ( True/False ) 。
+      preserve_acls (bool): ACL 保持が必要か ( True/False ) 。
+      preserve_xattrs (bool): 拡張属性保持が必要か ( True/False ) 。
+      preserve_perms (bool): パーミッション保持が必要か ( True/False ) 。
+
+    返り値:
+      None: 戻り値なし ( エラー時は SystemExit 送出 ) 。
+
+    生成値:
+      なし
+    """
+
     need = preserve_owner or preserve_acls or preserve_xattrs or preserve_perms
     if not need:
         return
     tar_cmd = "tar.exe" if is_windows() else "tar"
     found = shutil_which(tar_cmd)
     if not found:
-        print("[FATAL] External 'tar' is required for --pack with any --preserve-* options, but not found.", file=sys.stderr)
+        print(_("[FATAL] External 'tar' is required for --pack with any --preserve-* options, but not found."), file=sys.stderr)
         sys.exit(EXIT_INVALID_ARGS)
 
 # ========= 能力確認 ( リモート / ローカル補助 )  =========
 
 def check_remote_tool(ssh: "paramiko.SSHClient", tool: str, timeout: float) -> bool:
-    """リモートに tool が存在するか簡易確認する。"""
+    """
+    機能概要:
+      `command -v {tool}` を実行して, リモートにツールが存在するかどうかを確認する。
+
+    引数:
+      ssh (paramiko.SSHClient): 接続済み SSH クライアント。
+      tool (str): 確認したい実行ファイル名。
+      timeout (float): コマンドのタイムアウト秒数。
+
+    返り値:
+      bool: 存在すれば True, 存在しなければ False。
+
+    生成値:
+      なし
+    """
+
     rc, _o, _e = run_cmd(ssh, f"command -v {shlex.quote(tool)} >/dev/null 2>&1", timeout)
     return rc == 0
 
 def check_remote_xattr_capable(ssh: "paramiko.SSHClient", timeout: float) -> bool:
-    """リモートが xattr 復元に最低限対応していそうか ( setfattr の有無 ) を確認する。"""
+    """
+    機能概要:
+      リモートで `setfattr` が使用可能かを確認し, xattr 復元の最低限の対応可否を判断する
+    引数:
+      ssh (paramiko.SSHClient): 接続済み SSH クライアント。
+      timeout (float): コマンドのタイムアウト秒数。
+
+    返り値:
+      bool: 存在すれば True, 存在しなければ False。
+
+    生成値:
+      なし
+    """
+
     return check_remote_tool(ssh, "setfattr", timeout)
 
 
 # ========= ローカル探索 / パターン適用 =========
 
 def compile_many(patterns: List[str], flags: int) -> List[Pattern[str]]:
-    """複数の正規表現をコンパイルする。
-
-    Args:
-        patterns (List[str]): 正規表現文字列。
-        flags (int): re フラグ。
-
-    Returns:
-        List[Pattern[str]]: コンパイル済み正規表現。
     """
+    機能概要:
+      正規表現文字列リストを `re.compile` でまとめてコンパイルする。
+
+    引数:
+      patterns (List[str]): 正規表現パターンの文字列配列。
+      flags (int): `re.IGNORECASE` 等のフラグ。
+
+    返り値:
+      List[Pattern[str]]: コンパイル済み正規表現オブジェクトのリスト。
+
+    生成値:
+      なし
+    """
+
     return [re.compile(p, flags) for p in patterns]
 
 
 def iter_local_files_under(roots: List[str], follow_symlinks: bool) -> Iterator[str]:
-    """root 群の配下のファイルを再帰列挙する ( ファイル単位 ) 。
+    """
+    機能概要:
+      `roots` 配下の通常ファイルを再帰的に列挙する。`roots` 要素がファイルならそのまま列挙する。
 
-    Args:
-        roots (List[str]): 探索 root ( 絶対パス ) 。
-        follow_symlinks (bool): シンボリックリンクを追随するか。
+    引数:
+      roots (List[str]): 探索対象の絶対パス ( ファイル/ディレクトリ ) 一覧。
+      follow_symlinks (bool): ディレクトリ走査時にシンボリックリンクを辿る場合 True。
 
-    Yields:
-        str: 見つかったファイルの絶対パス。
+    返り値:
+      Iterator[str]: 戻り値としてはイテレータを返す ( for で使用 ) 。
+
+    生成値:
+      str: 見つかった各ファイルの「絶対パス」文字列。
     """
     for r in roots:
         if os.path.isfile(r):
@@ -538,28 +767,41 @@ def iter_local_files_under(roots: List[str], follow_symlinks: bool) -> Iterator[
 
 
 def match_any_abs(abs_path: str, abs_regexes: List[Pattern[str]]) -> bool:
-    """絶対パスに対して --pattern-abs を判定する。
-
-    Args:
-        abs_path (str): 絶対パス。
-        abs_regexes (List[Pattern[str]]): コンパイル済みパターン群。
-
-    Returns:
-        bool: いずれかに一致すれば True。
     """
+    機能概要:
+      絶対パス `abs_path` が `abs_regexes` のいずれかにマッチするかを判定する。
+
+    引数:
+      abs_path (str): 対象の絶対パス。
+      abs_regexes (List[Pattern[str]]): 絶対パス向け正規表現のリスト。
+
+    返り値:
+      bool: 1つ以上にマッチすれば True, どれにもマッチしなければ False。
+
+    生成値:
+      なし
+    """
+
     return any(rx.search(abs_path) for rx in abs_regexes)
 
 
 def iter_relatives(abs_path: str, roots: List[str]) -> Iterator[Tuple[str, str]]:
-    """abs_path を roots のいずれかからの相対に変換したペアを列挙する。
-
-    Args:
-        abs_path (str): 絶対パス。
-        roots (List[str]): 探索 root ( 絶対 ) 。
-
-    Yields:
-        Tuple[str, str]: (root, rel)。
     """
+    機能概要:
+      `abs_path` に対して, `roots` の各要素を起点にとった相対パスを求め,
+      適用可能な (root, rel) の組を列挙する。
+
+    引数:
+      abs_path (str): 対象の絶対パス。
+      roots (List[str]): 相対化の起点候補 ( 絶対パス ) 一覧。
+
+    返り値:
+      Iterator[Tuple[str, str]]: 戻り値としてはイテレータを返す。
+
+    生成値:
+      Tuple[str, str]: (root, rel) のタプル。`rel` は OS 区切りのまま ( 後段で POSIX 化する前段階 ) 。
+    """
+
     for root in roots:
         root_norm = root.rstrip(os.sep)
         if not root_norm:
@@ -570,16 +812,22 @@ def iter_relatives(abs_path: str, roots: List[str]) -> Iterator[Tuple[str, str]]
 
 
 def match_any_rel(abs_path: str, roots: List[str], rel_regexes: List[Pattern[str]]) -> bool:
-    """各 root からの相対に対して --pattern-rel を判定する。
-
-    Args:
-        abs_path (str): 絶対パス。
-        roots (List[str]): 探索 root ( 絶対 ) 。
-        rel_regexes (List[Pattern[str]]): コンパイル済みパターン群。
-
-    Returns:
-        bool: いずれかに一致すれば True。
     """
+    機能概要:
+      `roots` からの相対パスに変換した文字列が `rel_regexes` のいずれかにマッチするか判定する。
+
+    引数:
+      abs_path (str): 対象の絶対パス。
+      roots (List[str]): 相対化の起点候補のリスト。
+      rel_regexes (List[Pattern[str]]): 相対パス向け正規表現のリスト。
+
+    返り値:
+      bool: マッチがあれば True, なければ False。
+
+    生成値:
+      なし
+    """
+
     if not rel_regexes:
         return False
     for _root, rel in iter_relatives(abs_path, roots):
@@ -594,21 +842,31 @@ def select_local_by_patterns(roots: List[str],
                              pat_rel: List[Pattern[str]],
                              follow_symlinks: bool,
                              verbose: bool) -> Tuple[Dict[str, str], List[str]]:
-    """パターン指定でローカルファイルを選定し, 送信用相対名マップを返す。
-
-    Args:
-        roots (List[str]): 探索 root 群 ( 絶対パス ) 。
-        pat_abs (List[Pattern[str]]): 絶対パス用パターン。
-        pat_rel (List[Pattern[str]]): 相対パス用パターン。
-        follow_symlinks (bool): シンボリックリンクを追随するか。
-        verbose (bool): 冗長出力。
-
-    Returns:
-        Tuple[Dict[str, str], List[str]]: (abs->rel マップ ( POSIX 形式 ) , ヒット一覧)。
     """
+    機能概要:
+      絶対/相対パターンに基づき `roots` 配下からファイルを選定し, 送信用の
+      {abs -> rel(POSIX)} マップとヒットした絶対パス一覧を返す。
+      相対化時には安全性 ( 先頭 '/' 禁止, '..' 逸脱禁止 ) を検査する。
+
+    引数:
+      roots (List[str]): 探索 root ( 絶対パス ) 一覧。
+      pat_abs (List[Pattern[str]]): 絶対パス向けの正規表現。
+      pat_rel (List[Pattern[str]]): 各 root からの相対パス向けの正規表現。
+      follow_symlinks (bool): ディレクトリ探索時にシンボリックリンクを辿る場合 True。
+      verbose (bool): 走査件数などのログを標準出力へ出す場合 True。
+
+    返り値:
+      Tuple[Dict[str, str], List[str]]:
+        - 第1要素 (Dict[str, str]): {abs_path -> rel_posix} の対応表。
+        - 第2要素 (List[str]): マッチした絶対パス一覧 ( 昇順 ) 。
+
+    生成値:
+      なし
+    """
+
     files = list(iter_local_files_under(roots, follow_symlinks=follow_symlinks))
     if verbose:
-        print(f"[local] scanned {len(files)} files under {', '.join(roots)}")
+        print(_("[local] scanned {n} files under {roots}").format(n=len(files), roots=", ".join(roots)))
     rel_map: Dict[str, str] = {}
     hits: Set[str] = set()
     for p in files:
@@ -621,7 +879,7 @@ def select_local_by_patterns(roots: List[str],
         # 安全チェック
         rel_posix = to_posix_rel(posixpath.normpath(rel.replace(os.sep, "/")))
         if not rel_posix or rel_posix.startswith("/") or rel_posix == ".." or rel_posix.startswith("../"):
-            print(f"[Error] unsafe relative path derived: {p} -> {rel_posix}", file=sys.stderr)
+            print(_("[Error] unsafe relative path derived: {src} -> {rel}").format(src=p, rel=rel_posix), file=sys.stderr)
             continue
         rel_map[p] = rel_posix
         hits.add(p)
@@ -631,19 +889,27 @@ def select_local_by_patterns(roots: List[str],
 # ========= アーカイブ ( ローカル作成 / リモート展開 )  =========
 
 def make_python_tar_gz_from_relmap(rel_map: Dict[str, str], verbose: bool) -> str:
-    """Python 標準の tarfile で tar.gz を作成 ( メタ情報保持の保証はしない ) 。
-
-    Args:
-        rel_map (Dict[str, str]): {abs -> rel(POSIX)}。
-        verbose (bool): 冗長出力。
-
-    Returns:
-        str: 作成した一時アーカイブのローカルパス。
     """
+    機能概要:
+      Python 標準ライブラリ `tarfile` を用いて, `rel_map` に基づく tar.gz を作成する。
+      メタ情報 ( ACL/xattr/所有者/一部パーミッション ) の保持は保証しない。
+      シンボリックリンクはリンクエントリとして格納する。
+
+    引数:
+      rel_map (Dict[str, str]): {abs_path -> rel_posix} の対応表。
+      verbose (bool): 進行ログを出力する場合 True。
+
+    返り値:
+      str: 生成された一時アーカイブ ( tar.gz ) のローカルファイルパス。
+
+    生成値:
+      なし
+    """
+
     fd, tmp = tempfile.mkstemp(prefix="gm_scatter_", suffix=".tar.gz")
     os.close(fd)
     if verbose:
-        print(f"[local] pack (python) -> {tmp}")
+        print(_("[local] pack (python) -> {path}").format(path=tmp))
     with tarfile.open(tmp, mode="w:gz", format=tarfile.PAX_FORMAT) as tf:
         for apath, rel in rel_map.items():
             # リンクはリンクエントリとして封入 ( 標準 tarfile では xattr/ACL は扱えない )
@@ -658,7 +924,22 @@ def make_python_tar_gz_from_relmap(rel_map: Dict[str, str], verbose: bool) -> st
 
 
 def probe_local_tar_flavor(timeout: float = 5.0) -> RemoteTarFlavor:
-    """ローカルの tar 実装 (GNU/bsd) を推定する。"""
+    """
+    機能概要:
+      ローカルの `tar` 実装を推定し, GNU か BSD かを返す。`tar --version` の先頭行に
+      "GNU tar" があれば GNU, "bsdtar" / "libarchive" があれば BSD。Windows も BSD 扱い。
+      判別不能な場合は BSD を既定とする。
+
+    引数:
+      timeout (float): `--version` 呼び出しのタイムアウト秒数。
+
+    返り値:
+      RemoteTarFlavor: GNU または BSD。
+
+    生成値:
+      なし
+    """
+
     tar_cmd = "tar.exe" if is_windows() else "tar"
     try:
         out = subprocess.check_output([tar_cmd, "--version"], stderr=subprocess.STDOUT, timeout=timeout)
@@ -680,70 +961,124 @@ def make_external_tar_gz_from_relmap(
     preserve_perms: bool,
     verbose: bool
 ) -> str:
-    """外部 tar コマンドで tar.gz を作成。メタ情報保持が必要な場合はこちらを使用。
-    GNU tar の場合は作成時にも --acls/--xattrs を付けて格納する。
     """
+    rel_map (abs -> rel) を正しくアーカイブ名に反映するため、テンポラリの
+    ステージングディレクトリ配下に 'rel' 階層を作成し、通常ファイルは
+    可能ならハードリンク、シンボリックリンクは symlink を再現してから
+    外部 tar で一括圧縮する。
+
+    引数:
+      rel_map (Dict[str, str]): {abs_path -> rel_posix} の対応表。
+      preserve_owner (bool): 抽出時に所有者を復元するか（格納時は GNU/bsdtar 依存）。
+      preserve_acls (bool): ACL を格納/復元するか（GNU tar では --acls）。
+      preserve_xattrs (bool): xattr を格納/復元するか（GNU tar では --xattrs）。
+      preserve_perms (bool): パーミッションを可能な範囲で保持するか。
+      verbose (bool): 実行ログ出力。
+
+    返り値:
+      str: 生成された tar.gz のローカルパス。
+    """
+    import errno
+    import shutil
     tar_cmd = "tar.exe" if is_windows() else "tar"
-    out_path = Path(tempfile.mkstemp(prefix="gm_scatter_", suffix=".tar.gz")[1])
 
-    # 1) manifest ( abs, rel ) を作る
-    with tempfile.NamedTemporaryFile("w", delete=False, prefix="gm_manifest_", suffix=".txt", encoding="utf-8") as mf:
-        manifest = mf.name
-        for ap, rel in rel_map.items():
-            mf.write(f"{ap}\t{rel}\n")
-
-    # 2) base ディレクトリごとに rel のリストを作り, 最終的に 1 回の tar 呼び出しで -C / -T を列挙
-    listfiles: List[Tuple[str, str]] = []  # [(base, listfile_path)]
+    # 出力ファイルとステージングディレクトリを用意
+    # mkstemp() は FD を返すので必ずクローズしてから tar に渡す
+    # ( Windows のロック回避, Linux/FreeBSDでのファイル記述子リーク防止 )
+    _fd, _tmp = tempfile.mkstemp(prefix="gm_scatter_", suffix=".tar.gz")
     try:
-        by_base: Dict[str, List[str]] = {}
-        with open(manifest, encoding="utf-8") as rf:
-            for ln in rf:
-                ln = ln.rstrip("\n")
-                if not ln:
-                    continue
-                ap, rel = ln.split("\t", 1)
-                base = os.path.dirname(ap) or "."
-                by_base.setdefault(base, []).append(rel)
+        os.close(_fd)
+    except Exception:
+        pass
+    out_path = Path(_tmp)
 
-        for base, rels in by_base.items():
-            # listfile は system TMP に作る ( ソースツリーが read-only でも安全 )
-            lf = tempfile.NamedTemporaryFile("w", delete=False, prefix="gm_list_", suffix=".txt", encoding="utf-8")
-            for rel in rels:
-                lf.write(rel + "\n")
-            lf.close()
-            listfiles.append((base, lf.name))
+    staging_dir = Path(tempfile.mkdtemp(prefix="gm_scatter_stage_"))
+    try:
+        def _stage_file(src_abs: str, rel_path: str) -> None:
+            rel_p = staging_dir / rel_path
+            rel_p.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                if os.path.islink(src_abs):
+                    target = os.readlink(src_abs)
+                    try:
+                        os.symlink(target, rel_p)
+                    except FileExistsError:
+                        pass
+                else:
+                    try:
+                        os.link(src_abs, rel_p)
+                    except OSError as e:
+                        if e.errno in (errno.EXDEV, errno.EPERM, errno.EISDIR):
+                            # EISDIR は通常ここに来ないが保険
+                            shutil.copy2(src_abs, rel_p, follow_symlinks=False)
+                        else:
+                            raise
+            except Exception as e:
+                print(_("[local] Error staging {src} -> {dst}: {msg}").format(src=src_abs, dst=str(rel_p), msg=e), file=sys.stderr)
 
-        # 3) 単発の tar 実行: tar -czf OUT ( -C base1 -T list1 ) ( -C base2 -T list2 ) ...
+        def _stage_empty_dir(rel_dir: str) -> None:
+            try:
+                (staging_dir / rel_dir).mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                print(_("[local] Error creating empty dir {dst}: {msg}").format(dst=str(staging_dir / rel_dir), msg=e), file=sys.stderr)
+
+        # 1) rel 階層をステージングに再現（ディレクトリは再帰的に展開）
+        for ap, rel in rel_map.items():
+            try:
+                if os.path.isdir(ap) and not os.path.islink(ap):
+                    # ディレクトリ：中身を再帰的に反映。空ディレクトリも作成。
+                    had_entry = False
+                    for root, _dirs, files in os.walk(ap, followlinks=False):
+                        # 空ディレクトリ対応
+                        rel_under = os.path.relpath(root, ap).replace(os.sep, "/")
+                        dir_rel = rel if rel_under in (".", "") else f"{rel}/{rel_under}"
+                        _stage_empty_dir(dir_rel)
+                        if files:
+                            had_entry = True
+                        for name in files:
+                            src_abs = os.path.join(root, name)
+                            under = os.path.relpath(src_abs, ap).replace(os.sep, "/")
+                            _stage_file(src_abs, f"{rel}/{under}")
+                    if not had_entry:
+                        # 完全に空だった場合もディレクトリそのものを作る
+                        _stage_empty_dir(rel)
+                else:
+                    # 通常ファイル or シンボリックリンク
+                    _stage_file(ap, rel)
+            except Exception as e:
+                print(_("[local] Error staging {src} -> {dst}: {msg}").format(src=ap, dst=str(staging_dir / rel), msg=e), file=sys.stderr)
+
+        # 2) 外部 tar で固める（GNU tar なら --acls/--xattrs を付与）
         cmd: List[str] = [tar_cmd, "-czf", str(out_path)]
-        # ローカル tar フレーバに応じて格納オプションを追加 ( GNU のみ確実に効く )
         local_flavor = probe_local_tar_flavor()
+
         if local_flavor is RemoteTarFlavor.GNU:
             if preserve_acls:
                 cmd.append("--acls")
             if preserve_xattrs:
                 cmd.append("--xattrs")
         else:
-            # 常時通知 ( 暗黙ONでも気づけるように )
             if (preserve_acls or preserve_xattrs):
-                print("[local] Warning: The behavior of storing/restoring ACLs/extended attributes in local bsdtar / libarchive is environment-dependent.", file=sys.stderr)
-        for base, lfpath in listfiles:
-            cmd += ["-C", base, "-T", lfpath]
+                print(_("[local] Warning: The behavior of storing/restoring ACLs/extended attributes in local bsdtar/libarchive is environment-dependent."),
+                      file=sys.stderr)
+
+        # NOTE: --preserve-permissions/-p は「抽出時」のオプション。
+        # 作成時に指定すると, エラーになる実装があるため付与しない。
+        cmd += ["-C", str(staging_dir), "."]
 
         if verbose:
-            print("[local] exec:", " ".join(shlex.quote(x) for x in cmd))
+            print(_("[local] exec: {cmd}").format(cmd=" ".join(shlex.quote(x) for x in cmd)))
+
         subprocess.check_call(cmd)
         return str(out_path)
 
     finally:
+        # ステージング削除（失敗は無視）
         try:
-            os.remove(manifest)
+            shutil.rmtree(staging_dir, ignore_errors=True)
         except Exception:
             pass
-        for _base, lfpath in listfiles:
-            try:
-                os.remove(lfpath)
-            except Exception:
-                pass
+
 
 def remote_unpack_tar_gz(ssh: paramiko.SSHClient,
                          sftp: paramiko.SFTPClient,
@@ -757,34 +1092,44 @@ def remote_unpack_tar_gz(ssh: paramiko.SSHClient,
                          timeout: float,
                          verbose: bool,
                          flavor: "RemoteTarFlavor") -> int:
-    """リモートへ tgz をアップロードし, tar で展開する。
-
-    Args:
-        ssh (paramiko.SSHClient): SSH。
-        sftp (paramiko.SFTPClient): SFTP。
-        local_tgz (str): ローカルの tgz 一時ファイルパス。
-        remote_dest (str): リモートの展開先 ( POSIX パス ) 。
-        use_sudo (bool): sudo 使用の有無。
-        preserve_owner (bool): 所有者復元。
-        preserve_acls (bool): ACL 復元。
-        preserve_xattrs (bool): xattr 復元。
-        preserve_perms (bool): パーミッション復元。
-        timeout (float): タイムアウト秒。
-        verbose (bool): 冗長出力。
-
-    Returns:
-        int: 概算の「1 アーカイブ展開」を 1 として計上して返す。
     """
+    機能概要:
+      ローカルの `local_tgz` を一時パスへ SFTP でアップロードし, リモートで `tar` を用いて
+      `remote_dest` 直下へ展開する。`preserve-*` の指定に応じて tar のオプションを構成し,
+      非 GNU tar の場合は無視される可能性がある ( 呼出側で警告/エラー補足 ) 。
+      展開後は一時ファイルを削除する。
+
+    引数:
+      ssh (paramiko.SSHClient): 接続済み SSH クライアント。
+      sftp (paramiko.SFTPClient): 接続済み SFTP クライアント。
+      local_tgz (str): ローカル tar.gz パス。
+      remote_dest (str): 展開先ディレクトリ ( POSIX パス ) 。
+      use_sudo (bool): 抽出コマンドに `sudo -n` を付与する場合 True。
+      preserve_owner (bool): 所有者/グループを復元するか。
+      preserve_acls (bool): ACL を復元するか。
+      preserve_xattrs (bool): xattr を復元するか。
+      preserve_perms (bool): パーミッションを復元するか ( `-p` ) 。
+      timeout (float): コマンドのタイムアウト秒数。
+      verbose (bool): 進行ログを出力する場合 True。
+      flavor (RemoteTarFlavor): リモートの tar フレーバ ( GNU/bsd ) 。
+
+    返り値:
+      int: 処理カウント ( 1 アーカイブ展開を 1 として計上 ) 。
+
+    生成値:
+      なし
+    """
+
     ident = posixpath.join("/tmp", f"gm_scatter_{uuid4().hex}_{os.getpid()}.tar.gz")
 
     # 先に tar の存在を確認 ( アップロードの無駄を避ける )
     rc_tar, _o, _e = run_cmd(ssh, "command -v tar >/dev/null 2>&1", timeout)
     if rc_tar != 0:
-        raise RuntimeError("remote host has no 'tar' in PATH")
+        raise RuntimeError(_("remote host has no 'tar' in PATH"))
 
     # 実装種別 ( GNU/bsd ) は呼び出し元で判別済み
     if verbose:
-        print(f"[remote] detected tar flavor: {flavor.kind}")
+        print(_("[remote] detected tar flavor: {kind}").format(kind=flavor.kind))
 
     sftp.put(local_tgz, ident)
     # 一時アーカイブはデフォルト 600 にしておく ( ログインユーザの umask に依存させない )
@@ -828,12 +1173,12 @@ def remote_unpack_tar_gz(ssh: paramiko.SSHClient,
     cmd = f"{sudo}tar {' '.join(flags)}"
 
     if verbose:
-        print(f"[remote] extract: {cmd}")
+        print(_("[remote] extract: {cmd}").format(cmd=cmd))
 
     try:
         rc, _o, err = run_cmd(ssh, cmd, timeout)
         if rc != 0:
-            raise RuntimeError(f"remote unpack failed: {err.decode(errors='ignore')}")
+            raise RuntimeError(_("remote unpack failed: {msg}").format(msg=err.decode(errors='ignore')))
     finally:
         # 成否に関わらず一時ファイルを削除
         try:
@@ -850,17 +1195,25 @@ def sftp_put_map(sftp: paramiko.SFTPClient,
                  remote_dest: str,
                  verbose: bool,
                  empty_dirs: Optional[Set[str]] = None) -> int:
-    """SFTP で個別ファイルを put する。メタ情報は保持しない。
-
-    Args:
-        sftp (paramiko.SFTPClient): SFTP。
-        rel_map (Dict[str, str]): {abs -> rel(POSIX)}。
-        remote_dest (str): リモートの基点 ( POSIX パス ) 。
-        verbose (bool): 冗長出力。
-
-    Returns:
-        int: 実行件数 ( 空ディレクトリ作成 + ファイル put )。
     """
+    機能概要:
+      SFTP で `{abs -> rel}` の対応に従ってファイルを個別転送する。メタ情報保持は行わない。
+      `empty_dirs` が与えられた場合は, 相対パスの空ディレクトリも事前作成する。
+
+    引数:
+      sftp (paramiko.SFTPClient): 接続済み SFTP クライアント。
+      rel_map (Dict[str, str]): {abs_path -> rel_posix} の対応表。
+      remote_dest (str): 配置先の基点ディレクトリ ( POSIX ) 。
+      verbose (bool): put/mkdir のログを出力する場合 True。
+      empty_dirs (Optional[Set[str]]): 先に作成すべき空ディレクトリの相対パス集合。
+
+    返り値:
+      int: 実行件数 ( 空ディレクトリ作成 + ファイル put の合計 ) 。
+
+    生成値:
+      なし
+    """
+
     count = 0
     made: Set[str] = set()
 
@@ -877,7 +1230,7 @@ def sftp_put_map(sftp: paramiko.SFTPClient,
     if empty_dirs:
         for drel in sorted(empty_dirs):
             if drel.startswith("/"):
-                print(f"[Error] unsafe dir rel (leading '/'): {drel}", file=sys.stderr)
+                print(_("[Error] unsafe dir rel (leading '/'): {drel}").format(drel=drel), file=sys.stderr)
                 continue
             rdir = posixpath.normpath(f"{remote_dest}/{drel}")
             try:
@@ -887,15 +1240,15 @@ def sftp_put_map(sftp: paramiko.SFTPClient,
                 except IOError:
                     sftp_mkdirs(sftp, ensure)
                 if verbose:
-                    print(f"[mkdir(empty)] {rdir}")
+                    print(_("[mkdir(empty)] {dir}").format(dir=rdir))
                 count += 1
             except Exception as e:
-                print(f"[Error] mkdir(empty) failed: {rdir}: {e}", file=sys.stderr)
+                print(_("[Error] mkdir(empty) failed: {dir}: {msg}").format(dir=rdir, msg=e), file=sys.stderr)
 
     # ファイルを put する
     for apath, rel in rel_map.items():
         if rel.startswith("/"):
-            print(f"[Error] unsafe rel (leading '/'): {rel}", file=sys.stderr)
+            print(_("[Error] unsafe rel (leading '/'): {rel}").format(rel=rel), file=sys.stderr)
             continue
         rpath = posixpath.normpath(f"{remote_dest}/{rel}")
         rdir = posixpath.dirname(rpath)
@@ -908,55 +1261,63 @@ def sftp_put_map(sftp: paramiko.SFTPClient,
             existed = False
         if verbose:
             tag = "overwrite" if existed else "new"
-            print(f"[put][{tag}] {apath} -> {rpath}")
+            print(_("[put][{tag}] {src} -> {dst}").format(tag=tag, src=apath, dst=rpath))
 
         try:
             sftp.put(apath, rpath)
             count += 1
         except Exception as e:
-            print(f"[Error] sftp.put failed: {apath} -> {rpath}: {e}", file=sys.stderr)
+            print(_("[Error] sftp.put failed: {src} -> {dst}: {msg}").format(src=apath, dst=rpath, msg=e), file=sys.stderr)
     return count
 
 
 # ========= SELinux restorecon =========
 
 def maybe_run_restorecon(ssh: paramiko.SSHClient, dest_posix: str, selinux_mode: str, timeout: float, use_sudo: bool, verbose: bool) -> Optional[str]:
-    """--selinux の指定に応じて restorecon を実行する。
-
-    Args:
-        ssh (paramiko.SSHClient): SSH。
-        dest_posix (str): 対象ディレクトリ ( POSIX パス ) 。
-        selinux_mode (str): auto/policy/archive/ignore。
-        timeout (float): タイムアウト。
-        use_sudo (bool): sudo。
-        verbose (bool): 冗長。
-
-    Returns:
-        Optional[str]: 警告や情報の付記 ( None の場合は特になし ) 。
     """
+    機能概要:
+      `--selinux` オプションの指定に従って, 必要に応じて `restorecon -RF` を実行する。
+      `policy` は厳格 ( 対応不可なら例外 ) , `auto`/`archive` は対応可能なら実行,
+      `ignore` は何もしない。失敗時の警告文言を呼び出し側へ返すことがある。
+
+    引数:
+      ssh (paramiko.SSHClient): 接続済み SSH クライアント。
+      dest_posix (str): 対象のディレクトリ ( POSIX パス ) 。
+      selinux_mode (str): "auto" / "policy" / "archive" / "ignore"。
+      timeout (float): コマンドのタイムアウト秒数。
+      use_sudo (bool): `restorecon` 実行に sudo を付与する場合 True。
+      verbose (bool): 実行コマンドのログ表示を行う場合 True。
+
+    返り値:
+      Optional[str]: 警告や情報文 ( 問題なければ None ) 。
+
+    生成値:
+      なし
+    """
+
     if selinux_mode == "ignore":
         return None
     capable = probe_selinux_capable(ssh, timeout)
     if selinux_mode == "policy":
         if not capable:
-            raise RuntimeError("SELinux policy required but not available on remote (selinuxfs or restorecon missing).")
+            raise RuntimeError(_("SELinux policy required but not available on remote (selinuxfs or restorecon missing)."))
         cmd = f"{'sudo -n ' if use_sudo else ''}restorecon -RF {shlex.quote(dest_posix)}"
         if verbose:
-            print(f"[remote] restorecon: {cmd}")
+            print(_("[remote] restorecon: {cmd}").format(cmd=cmd))
         rc, _o, err = run_cmd(ssh, cmd, timeout)
         if rc != 0:
-            raise RuntimeError(f"restorecon failed: {err.decode(errors='ignore')}")
+            raise RuntimeError(_("restorecon failed: {msg}").format(msg=err.decode(errors='ignore')))
         return None
     if selinux_mode in ("auto", "archive"):
         if capable:
             cmd = f"{'sudo -n ' if use_sudo else ''}restorecon -RF {shlex.quote(dest_posix)}"
             if verbose:
-                print(f"[remote] restorecon: {cmd}")
+                print(_("[remote] restorecon: {cmd}").format(cmd=cmd))
             rc, _o, err = run_cmd(ssh, cmd, timeout)
             if rc != 0:
-                return f"restorecon failed: {err.decode(errors='ignore')}"
+                return _("restorecon failed: {msg}").format(msg=err.decode(errors='ignore'))
             return None
-        return "SELinux not supported on remote; skipped restorecon"
+        return _("SELinux not supported on remote; skipped restorecon")
     return None
 
 
@@ -985,35 +1346,44 @@ def process_host(host: str,
                  request_preserve_xattrs: bool,
                  request_preserve_perms: bool,
                  empty_dirs: Optional[Set[str]] = None) -> HostResult:
-    """単一ホストの配布処理を実行する。
-
-    Args:
-        host (str): ホスト名。
-        dest (str): リモートの dest ( 絶対 or 相対 ) 。
-        rel_map (Dict[str, str]): {abs -> rel(POSIX)} ( 重複は除去済み ) 。
-        ssh_user (str): SSH ログインユーザ。
-        account (str): 転送時のアカウント語義 ( HOME 解決等 ) 。
-        port (int): SSH ポート。
-        key (Optional[str]): 秘密鍵。
-        password (Optional[str]): パスワード。
-        timeout (float): タイムアウト。
-        strict (bool): 厳格ホスト鍵チェック。
-        dry_run (bool): ドライラン。
-        verbose (bool): 冗長出力。
-        pack (bool): --pack。
-        preserve_owner (bool): 所有者保持。
-        preserve_acls (bool): ACL 保持。
-        preserve_xattrs (bool): xattr 保持。
-        preserve_perms (bool): パーミッション保持。
-        selinux_mode (str): SELinux モード。
-        request_preserve_owner (bool): 所有者保持をユーザーが要求したか。
-        request_preserve_acls (bool): ACL 保持をユーザーが要求したか。
-        request_preserve_xattrs (bool): xattr 保持をユーザーが要求したか。
-        request_preserve_perms (bool): パーミッション保持をユーザーが要求したか。
-        empty_dirs (Optional[Set[str]]): 空ディレクトリ集合
-    Returns:
-        HostResult: 結果。
     """
+    機能概要:
+      単一ホスト `host` に対する配布処理を実行する。SFTP 逐次転送または
+      tar.gz による一括転送 ( --pack ) を選択でき, 必要に応じて preserve-* や
+      SELinux ハンドリングを行う。結果は `HostResult` に集約して返す。
+
+    引数:
+      host (str): 配布対象ホスト名 ( SSH 接続先 ) 。
+      dest (str): リモート配置先の基点ディレクトリ。相対指定時は `account` の HOME 配下。
+      rel_map (Dict[str, str]): {abs_path -> rel_posix} の対応表 ( 重複除去済み ) 。
+      ssh_user (str): SSH ログインユーザ ( 接続ユーザ ) 。
+      account (str): 配置先の意味的アカウント ( HOME 解決等に用いる ) 。
+      port (int): SSH ポート番号。
+      key (Optional[str]): SSH 秘密鍵ファイルのパス ( 省略可 ) 。
+      password (Optional[str]): SSH パスワード ( 推奨しない, 省略可 ) 。
+      timeout (float): SSH/リモートコマンドのタイムアウト秒数。
+      strict (bool): 厳格ホスト鍵チェックを行う場合 True。
+      dry_run (bool): 計画のみを表示して実動しない場合 True。
+      verbose (bool): 詳細ログを出力する場合 True。
+      pack (bool): 一括アーカイブ転送 ( True ) / 逐次 SFTP ( False ) 。
+      preserve_owner (bool): 抽出時に所有者を復元するか。
+      preserve_acls (bool): 抽出時に ACL を復元するか。
+      preserve_xattrs (bool): 抽出時に xattr を復元するか。
+      preserve_perms (bool): 抽出時にパーミッションを復元するか。
+      selinux_mode (str): "auto" / "policy" / "archive" / "ignore"。
+      request_preserve_owner (bool): ユーザーから preserve-owner が明示要求されたか。
+      request_preserve_acls (bool): ユーザーから preserve-acls が明示要求されたか。
+      request_preserve_xattrs (bool): ユーザーから preserve-xattrs が明示要求されたか。
+      request_preserve_perms (bool): ユーザーから preserve-perms が明示要求されたか。
+      empty_dirs (Optional[Set[str]]): SFTP モードで事前作成する空ディレクトリの集合。
+
+    返り値:
+      HostResult: 実行結果 ( uploaded 件数, warnings, errors を含む ) 。
+
+    生成値:
+      なし
+    """
+
     uploaded = 0
     warnings: List[str] = []
     errors: List[str] = []
@@ -1041,42 +1411,44 @@ def process_host(host: str,
         if dry_run:
             mode = "PACK" if pack else "SFTP"
             extra = f", empty-dirs={len(empty_dirs) if empty_dirs else 0}" if not pack else ""
-            print(f"[{host}] DRY-RUN {mode}: -> {remote_dest} files={len(rel_map)}{extra}")
+            print(_("[{host}] DRY-RUN {mode}: -> {dest} files={n}{extra}").format(
+                host=host, mode=mode, dest=remote_dest,
+                n=len(rel_map),
+                extra=extra
+            ))
             return HostResult(host=host, uploaded=0, warnings=warnings, errors=errors)
 
         try:
             ensure_remote_dir(ssh, remote_dest, use_sudo=use_sudo, timeout=timeout)
         except RuntimeError as e:
             # ここで host / ssh_user / account / use_sudo / dest を付与して再スロー
-            raise RuntimeError(
-                f"{e} (host={host}, ssh_user={ssh_user}, account={account}, "
-                f"use_sudo={use_sudo}, dest={remote_dest}). "
-                "If sudo is required, configure NOPASSWD for the ssh_user on the remote "
-                "or run with --ssh-user equal to --user when appropriate."
-            )
+            raise RuntimeError(_("{msg} (host={host}, ssh_user={ssh_user}, account={account}, use_sudo={use_sudo}, dest={dest}). "
+                                "If sudo is required, configure NOPASSWD for the ssh_user on the remote "
+                                "or run with --ssh-user equal to --user when appropriate.").format(
+                msg=e, host=host, ssh_user=ssh_user, account=account, use_sudo=use_sudo, dest=remote_dest
+            ))
 
         # --- 事前能力チェック / SELinux archive 厳格条件 ---
         # preserve-* の要求有無 ( ユーザーが明示 True か, pack 既定 True 解決後の値 )
         need_preserve = preserve_owner or preserve_acls or preserve_xattrs or preserve_perms
-
         # SELinux モード archive は pack + xattrs が必須, かつ xattr 書込み能力が必要
         if selinux_mode == "archive":
             if not pack or not preserve_xattrs:
-                raise RuntimeError("--selinux=archive requires --pack and --preserve-xattrs (both).")
+                raise RuntimeError(_("--selinux=archive requires --pack and --preserve-xattrs (both)."))
             if not check_remote_xattr_capable(ssh, timeout):
-                raise RuntimeError("remote host not xattr-capable for --selinux=archive (setfattr not found).")
+                raise RuntimeError(_("remote host not xattr-capable for --selinux=archive (setfattr not found)."))
 
         # ACL/xattr 復元のための補助ツール存在チェック ( 仕様上は警告降格, archive の xattr は厳格 )
         if preserve_acls and not check_remote_tool(ssh, "setfacl", timeout):
-            msg = "ACL: remote 'setfacl' not found; ACL restore may be skipped or incomplete."
+            msg = _("ACL: remote 'setfacl' not found; ACL restore may be skipped or incomplete.")
             (errors if request_preserve_acls else warnings).append(msg)
         if preserve_xattrs and not check_remote_tool(ssh, "setfattr", timeout):
-            msg = "xattr: remote 'setfattr' not found"
+            msg = _("xattr: remote 'setfattr' not found")
             if selinux_mode == "archive":
                 # archive は厳格
-                raise RuntimeError(msg + " (required for --selinux=archive).")
+                raise RuntimeError(msg + _(" (required for --selinux=archive)."))
             else:
-                (errors if request_preserve_xattrs else warnings).append(msg + "; xattr restore may be skipped.")
+                (errors if request_preserve_xattrs else warnings).append(msg + _("; xattr restore may be skipped."))
 
         remote_flavor = RemoteTarFlavor.BSD  # デフォルト初期値
         if pack:
@@ -1115,7 +1487,7 @@ def process_host(host: str,
         # --- 通知: preserve-* が非 GNU tar で効かない ( 付けられない ) 可能性
         if pack and remote_flavor is not RemoteTarFlavor.GNU:
             def _note(name: str, explicit: bool) -> None:
-                msg = f"{name}: non-GNU tar on remote; option may be ignored."
+                msg = _("{name}: non-GNU tar on remote; option may be ignored.").format(name=name)
                 (errors if explicit else warnings).append(msg)
             if preserve_owner:
                 _note("preserve-owner", request_preserve_owner)
@@ -1129,9 +1501,9 @@ def process_host(host: str,
         # --- 通知: sudo なしだと preserve の適用に失敗し得る
         if pack and not use_sudo:
             if preserve_owner:
-                warnings.append("preserve-owner: may fail without sudo/root privileges.")
+                warnings.append(_("preserve-owner: may fail without sudo/root privileges."))
             if preserve_perms:
-                warnings.append("preserve-perms: some permission restorations may fail without sudo/root privileges.")
+                warnings.append(_("preserve-perms: some permission restorations may fail without sudo/root privileges."))
 
         note = maybe_run_restorecon(ssh, remote_dest, selinux_mode=selinux_mode, timeout=timeout, use_sudo=use_sudo, verbose=verbose)
         if note:
@@ -1140,7 +1512,7 @@ def process_host(host: str,
     except Exception as e:
         if verbose:
             traceback.print_exc()
-        errors.append(f"{type(e).__name__}: {e}")
+        errors.append(_("{etype}: {msg}").format(etype=type(e).__name__, msg=e))
     finally:
         try:
             if sftp:
@@ -1157,70 +1529,93 @@ def process_host(host: str,
 
 
 def build_argparser() -> argparse.ArgumentParser:
-    """CLI 引数パーサを構築して返す。
-
-    Returns:
-        argparse.ArgumentParser: 引数パーサ。
     """
+    機能概要:
+      本ツールのコマンドライン仕様に従って `argparse.ArgumentParser` を生成し, 返す。
+      位置引数 `src... dest` と, 選択/SSH/転送/SELinux 関連の各オプションを定義する。
+
+    引数:
+      なし
+
+    返り値:
+      argparse.ArgumentParser: 解析器インスタンス。
+
+    生成値:
+      なし
+    """
+
     ap = argparse.ArgumentParser(
-        description="Distribute local files/dirs to multiple remote hosts under a destination directory.",
+        description=_("Distribute local files/dirs to multiple remote hosts under a destination directory."),
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    ap.add_argument("src", nargs="*", help="0 or more local files/dirs. Relative src is resolved from the current directory.")
-    ap.add_argument("dest", nargs="?", help="Remote destination directory. If relative, it is resolved from the remote target account's HOME (i.e., --user). This is independent of the SSH login user (--ssh-user).")
+    ap.add_argument("src", nargs="*", help=_("0 or more local files/dirs. Relative src is resolved from the current directory."))
+    ap.add_argument("dest", nargs="?", help=_("Remote destination directory. If relative, it is resolved from the remote target account's HOME (i.e., --user). This is independent of the SSH login user (--ssh-user)."))
 
     # Selection (local)
-    ap.add_argument("-a", "--pattern-abs", action="append", default=[], help="ABSOLUTE local path regex (repeatable).")
-    ap.add_argument("-r", "--pattern-rel", action="append", default=[], help="RELATIVE path regex to each --root (repeatable).")
-    ap.add_argument("-R", "--root", action="append", default=[], help="Local search root(s). Default: current directory.")
-    ap.add_argument("-i", "--ignore-case", action="store_true", help="Compile regexes with IGNORECASE.")
+    ap.add_argument("-a", "--pattern-abs", action="append", default=[], help=_("ABSOLUTE local path regex (repeatable)."))
+    ap.add_argument("-r", "--pattern-rel", action="append", default=[], help=_("RELATIVE path regex to each --root (repeatable)."))
+    ap.add_argument("-R", "--root", action="append", default=[], help=_("Local search root(s). Default: current directory."))
+    ap.add_argument("-i", "--ignore-case", action="store_true", help=_("Compile regexes with IGNORECASE."))
 
     # Remote & SSH
-    ap.add_argument("-H", "--hosts", default="hostfile", help="Hosts file. Default: hostfile.")
-    ap.add_argument("-u", "--user", default=getpass.getuser(), help="Target account semantics on remote. Default: local user.")
-    ap.add_argument("-s", "--ssh-user", default=None, help="SSH login user. Default: same as --user.")
-    ap.add_argument("-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=f"SSH port. Default: {DEFAULT_SSH_PORT}.")
-    ap.add_argument("-K", "--key", default=None, help="SSH private key file.")
-    ap.add_argument("-W", "--password", default=None, help="SSH password (not recommended).")
-    ap.add_argument("-T", "--timeout", type=float, default=DEFAULT_TIMEOUT, help=f"SSH/command timeout seconds. Default: {DEFAULT_TIMEOUT}.")
-    ap.add_argument("-S", "--strict-host-key-checking", action="store_true", help="Enable strict host key checking.")
+    ap.add_argument("-H", "--hosts", default="hostfile", help=_("Hosts file. Default: hostfile."))
+    ap.add_argument("-u", "--user", default=getpass.getuser(), help=_("Target account semantics on remote. Default: local user."))
+    ap.add_argument("-s", "--ssh-user", default=None, help=_("SSH login user. Default: same as --user."))
+    ap.add_argument("-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: {port}.").format(port=DEFAULT_SSH_PORT))
+    ap.add_argument("-K", "--key", default=None, help=_("SSH private key file."))
+    ap.add_argument("-W", "--password", default=None, help=_("SSH password (not recommended)."))
+    ap.add_argument("-T", "--timeout", type=float, default=DEFAULT_TIMEOUT, help=_("SSH/command timeout seconds. Default: {sec}.").format(sec=DEFAULT_TIMEOUT))
+    ap.add_argument("-S", "--strict-host-key-checking", action="store_true", help=_("Enable strict host key checking."))
 
     # Transfer mode
-    ap.add_argument("--pack", action="store_true", help="Create local tar.gz -> upload -> remote extract.")
+    ap.add_argument("--pack", action="store_true", help=_("Create local tar.gz -> upload -> remote extract."))
     # preserve-* は --pack 時に未指定なら既定 True。BooleanOptionalAction で --no-xxx も受け付ける。
     ap.add_argument("--preserve-perms", action=argparse.BooleanOptionalAction, default=None,
-                    help="Preserve permissions on extract (tar -p). Use --no-preserve-perms to disable.")
+                    help=_("Preserve permissions on extract (tar -p). Use --no-preserve-perms to disable."))
     ap.add_argument("--preserve-owner", action=argparse.BooleanOptionalAction, default=None,
-                    help="Preserve owner/group on extract (if supported). Use --no-preserve-owner to disable.")
+                    help=_("Preserve owner/group on extract (if supported). Use --no-preserve-owner to disable."))
     ap.add_argument("--preserve-acls", action=argparse.BooleanOptionalAction, default=None,
-                    help="Preserve ACLs on extract (if supported). Use --no-preserve-acls to disable.")
+                    help=_("Preserve ACLs on extract (if supported). Use --no-preserve-acls to disable."))
     ap.add_argument("--preserve-xattrs", action=argparse.BooleanOptionalAction, default=None,
-                    help="Preserve xattrs on extract (if supported). Use --no-preserve-xattrs to disable.")
-    ap.add_argument("-j", "--parallel", type=int, default=DEFAULT_PARALLEL, help=f"Parallel hosts. Default: {DEFAULT_PARALLEL}.")
-    ap.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not upload or extract.")
-    ap.add_argument("-v", "--verbose", action="store_true", help="Verbose logs.")
-    ap.add_argument("--follow-symlinks", action="store_true", help="Follow symlinks when scanning locals.")
+                    help=_("Preserve xattrs on extract (if supported). Use --no-preserve-xattrs to disable."))
+    ap.add_argument("-j", "--parallel", type=int, default=DEFAULT_PARALLEL, help=_("Parallel hosts. Default: {n}.").format(n=DEFAULT_PARALLEL))
+    ap.add_argument("-n", "--dry-run", action="store_true", help=_("Show plan only; do not upload or extract."))
+    ap.add_argument("-v", "--verbose", action="store_true", help=_("Verbose logs."))
+    ap.add_argument("--follow-symlinks", action="store_true", help=_("Follow symlinks when scanning locals."))
     ap.add_argument("--include-empty-dirs", action="store_true",
-                    help="SFTP mode: also create empty directories found under explicit src directories.")
+                    help=_("SFTP mode: also create empty directories found under explicit src directories."))
+
     # SELinux
     ap.add_argument("--selinux", choices=["auto", "policy", "archive", "ignore"], default="auto",
-                    help="SELinux handling mode. Default: auto.")
+                    help=_("SELinux handling mode. Default: auto."))
     return ap
 
 
 def main() -> None:
-    """エントリポイント。CLI 仕様に従って配布処理を実行する。
-
-    Raises:
-        SystemExit: 引数不正や致命的な前提不成立時。
     """
+    機能概要:
+      CLI 引数を解析し, 入力検証, 転送対象ファイル選定, preserve/SELinux の既定値処理を行った上で,
+      ホスト並列に配布を実行する。サマリを出力し, エラー/中断時は EXIT_PARTIAL を返す。
+
+    引数:
+      なし
+
+    返り値:
+      None: 正常終了時は EXIT_SUCCESS でプロセス終了, 部分失敗・中断時は EXIT_PARTIAL で終了。
+
+    生成値:
+      なし
+    """
+
+    setup_i18n() # 国際化セットアップ
+
     ap = build_argparser()
     args = ap.parse_args()
 
     # --- 位置引数 ( 最後が dest ) 解釈 ---
     if args.dest is None:
         if not args.src:
-            print("dest is required as the last positional argument.", file=sys.stderr)
+            print(_("dest is required as the last positional argument."), file=sys.stderr)
             sys.exit(EXIT_INVALID_ARGS)
         args.dest = args.src[-1]
         args.src = args.src[:-1]
@@ -1232,16 +1627,16 @@ def main() -> None:
     roots_opt: List[str] = args.root if args.root else [os.getcwd()]
 
     if not dest:
-        print("dest is required.", file=sys.stderr)
+        print(_("dest is required."), file=sys.stderr)
         sys.exit(EXIT_INVALID_ARGS)
 
     hosts = parse_hosts_file(args.hosts)
     if not hosts:
-        print("No hosts found in hosts file.", file=sys.stderr)
+        print(_("No hosts found in hosts file."), file=sys.stderr)
         sys.exit(EXIT_INVALID_ARGS)
 
     if len(src_args) == 0 and not (args.pattern_abs or args.pattern_rel):
-        print("No src and no patterns provided. At least one src or a pattern must be specified.", file=sys.stderr)
+        print(_("No src and no patterns provided. At least one src or a pattern must be specified."), file=sys.stderr)
         sys.exit(EXIT_NO_TARGETS)
 
     flags = re.IGNORECASE if args.ignore_case else 0
@@ -1249,7 +1644,7 @@ def main() -> None:
         pat_abs = compile_many(args.pattern_abs, flags)
         pat_rel = compile_many(args.pattern_rel, flags)
     except re.error as e:
-        print(f"Invalid regex: {e}", file=sys.stderr)
+        print(_("Invalid regex: {msg}").format(msg=e), file=sys.stderr)
         sys.exit(EXIT_INVALID_ARGS)
 
     rel_map: Dict[str, str] = {}
@@ -1259,7 +1654,7 @@ def main() -> None:
     for s in src_args:
         apath = os.path.abspath(s)
         if not os.path.exists(apath) and not os.path.islink(apath):
-            print(f"[Warning] src not found (skipped): {s}", file=sys.stderr)
+            print(_("[Warning] src not found (skipped): {src}").format(src=s), file=sys.stderr)
             continue
 
         # 絶対指定でも CWD からの安全な相対名に統一 ( Windows の ドライブレター(C:など) 防止 )
@@ -1289,7 +1684,7 @@ def main() -> None:
             for root, _dirs, files in os.walk(apath, followlinks=args.follow_symlinks):
                 # ディレクトリ側のシンボリックリンクも, --follow-symlinks が無い場合は安全側でスキップ
                 if os.path.islink(root) and not args.follow_symlinks:
-                    print(f"[Warning] symlinked directory skipped (SFTP mode without --follow-symlinks): {root}", file=sys.stderr)
+                    print(_("[Warning] symlinked directory skipped (SFTP mode without --follow-symlinks): {dir}").format(dir=root), file=sys.stderr)
                     continue
 
                 for name in files:
@@ -1297,22 +1692,22 @@ def main() -> None:
 
                     # 1) 壊れたシンボリックリンクは除外 ( 既存 )
                     if os.path.islink(f_abs) and not os.path.exists(f_abs):
-                        print(f"[Warning] broken symlink (skipped): {f_abs}", file=sys.stderr)
+                        print(_("[Warning] broken symlink (skipped): {path}").format(path=f_abs), file=sys.stderr)
                         continue
 
                     # 1.5) SFTPモードで --follow-symlinks なしなら, ファイル型のシンボリックリンクも除外
                     if os.path.islink(f_abs) and not args.follow_symlinks:
-                        print(f"[Warning] symlink (skipped on SFTP without --follow-symlinks): {f_abs}", file=sys.stderr)
+                        print(_("[Warning] symlink (skipped on SFTP without --follow-symlinks): {path}").format(path=f_abs), file=sys.stderr)
                         continue
 
                     # 2) 通常ファイル/シンボリックリンク以外は除外 ( 既存 )
                     try:
                         st = os.lstat(f_abs)
                         if not stat.S_ISREG(st.st_mode) and not os.path.islink(f_abs):
-                            print(f"[Warning] non-regular file (skipped): {f_abs}", file=sys.stderr)
+                            print(_("[Warning] non-regular file (skipped): {path}").format(path=f_abs), file=sys.stderr)
                             continue
                     except FileNotFoundError:
-                        print(f"[Warning] vanished during scan (skipped): {f_abs}", file=sys.stderr)
+                        print(_("[Warning] vanished during scan (skipped): {path}").format(path=f_abs), file=sys.stderr)
                         continue
 
                     # apath からの相対を作って rel の下にぶら下げる
@@ -1320,11 +1715,11 @@ def main() -> None:
                     f_rel = to_posix_rel(posixpath.normpath(f"{rel}/{under}"))
                     # 安全チェック
                     if (not f_rel) or f_rel.startswith("/") or f_rel == ".." or f_rel.startswith("../"):
-                        print(f"[Error] unsafe derived relative path: {f_abs} -> {f_rel}", file=sys.stderr)
+                        print(_("[Error] unsafe derived relative path: {src} -> {rel}").format(src=f_abs, rel=f_rel), file=sys.stderr)
                         continue
                     # 重複チェック
                     if f_abs in seen_abs:
-                        print(f"[Warning] duplicate src ignored: {f_abs}", file=sys.stderr)
+                        print(_("[Warning] duplicate src ignored: {src}").format(src=f_abs), file=sys.stderr)
                         continue
                     seen_abs.add(f_abs)
                     rel_map[f_abs] = f_rel
@@ -1336,12 +1731,12 @@ def main() -> None:
                     if d_rel and not d_rel.startswith("/") and d_rel != ".." and not d_rel.startswith("../"):
                         empty_dirs_rel.add(d_rel)
                     else:
-                        print(f"[Error] unsafe empty dir rel: {root} -> {d_rel}", file=sys.stderr)
+                        print(_("[Error] unsafe empty dir rel: {root} -> {rel}").format(root=root, rel=d_rel), file=sys.stderr)
             continue
 
         # 通常 ( ファイル or --pack 時のディレクトリ ) はそのまま登録
         if apath in seen_abs:
-            print(f"[Warning] duplicate src ignored: {apath}", file=sys.stderr)
+            print(_("[Warning] duplicate src ignored: {src}").format(src=apath), file=sys.stderr)
             continue
         seen_abs.add(apath)
         rel_map[apath] = rel
@@ -1349,7 +1744,7 @@ def main() -> None:
     roots_abs = [os.path.abspath(os.path.expanduser(r)) for r in roots_opt]
     for r in roots_abs:
         if not os.path.exists(r):
-            print(f"[Error] root not found: {r}", file=sys.stderr)
+            print(_("[Error] root not found: {root}").format(root=r), file=sys.stderr)
             sys.exit(EXIT_INVALID_ARGS)
 
     if using_patterns:
@@ -1362,27 +1757,27 @@ def main() -> None:
         )
         for apath, rel in pat_map.items():
             if apath in seen_abs:
-                print(f"[Warning] duplicate (pattern vs src) ignored: {apath}", file=sys.stderr)
+                print(_("[Warning] duplicate (pattern vs src) ignored: {src}").format(src=apath), file=sys.stderr)
                 continue
             seen_abs.add(apath)
             rel_map[apath] = rel
 
     if not rel_map and not (args.include_empty_dirs and empty_dirs_rel and not args.pack):
-        print("No local files to distribute after selection.", file=sys.stderr)
+        print(_("No local files to distribute after selection."), file=sys.stderr)
         sys.exit(EXIT_NO_TARGETS)
 
     # preserve-* 既定値の決定：
     #   - pack のとき: 未指定(None)  =>  True / 指定(True)  =>  True
     #   - pack でない: すべて False ( SFTP では保持しない )
 
-    # 明示 True を保持（警告/エラーの強度切替に使う）
+    # 明示 True を保持 ( 警告/エラーの強度切替に使う )
     user_set_preserve_perms_true  = (args.preserve_perms  is True)
     user_set_preserve_owner_true  = (args.preserve_owner  is True)
     user_set_preserve_acls_true   = (args.preserve_acls   is True)
     user_set_preserve_xattrs_true = (args.preserve_xattrs is True)
 
     if args.pack:
-        # 未指定(None) のとき既定 True、明示指定があればその値を尊重
+        # 未指定(None) のとき既定 True, 明示指定があればその値を尊重
         preserve_perms  = True if args.preserve_perms  is None else bool(args.preserve_perms)
         preserve_owner  = True if args.preserve_owner  is None else bool(args.preserve_owner)
         preserve_acls   = True if args.preserve_acls   is None else bool(args.preserve_acls)
@@ -1390,20 +1785,23 @@ def main() -> None:
     else:
         preserve_perms = preserve_owner = preserve_acls = preserve_xattrs = False
     if (args.preserve_perms or args.preserve_owner or args.preserve_acls or args.preserve_xattrs) and not args.pack:
-        print("[Warning] --preserve-* options are ignored without --pack.", file=sys.stderr)
+        print(_("[Warning] --preserve-* options are ignored without --pack."), file=sys.stderr)
 
     require_local_tar_when_preserve(preserve_owner, preserve_acls, preserve_xattrs, preserve_perms)
 
     ssh_user = args.ssh_user or args.user
 
-    print(f"Hosts: {len(hosts)}  Mode: {'PACK' if args.pack else 'SFTP'}  Dest: {dest}")
+    print(_("Hosts: {n}  Mode: {mode}  Dest: {dest}").format(n=len(hosts), mode=("PACK" if args.pack else "SFTP"), dest=dest))
     if using_patterns:
-        print(f"Select: patterns ({len(args.pattern_abs)} abs, {len(args.pattern_rel)} rel) roots={', '.join(roots_opt)}")
+        print(_("Select: patterns ({na} abs, {nr} rel) roots={roots}").format(
+            na=len(args.pattern_abs), nr=len(args.pattern_rel), roots=", ".join(roots_opt)))
     else:
-        print(f"Sources: {len(src_args)} (explicit)")
-    print(f"SSH  : ssh-user={ssh_user} user={args.user} port={args.port} strict={args.strict_host_key_checking}")
-    print(f"Preserve: perms={preserve_perms} owner={preserve_owner} acls={preserve_acls} xattrs={preserve_xattrs}")
-    print(f"SELinux: {args.selinux}")
+        print(_("Sources: {n} (explicit)").format(n=len(src_args)))
+    print(_("SSH  : ssh-user={ssh_user} user={user} port={port} strict={strict}").format(
+        ssh_user=ssh_user, user=args.user, port=args.port, strict=args.strict_host_key_checking))
+    print(_("Preserve: perms={perms} owner={owner} acls={acls} xattrs={xattrs}").format(
+        perms=preserve_perms, owner=preserve_owner, acls=preserve_acls, xattrs=preserve_xattrs))
+    print(_("SELinux: {mode}").format(mode=args.selinux))
 
     results: List[HostResult] = []
     interrupted = False
@@ -1443,16 +1841,17 @@ def main() -> None:
                 res = fut.result()
                 results.append(res)
                 if res.errors:
-                    print(f"[{res.host}] ERROR x{len(res.errors)}")
+                    print(_("[{host}] ERROR x{n}").format(host=res.host, n=len(res.errors)))
                 else:
                     action = "planned" if args.dry_run else ("packed" if args.pack else "uploaded")
-                    print(f"[{res.host}] {action}: {res.uploaded}")
+                    print(_("[{host}] {action}: {n}").format(host=res.host, action=action, n=res.uploaded))
                 for w in res.warnings:
-                    print(f"[{res.host}] Warning: {w}", file=sys.stderr)
+                    print(_("[{host}] Warning: {msg}").format(host=res.host, msg=w), file=sys.stderr)
                 for e in res.errors:
-                    print(f"[{res.host}] Error: {e}", file=sys.stderr)
+                    print(_("[{host}] Error: {msg}").format(host=res.host, msg=e), file=sys.stderr)
         except KeyboardInterrupt:
-            print("\n[Info] Interrupted by user. Cancelling remaining tasks...", file=sys.stderr)
+            print("\n")
+            print(_("[Info] Interrupted by user. Cancelling remaining tasks..."), file=sys.stderr)
             for fut in futs:
                 fut.cancel()
             interrupted = True
@@ -1462,22 +1861,23 @@ def main() -> None:
     warn_hosts = [r for r in results if r.warnings]
     err_hosts = [r for r in results if r.errors]
 
-    print("\n=== Summary ===")
-    print(f"Hosts processed: {len(results)}")
-    label = 'planned' if args.dry_run else ('packed(archives)' if args.pack else 'files/dirs created')
-    print(f"Total {label}: {total_uploaded}")
+    print("\n")
+    print(_("=== Summary ==="))
+    print(_("Hosts processed: {n}").format(n=len(results)))
+    label = _('planned') if args.dry_run else (_('packed(archives)') if args.pack else _('files/dirs created'))
+    print(_("Total {label}: {n}").format(label=label, n=total_uploaded))
+
     if warn_hosts:
         warn_count = sum(len(r.warnings) for r in warn_hosts)
-        print(f"Warnings: {warn_count} on {len(warn_hosts)} host(s)")
+        print(_("Warnings: {cnt} on {hosts} host(s)").format(cnt=warn_count, hosts=len(warn_hosts)))
     if err_hosts:
         err_count = sum(len(r.errors) for r in err_hosts)
-        print(f"Errors (continuing): {err_count} on {len(err_hosts)} host(s)")
+        print(_("Errors (continuing): {cnt} on {hosts} host(s)").format(cnt=err_count, hosts=len(err_hosts)))
 
     if interrupted or err_hosts:
         sys.exit(EXIT_PARTIAL)
 
     sys.exit(EXIT_SUCCESS)
-
 
 if __name__ == "__main__":
     socket.setdefaulttimeout(DEFAULT_SOCKET_TIMEOUT)
