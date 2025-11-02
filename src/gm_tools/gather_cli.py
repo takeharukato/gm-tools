@@ -7,10 +7,9 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
-import re
 import sys
 import traceback
-from typing import List, Optional, Set
+from typing import List, Optional
 
 # Paramiko 型注釈用
 try:
@@ -27,7 +26,7 @@ from .core_ssh import (
     DEFAULT_SSH_PORT,
     DEFAULT_TIMEOUT,
     ssh_open,
-    finalize_sockets
+    finalize_sockets,
 )
 from .core_archive import (
     remote_pack_paths,
@@ -38,14 +37,12 @@ from .core_remote_fs import (
     sftp_isdir,
     sftp_isfile,
     sftp_islink,
-    remote_walk_files
 )
 from .core_path_handling import (
-    normalize_src_abs,
-    split_src_to_root_and_tail_regex,
     local_path_for_download,
 )
 from .core_common import parse_hosts_file
+from .core_select import enumerate_candidates_for_host
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -79,55 +76,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not download.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logs.")
     parser.add_argument("--pack", action="store_true", help="Pack on remote (tar.gz) and download once.")
-    # 将来: --follow-symlinks を公開予定（APIはすでに対応）
+    # pack 時のリンク追随 ( 指定時にのみ dereference ) 。デフォルトは追随しない＝リンクは含めない。
+    parser.add_argument("--follow-symlinks", action="store_true", help="When used with --pack, dereference symlinks on remote.")
     return parser
-
-
-def _enumerate_candidates_for_host_by_src(
-    sftp_client: paramiko.SFTPClient,
-    resolved_srcs: List[str],
-    verbose: bool,
-    home_abs: str,
-) -> List[str]:
-    """
-    新仕様：SRCそれぞれを (root, tail_re) に分け、root配下をwalkして tail_re に合致する
-    通常ファイル（リンク除外は後段）候補を列挙。
-    ルートは '/' または 'X:/'（'~/' は事前に home_abs で展開）。
-    """
-    candidates: Set[str] = set()
-    for src in resolved_srcs:
-        abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
-        is_abs = abs_norm.startswith("/") or re.match(r"^[A-Za-z]:/", abs_norm)
-        if not is_abs:
-            if verbose:
-                print(f"[Warning] skip non-absolute SRC: {src}", file=sys.stderr)
-            continue
-        try:
-            root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
-        except ValueError as e:
-            print(f"[Warning] {src}: {e}", file=sys.stderr)
-            continue
-        if not sftp_exists(sftp_client, root) or not sftp_isdir(sftp_client, root):
-            if verbose:
-                print(f"[debug] skip missing/non-dir root: {root}", file=sys.stderr)
-            continue
-
-        # 空の tail は「配下すべて」を意味する
-        pattern = tail_re if tail_re else r".*"
-        try:
-            rx = re.compile(pattern)
-        except re.error as e:
-            if verbose:
-                print(f"[Warning] bad regex for {src}: {e}", file=sys.stderr)
-            continue
-        for ap in remote_walk_files(sftp_client, root):
-            rel = ap[len(root):].lstrip("/")
-            if rx.search(rel):
-                candidates.add(ap)
-    out = sorted(candidates)
-    if verbose:
-        print(f"[debug] candidates (remote): {len(out)}")
-    return out
 
 
 def _worker(
@@ -143,6 +94,7 @@ def _worker(
     strict: bool,
     dry_run: bool,
     pack_remote: bool,
+    follow_symlinks: bool,
     verbose: bool,
 ) -> HostResult:
     downloaded: int = 0
@@ -175,11 +127,28 @@ def _worker(
         except Exception:
             pass
 
-        candidates: List[str] = _enumerate_candidates_for_host_by_src(
+        # 権限モデル：ssh_user != user で --pack なしは不可
+        use_sudo = (ssh_user != args_user)
+        if use_sudo and not pack_remote:
+            errors.append("ssh_user != user requires --pack. Please re-run with --pack.")
+            print(f"[{host}] downloaded: {downloaded}")
+            for w in warnings:
+                print(f"[{host}] Warning: {w}", file=sys.stderr)
+            for er in errors:
+                print(f"[{host}] Error: {er}", file=sys.stderr)
+            return HostResult(host=host, downloaded=downloaded, warnings=warnings, errors=errors)
+
+        # 候補列挙（core_select に委譲）
+        # ここでの選択肢は、「存在する可能性のある候補」で、この後に
+        # 型別（通常ファイル/リンク/ディレクトリ）で仕分ける
+        candidates: List[str] = enumerate_candidates_for_host(
+            ssh=ssh,
             sftp_client=sftp_client,
             resolved_srcs=srcs,
-            verbose=verbose,
             home_abs=home_abs,
+            use_sudo=use_sudo,
+            pack_remote=pack_remote,
+            verbose=verbose,
         )
 
         if dry_run:
@@ -188,61 +157,64 @@ def _worker(
             if verbose:
                 for pth in candidates:
                     lp_dbg: str = local_path_for_download(dest_local, host, pth)
-                    print(f"[plan] {host}:{pth} -> {lp_dbg}")
+                    print(f"[planned] {host}:{pth} -> {lp_dbg}")
             return HostResult(host=host, downloaded=0, warnings=warnings, errors=errors)
 
-        # 実ダウンロード（ファイルのみ、シンボリックリンクは除外）
-        sftp_checked: paramiko.SFTPClient = sftp_client
+        # まず候補を型別に仕分け（存在チェックもここで実施）
         files_only: List[str] = []
+        symlinks:   List[str] = []
         for remote_path in candidates:
             try:
-                if not sftp_exists(sftp_checked, remote_path):
+                if not sftp_exists(sftp_client, remote_path):
                     warnings.append(f"not found (skip): {remote_path}")
                     continue
-                if sftp_islink(sftp_checked, remote_path):
-                    # 逐次SFTPではリンクは無視（--pack時の follow_symlinks は将来実装）
+                if sftp_isdir(sftp_client, remote_path):
+                    # ディレクトリはここでは扱わない（`--pack`でも -T に列挙しない）
                     continue
-                if sftp_isdir(sftp_checked, remote_path):
+                if sftp_islink(sftp_client, remote_path):
+                    symlinks.append(remote_path)
                     continue
-                if sftp_isfile(sftp_checked, remote_path):
+                if sftp_isfile(sftp_client, remote_path):
                     files_only.append(remote_path)
             except Exception as e:
                 errors.append(f"precheck failed: {remote_path}: {e}")
 
-        # 権限モデル : ssh_user != user で --pack なしは不可
-        use_sudo = (ssh_user != args_user)
-        if use_sudo and not pack_remote:
-            errors.append("ssh_user != user requires --pack. Please re-run with --pack.")
-            # この条件では転送を実行せず、結果だけ返す
-            print(f"[{host}] downloaded: {downloaded}")
-            for w in warnings:
-                print(f"[{host}] Warning: {w}", file=sys.stderr)
-            for er in errors:
-                print(f"[{host}] Error: {er}", file=sys.stderr)
-            return HostResult(host=host, downloaded=downloaded, warnings=warnings, errors=errors)
-        elif pack_remote and files_only:
+        # 実ダウンロード
+        if pack_remote:
+            # --pack 経路：
+            #   - デフォルト: symlink は含めない（安全第一）
+            #   - --follow-symlinks 指定時のみ symlink もリストに入れ、tar -h で実体参照
+            pack_list: List[str] = list(files_only)
+            if follow_symlinks and symlinks:
+                pack_list.extend(symlinks)
+
             try:
-                remote_gz: str = remote_pack_paths(
-                    ssh, files_only, timeout=timeout, use_sudo=use_sudo, follow_symlinks=False
-                )
-                extracted: int = download_and_extract_tar(
-                    sftp_checked, remote_gz, dest_local, os.path.join(host, "abs")
-                )
-                downloaded += extracted
-                if verbose:
-                    print(f"[pack] {host}:{remote_gz} -> extracted {extracted} file(s)")
-                try:
-                    ssh.exec_command(f"rm -f {remote_gz}", timeout=timeout)
-                except Exception:
-                    pass
+                if pack_list:
+                    remote_gz: str = remote_pack_paths(
+                        ssh,
+                        pack_list,
+                        timeout=timeout,
+                        use_sudo=use_sudo,
+                        follow_symlinks=follow_symlinks,
+                    )
+                    extracted, _ = download_and_extract_tar(
+                        sftp_client, remote_gz, dest_local, os.path.join(host, "abs")
+                    )
+                    downloaded += extracted
+                    if verbose:
+                        print(f"[pack] {host}:{remote_gz} -> extracted {extracted} file(s)")
+                    try:
+                        ssh.exec_command(f"rm -f {remote_gz}", timeout=timeout)
+                    except Exception:
+                        pass
             except Exception as e:
                 errors.append(f"pack/download failed: {e}")
         else:
+            # 逐次 SFTP：リンクは無視、通常ファイルのみ
             for remote_path in files_only:
-
                 try:
-                    # ここは「ベースDIR」を渡すのが正解
-                    download_one(sftp_checked, remote_path, dest_local, host)
+                    # local_path は download_one 内で正規化（DEST/<HOST>/abs/...）
+                    download_one(sftp_client, remote_path, dest_local, host)
                     downloaded += 1
                     if verbose:
                         local_path = local_path_for_download(dest_local, host, remote_path)
@@ -314,11 +286,12 @@ def main() -> None:
             strict=bool(args.strict_host_key_checking),
             dry_run=bool(args.dry_run),
             pack_remote=bool(args.pack),
+            follow_symlinks=bool(args.follow_symlinks),
             verbose=bool(args.verbose),
         )
         results.append(res)
 
-    total_downloaded: int = sum( r.downloaded for r in results )
+    total_downloaded: int = sum(r.downloaded for r in results)
     warn_hosts: List[HostResult] = [r for r in results if len(r.warnings) > 0]
     err_hosts: List[HostResult] = [r for r in results if len(r.errors) > 0]
 
@@ -332,9 +305,14 @@ def main() -> None:
         err_count: int = sum(len(r.errors) for r in err_hosts)
         print(f"Errors (continuing): {err_count} on {len(err_hosts)} host(s)")
 
+    # Info line about link handling with packed path collection
+    if bool(args.pack) and bool(args.follow_symlinks):
+        # ダウンロード件数にはハードリンクの実体も含まれる旨の注意を明示
+        print("(Note) With --pack and --follow-symlinks, hardlink targets are dereferenced and "
+              "included in the 'downloaded' count.")
+
     exit_code: int = 2 if len(err_hosts) > 0 else 0
     sys.exit(exit_code)
-
 
 if __name__ == "__main__":
     finalize_sockets()

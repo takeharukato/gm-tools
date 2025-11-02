@@ -7,8 +7,7 @@ import shlex
 import tarfile
 import tempfile
 from pathlib import PurePosixPath
-from typing import Iterable
-from typing import List, Tuple, TYPE_CHECKING
+from typing import Iterable, List, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     import paramiko  # type: ignore
@@ -46,12 +45,10 @@ def remote_pack_paths(
     # 1) 一時リストにパス列挙
     content = "\n".join(abs_paths) + "\n"
     put_cmd = f"cat > {shlex.quote(lst)}"
-    # Paramikoのexec_commandで標準入力に流し込み
     ch_in, ch_out, ch_err = ssh.exec_command(put_cmd, timeout=timeout)
     try:
         ch_in.write(content)
         ch_in.channel.shutdown_write()
-        # 読み切って終了コード取得
         _ = ch_out.read()
         _ = ch_err.read()
         rc = ch_out.channel.recv_exit_status()
@@ -68,18 +65,17 @@ def remote_pack_paths(
     sudo = "sudo -n " if use_sudo else ""
     deref = " -h" if follow_symlinks else ""
 
-    # 2) tar作成 (絶対パスを相対に格納するため, '-P'オプションを付けないようにしている）
+    # 2) tar作成（-P を付けない：アーカイブ内部は相対パスにする）
     cmd_tar = f"{sudo}sh -lc 'LC_ALL=C tar{deref} -cf {shlex.quote(tarf)} -T {shlex.quote(lst)}'"
     rc, _out, err = _run(ssh, cmd_tar, timeout)
     if rc != 0:
         _run(ssh, f"rm -f {shlex.quote(lst)}", timeout)
         raise RuntimeError(f"tar failed: {err.decode(errors='ignore')}")
 
-    # 3) gzip圧縮（展開時の互換性重視）
+    # 3) gzip圧縮
     cmd_gz = f"{sudo}sh -lc 'LC_ALL=C gzip -f {shlex.quote(tarf)}'"
     rc, _out, err = _run(ssh, cmd_gz, timeout)
     if rc != 0:
-        # tarはできているかもしれないので掃除だけ試みる
         _run(ssh, f"rm -f {shlex.quote(tarf)} {shlex.quote(lst)}", timeout)
         raise RuntimeError(f"gzip failed: {err.decode(errors='ignore')}")
 
@@ -87,6 +83,7 @@ def remote_pack_paths(
     _run(ssh, f"rm -f {shlex.quote(lst)}", timeout)
 
     return tgz
+
 
 def _safe_members(base_dir: str, members: Iterable[tarfile.TarInfo]) -> list[tarfile.TarInfo]:
     """
@@ -100,19 +97,14 @@ def _safe_members(base_dir: str, members: Iterable[tarfile.TarInfo]) -> list[tar
 
     for m in members:
         name = m.name  # tar 内のパスは POSIX 形式が前提
-        # POSIX 的な解析を強制（Windows でも tar 内は POSIX なので PurePosixPath）
         p = PurePosixPath(name)
 
-        # 1) そもそも絶対/ルート/ドライブ表現は拒否
         if p.is_absolute() or name.startswith(("/", "\\")):
             continue
-        # 2) '..' を含む相対バックトラック禁止
         if ".." in p.parts:
             continue
 
-        # 3) 展開先の実パスが base_abs 配下か最終確認
         dest_abs = os.path.abspath(os.path.join(base_abs, str(p)))
-        # 末尾区切りを付けて prefix 判定の誤検知を避ける
         if not (dest_abs == base_abs or dest_abs.startswith(base_abs + os.sep)):
             continue
 
@@ -128,16 +120,19 @@ def download_and_extract_tar(
     subdir: str,
     *,
     verbose: bool = False,
-) -> int:
+) -> Tuple[int, List[str]]:
     """
     リモートの .tar.gz を一旦ローカルのテンポラリにダウンロードし、
-    extract_base/subdir/ 以下に安全に展開する。展開したファイル数を返す。
+    extract_base/subdir/ 以下に安全に展開する。
+    返り値:
+      - extracted_count: 展開されたファイル数。通常ファイルに加え、
+        tar のハードリンクエントリ（m.islnk()）もファイルとしてカウントする。
+      - extracted_paths: 展開されたパス（dest_root からの相対パス）のリスト。
     """
     os.makedirs(extract_base, exist_ok=True)
     dest_root = os.path.join(extract_base, subdir)
     os.makedirs(dest_root, exist_ok=True)
 
-    # 1) 一旦ローカルに落す
     with tempfile.NamedTemporaryFile(prefix="gm_dl_", suffix=".tar.gz", delete=False) as tmpf:
         tmp_path = tmpf.name
     try:
@@ -149,15 +144,19 @@ def download_and_extract_tar(
             pass
         raise
 
-    # 2) 安全展開
     extracted = 0
+    extracted_paths: List[str] = []
     try:
         with tarfile.open(tmp_path, mode="r:gz") as tf:
             members = list(_safe_members(dest_root, tf.getmembers()))
             for m in members:
                 tf.extract(m, dest_root)
-                if m.isfile():
+                # GNU tar は同一 inode を LNKTYPE（ハードリンク）として記録し得る。
+                # その場合(m.islnk())も実体として 1 ファイルが出力されるためカウントに含める。
+                if m.isfile() or m.islnk():
                     extracted += 1
+                    # 記録名（Tar 内パス）を展開先相対で保持
+                    extracted_paths.append(str(PurePosixPath(m.name)))
     finally:
         try:
             os.remove(tmp_path)
@@ -166,4 +165,4 @@ def download_and_extract_tar(
 
     if verbose:
         print(f"[pack] downloaded {remote_tar_gz} -> extracted {extracted} file(s) to {dest_root}")
-    return extracted
+    return extracted, extracted_paths
