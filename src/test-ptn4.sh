@@ -1,5 +1,5 @@
 #
-# 鍵自動判定
+# packダウンロード
 #
 # テスト用ファイルクリア
 ssh localhost "rm -fr /tmp/gmtest"
@@ -11,12 +11,16 @@ ssh localhost "ln -sf /tmp/gmtest/a.conf /tmp/gmtest/link.conf"
 ssh localhost "tree /tmp/gmtest"
 
 # 絶対パターン1
-python3 -m gm_tools.gather_cli -H hostfile --verbose --dry-run '/tmp/gmtest/sub/.+\.log$' /tmp/gather-test
+rm -fr /tmp/gather-test
+python3 -m gm_tools.gather_cli -H hostfile --pack '/tmp/gmtest/sub/.+\.log$' /tmp/gather-test
+tree /tmp/gather-test
 
 # 絶対パターン2 シンボリックリンク無視
-python3 -m gm_tools.gather_cli -H hostfile --verbose --dry-run '/tmp/gmtest/(a\.conf|link\.conf)$' /tmp/gather-test
+rm -fr /tmp/gather-test
+python3 -m gm_tools.gather_cli -H hostfile --pack '/tmp/gmtest/(a\.conf|link\.conf)$' /tmp/gather-test
+tree /tmp/gather-test
 
 # 不在ファイルパターン
-python3 -m gm_tools.gather_cli -H hostfile --verbose /no/such/file /tmp/gather-test
-
+rm -fr /tmp/gather-test
+python3 -m gm_tools.gather_cli -H hostfile --pack /no/such/file /tmp/gather-test
 tree /tmp/gather-test
