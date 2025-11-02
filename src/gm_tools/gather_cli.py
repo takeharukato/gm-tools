@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# cspell:ignore hostfile argparser srcs cands disp
-
-"""
-gather_cli.py
-  - 既存仕様のまま（機能追加なし）
-  - lstat().st_mode が None のSFTPで落ちる問題は core_pull 側で対処済み
-  - Pylance/cSpell 警告解消（型ナロー + 用語抑止）
-"""
+# cspell:ignore hostfile argparser
 
 from __future__ import annotations
 
@@ -17,7 +10,7 @@ import os
 import re
 import sys
 import traceback
-from typing import List, Optional, Pattern, Set
+from typing import List, Optional, Set
 
 # Paramiko 型注釈用
 try:
@@ -26,82 +19,54 @@ except Exception as e:
     raise RuntimeError("Paramiko is required: pip install paramiko") from e
 
 from .core_pull import (
-    SSHConfig,
     HostResult,
+    download_one,
+)
+from .core_ssh import (
+    SSHConfig,
     DEFAULT_SSH_PORT,
     DEFAULT_TIMEOUT,
     ssh_open,
+    finalize_sockets
+)
+from .core_archive import (
+    remote_pack_paths,
+    download_and_extract_tar,
+)
+from .core_remote_fs import (
     sftp_exists,
     sftp_isdir,
     sftp_isfile,
-    remote_walk_files,
-    local_path_for_download,
-    download_one,
+    sftp_islink,
+    remote_walk_files
 )
-
-from .core_ssh import (
-    DEFAULT_SSH_PORT,
-    DEFAULT_TIMEOUT,
-    finalize_sockets,
+from .core_path_handling import (
+    normalize_src_abs,
+    split_src_to_root_and_tail_regex,
+    local_path_for_download,
 )
 from .core_common import parse_hosts_file
-from .core_archive import (
-    download_and_extract_tar,
-    remote_pack_paths,
-)  # ローカルで安全展開
 
-# =============================== Regex utils ================================
-
-def compile_many(patterns: List[str], flags: int) -> List[Pattern[str]]:
-    compiled: List[Pattern[str]] = [re.compile(p, flags) for p in patterns]
-    return compiled
-
-
-def match_any_abs(abs_path: str, abs_regexes: List[Pattern[str]]) -> bool:
-    matched: bool = any(rx.search(abs_path) for rx in abs_regexes)
-    return matched
-
-
-def match_any_rel_under(abs_path: str, roots: List[str], rel_regexes: List[Pattern[str]]) -> bool:
-    """
-    リモート絶対パス abs_path が roots の下にある場合、
-    root 基準の相対パスに対して rel パターンを適用して判定。
-    """
-    has_rel: bool = len(rel_regexes) > 0
-    if not has_rel:
-        return False
-    root: str
-    for root in roots:
-        r: str = root.rstrip("/")
-        if len(r) == 0:
-            continue
-        if abs_path == r or abs_path.startswith(r + "/"):
-            rel: str = abs_path[len(r):].lstrip("/")
-            if any(rx.search(rel) for rx in rel_regexes):
-                return True
-    return False
-
-
-# ================================ CLI parser ================================
 
 def build_parser() -> argparse.ArgumentParser:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description="Gather (download) remote files/dirs over SFTP into a local destination.",
+        description=(
+            "gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
+            "Usage: gm-gather [SRC ...] DEST\n"
+            "  - SRC: absolute path starting with '/', 'X:/' (Windows), or '~/'.\n"
+            "         The portion after the root is treated as a regex path.\n"
+            "         e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/bar\\.txt'.\n"
+            "  - DEST: local directory where files are stored as DEST/<HOST>/abs/..."
+        ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    # 位置引数：src... dest（最後が保存先ローカルディレクトリ）
-    parser.add_argument("src", nargs="*", help="0 or more remote paths (absolute).")
-    parser.add_argument("dest", nargs="?", help="Local destination directory (required).")
-
-    # 選択（リモート）
-    parser.add_argument("-a", "--pattern-abs", action="append", default=[], help="ABSOLUTE remote path regex (repeatable).")
-    parser.add_argument("-r", "--pattern-rel", action="append", default=[], help="RELATIVE path regex to each --root (repeatable).")
-    parser.add_argument("-R", "--root", action="append", default=[], help="Remote search root(s).")
-    parser.add_argument("-i", "--ignore-case", action="store_true", help="Compile regexes with IGNORECASE.")
+    # 位置引数：SRC... DEST（最後が保存先ローカルディレクトリ）
+    parser.add_argument("src", nargs="+", help="One or more SRC absolute path patterns (root '/', 'X:/', or '~/').")
+    parser.add_argument("dest", help="Local destination directory.")
 
     # SSH
     parser.add_argument("-H", "--hosts", default="hostfile", help="Hosts file. Default: hostfile.")
-    parser.add_argument("-u", "--user", default=getpass.getuser(), help="Target account semantics on remote (unused by gather).")
+    parser.add_argument("-u", "--user", default=getpass.getuser(), help="Target account semantics on remote (収集アカウント).")
     parser.add_argument("-s", "--ssh-user", default=None, help="SSH login user. Default: same as --user.")
     parser.add_argument("-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=f"SSH port. Default: {DEFAULT_SSH_PORT}.")
     parser.add_argument("-K", "--key", default=None, help="SSH private key file.")
@@ -114,84 +79,63 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not download.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logs.")
     parser.add_argument("--pack", action="store_true", help="Pack on remote (tar.gz) and download once.")
+    # 将来: --follow-symlinks を公開予定（APIはすでに対応）
     return parser
 
-# =============================== Worker logic ===============================
 
-def _enumerate_candidates_for_host(
+def _enumerate_candidates_for_host_by_src(
     sftp_client: paramiko.SFTPClient,
-    explicit_sources: List[str],
-    roots: List[str],
-    pat_abs: List[Pattern[str]],
-    pat_rel: List[Pattern[str]],
+    resolved_srcs: List[str],
     verbose: bool,
+    home_abs: str,
 ) -> List[str]:
     """
-    取得候補（リモート絶対パス）を列挙。
+    新仕様：SRCそれぞれを (root, tail_re) に分け、root配下をwalkして tail_re に合致する
+    通常ファイル（リンク除外は後段）候補を列挙。
+    ルートは '/' または 'X:/'（'~/' は事前に home_abs で展開）。
     """
     candidates: Set[str] = set()
-
-    # 明示 src
-    src: str
-    for src in explicit_sources:
-        if len(src) == 0 or not src.startswith("/"):
+    for src in resolved_srcs:
+        abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
+        is_abs = abs_norm.startswith("/") or re.match(r"^[A-Za-z]:/", abs_norm)
+        if not is_abs:
             if verbose:
-                warn_msg: str = f"[Warning] skip non-absolute src: {src}"
-                print(warn_msg, file=sys.stderr)
+                print(f"[Warning] skip non-absolute SRC: {src}", file=sys.stderr)
             continue
-        candidates.add(src)
-
-    # ABS パターン探索の起点
-    scan_roots: List[str] = []
-    if len(roots) > 0:
-        scan_roots.extend(roots)
-    else:
-        parents: Set[str] = {os.path.dirname(pp) for pp in explicit_sources if pp.startswith("/") and len(pp) > 1}
-        scan_roots.extend(sorted(parents))
-
-    # roots 未指定かつ explicit も空の場合は ABS パターン探索をしない
-    if len(pat_abs) > 0 and len(scan_roots) > 0:
-        rt: str
-        for rt in scan_roots:
-            if not rt.startswith("/"):
-                continue
-            if not sftp_exists(sftp_client, rt) or not sftp_isdir(sftp_client, rt):
-                continue
-            ap: str
-            for ap in remote_walk_files(sftp_client, rt):
-                if any(rx.search(ap) for rx in pat_abs):
-                    candidates.add(ap)
-
-    # REL パターン：明示 roots 配下のみ
-    rt2: str
-    for rt2 in roots:
-        if len(rt2) == 0 or not rt2.startswith("/"):
+        try:
+            root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
+        except ValueError as e:
+            print(f"[Warning] {src}: {e}", file=sys.stderr)
             continue
-        if not sftp_exists(sftp_client, rt2) or not sftp_isdir(sftp_client, rt2):
+        if not sftp_exists(sftp_client, root) or not sftp_isdir(sftp_client, root):
+            if verbose:
+                print(f"[debug] skip missing/non-dir root: {root}", file=sys.stderr)
             continue
-        ap2: str
-        for ap2 in remote_walk_files(sftp_client, rt2):
-            if any(rx.search(ap2) for rx in pat_abs):
-                candidates.add(ap2)
-            rel: str = ap2[len(rt2):].lstrip("/")
-            if any(rx.search(rel) for rx in pat_rel):
-                candidates.add(ap2)
 
-    out: List[str] = sorted(candidates)
+        # 空の tail は「配下すべて」を意味する
+        pattern = tail_re if tail_re else r".*"
+        try:
+            rx = re.compile(pattern)
+        except re.error as e:
+            if verbose:
+                print(f"[Warning] bad regex for {src}: {e}", file=sys.stderr)
+            continue
+        for ap in remote_walk_files(sftp_client, root):
+            rel = ap[len(root):].lstrip("/")
+            if rx.search(rel):
+                candidates.add(ap)
+    out = sorted(candidates)
     if verbose:
-        msg: str = f"[debug] candidates (remote): {len(out)}"
-        print(msg)
+        print(f"[debug] candidates (remote): {len(out)}")
     return out
 
 
 def _worker(
     host: str,
     dest_local: str,
-    explicit_sources: List[str],
-    roots: List[str],
-    pat_abs: List[Pattern[str]],
-    pat_rel: List[Pattern[str]],
+    srcs: List[str],
     ssh_user: str,
+    args_user: str,
     port: int,
     key: Optional[str],
     password: Optional[str],
@@ -221,55 +165,72 @@ def _worker(
         ssh = ssh_open(cfg, debug_print=verbose)
         sftp_client = ssh.open_sftp()
 
-        candidates: List[str] = _enumerate_candidates_for_host(
+        # '~' 展開用ホームディレクトリの決定（getent優先）
+        home_abs = "/root" if args_user == "root" else f"/home/{args_user}"
+        try:
+            _stdin, stdout, _stderr = ssh.exec_command(f"getent passwd {args_user} | cut -d: -f6", timeout=timeout)
+            v = stdout.read().decode().strip()
+            if v.startswith("/"):
+                home_abs = v
+        except Exception:
+            pass
+
+        candidates: List[str] = _enumerate_candidates_for_host_by_src(
             sftp_client=sftp_client,
-            explicit_sources=explicit_sources,
-            roots=roots,
-            pat_abs=pat_abs,
-            pat_rel=pat_rel,
+            resolved_srcs=srcs,
             verbose=verbose,
+            home_abs=home_abs,
         )
 
         if dry_run:
             header: str = f"[{host}] DRY-RUN download: files={len(candidates)}"
             print(header)
-            pth: str
-            for pth in candidates:
-                if verbose:
+            if verbose:
+                for pth in candidates:
                     lp_dbg: str = local_path_for_download(dest_local, host, pth)
                     print(f"[plan] {host}:{pth} -> {lp_dbg}")
             return HostResult(host=host, downloaded=0, warnings=warnings, errors=errors)
 
-        # 実ダウンロード
-        remote_path: str
-        # sftp_client はここまでに必ずセット済み
+        # 実ダウンロード（ファイルのみ、シンボリックリンクは除外）
         sftp_checked: paramiko.SFTPClient = sftp_client
-         # まず存在＆通常ファイルのみ抽出
         files_only: List[str] = []
         for remote_path in candidates:
             try:
                 if not sftp_exists(sftp_checked, remote_path):
                     warnings.append(f"not found (skip): {remote_path}")
                     continue
+                if sftp_islink(sftp_checked, remote_path):
+                    # 逐次SFTPではリンクは無視（--pack時の follow_symlinks は将来実装）
+                    continue
                 if sftp_isdir(sftp_checked, remote_path):
-                     # ディレクトリは walk で拾う方針のため直接は取らない
-                     continue
+                    continue
                 if sftp_isfile(sftp_checked, remote_path):
-                     files_only.append(remote_path)
+                    files_only.append(remote_path)
             except Exception as e:
-                 errors.append(f"precheck failed: {remote_path}: {e}")
-        if pack_remote and files_only:
+                errors.append(f"precheck failed: {remote_path}: {e}")
+
+        # 権限モデル : ssh_user != user で --pack なしは不可
+        use_sudo = (ssh_user != args_user)
+        if use_sudo and not pack_remote:
+            errors.append("ssh_user != user requires --pack. Please re-run with --pack.")
+            # この条件では転送を実行せず、結果だけ返す
+            print(f"[{host}] downloaded: {downloaded}")
+            for w in warnings:
+                print(f"[{host}] Warning: {w}", file=sys.stderr)
+            for er in errors:
+                print(f"[{host}] Error: {er}", file=sys.stderr)
+            return HostResult(host=host, downloaded=downloaded, warnings=warnings, errors=errors)
+        elif pack_remote and files_only:
             try:
-                # 1) リモートで tar.gz 化
-                remote_gz: str = remote_pack_paths(ssh, files_only, timeout=timeout)
-                # 2) 1 本ダウンロード → ローカル安全展開（<dest>/<host>/abs/）
-                extracted:int = download_and_extract_tar(
+                remote_gz: str = remote_pack_paths(
+                    ssh, files_only, timeout=timeout, use_sudo=use_sudo, follow_symlinks=False
+                )
+                extracted: int = download_and_extract_tar(
                     sftp_checked, remote_gz, dest_local, os.path.join(host, "abs")
                 )
                 downloaded += extracted
                 if verbose:
                     print(f"[pack] {host}:{remote_gz} -> extracted {extracted} file(s)")
-                # 3) リモートの一時ファイル掃除
                 try:
                     ssh.exec_command(f"rm -f {remote_gz}", timeout=timeout)
                 except Exception:
@@ -277,21 +238,21 @@ def _worker(
             except Exception as e:
                 errors.append(f"pack/download failed: {e}")
         else:
-            # 従来の逐次 SFTP 取得（1 ファイルずつ保存）
             for remote_path in files_only:
-                local_path: str = local_path_for_download(dest_local, host, remote_path)
+
                 try:
-                    download_one(sftp_checked, remote_path, local_path, host)
+                    # ここは「ベースDIR」を渡すのが正解
+                    download_one(sftp_checked, remote_path, dest_local, host)
                     downloaded += 1
                     if verbose:
+                        local_path = local_path_for_download(dest_local, host, remote_path)
                         print(f"[get] {host}:{remote_path} -> {local_path}")
                 except Exception as e:
                     errors.append(f"download failed: {remote_path}: {e}")
+
         print(f"[{host}] downloaded: {downloaded}")
-        w: str
         for w in warnings:
             print(f"[{host}] Warning: {w}", file=sys.stderr)
-        er: str
         for er in errors:
             print(f"[{host}] Error: {er}", file=sys.stderr)
 
@@ -311,66 +272,41 @@ def _worker(
         except Exception:
             pass
 
-    result: HostResult = HostResult(host=host, downloaded=downloaded, warnings=warnings, errors=errors)
-    return result
+    return HostResult(host=host, downloaded=downloaded, warnings=warnings, errors=errors)
 
-
-# ================================== Main ====================================
 
 def main() -> None:
     parser: argparse.ArgumentParser = build_parser()
     args: argparse.Namespace = parser.parse_args()
 
-    # dest 解決：最後の位置引数
-    if args.dest is None:
-        if len(args.src) == 0:
-            print("dest is required as the last positional argument.", file=sys.stderr)
-            sys.exit(5)
-        args.dest = args.src[-1]
-        args.src = args.src[:-1]
+    # 位置引数の検証
+    if len(args.src) < 1 or not args.dest:
+        print("At least one SRC and a DEST are required.", file=sys.stderr)
+        sys.exit(5)
 
     dest_local: str = str(args.dest)
-    explicit_sources: List[str] = list(args.src)
-
-    if len(dest_local) == 0:
-        print("dest is required.", file=sys.stderr)
-        sys.exit(5)
+    srcs: List[str] = list(args.src)
 
     hosts: List[str] = parse_hosts_file(str(args.hosts))
     if len(hosts) == 0:
         print("No hosts found in hosts file.", file=sys.stderr)
         sys.exit(1)
 
-    flags: int = re.IGNORECASE if bool(args.ignore_case) else 0
-    try:
-        pat_abs: List[Pattern[str]] = compile_many(list(args.pattern_abs), flags)
-        pat_rel: List[Pattern[str]] = compile_many(list(args.pattern_rel), flags)
-    except re.error as e:
-        print(f"Invalid regex: {e}", file=sys.stderr)
-        sys.exit(5)
-
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)
+    args_user: str = str(args.user)
 
-    if len(args.pattern_abs) > 0 or len(args.pattern_rel) > 0 or len(args.root) > 0:
-        roots_display: str = ", ".join([str(r) for r in args.root]) if len(args.root) > 0 else "(none)"
-        print(f"Hosts: {len(hosts)}  Dest: {dest_local}")
-        print(f"Select: patterns ({len(args.pattern_abs)} abs, {len(args.pattern_rel)} rel) roots={roots_display}")
-    else:
-        print(f"Hosts: {len(hosts)}  Dest: {dest_local}")
-        print(f"Sources: {len(explicit_sources)} (explicit)")
-    print(f"SSH  : ssh-user={ssh_user} user={args.user} port={args.port} strict={bool(args.strict_host_key_checking)}")
+    print(f"Hosts: {len(hosts)}  Dest: {dest_local}")
+    print(f"SRCs : {len(srcs)}")
+    print(f"SSH  : ssh-user={ssh_user} user={args_user} port={args.port} strict={bool(args.strict_host_key_checking)}")
 
     results: List[HostResult] = []
-    h: str
     for h in hosts:
         res: HostResult = _worker(
             host=h,
             dest_local=dest_local,
-            explicit_sources=explicit_sources,
-            roots=list(args.root) if args.root is not None else [],
-            pat_abs=pat_abs,
-            pat_rel=pat_rel,
+            srcs=srcs,
             ssh_user=ssh_user,
+            args_user=args_user,
             port=int(args.port),
             key=str(args.key) if args.key is not None else None,
             password=str(args.password) if args.password is not None else None,
@@ -382,7 +318,7 @@ def main() -> None:
         )
         results.append(res)
 
-    total_downloaded: int = sum(r.downloaded for r in results if len(r.errors) == 0)
+    total_downloaded: int = sum( r.downloaded for r in results )
     warn_hosts: List[HostResult] = [r for r in results if len(r.warnings) > 0]
     err_hosts: List[HostResult] = [r for r in results if len(r.errors) > 0]
 
