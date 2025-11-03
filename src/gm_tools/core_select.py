@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import shlex
-from typing import List, Set, Tuple
+from typing import List, Set, Tuple, Iterable
 
 try:
     import paramiko  # type: ignore
@@ -188,3 +188,22 @@ def enumerate_candidates_for_host(
     if pack_remote and use_sudo:
         return _enumerate_via_remote_walk_with_sudo(ssh, resolved_srcs, home_abs, verbose)
     return _enumerate_via_sftp_walk(sftp_client, resolved_srcs, home_abs, verbose)
+
+
+def enumerate_candidates_local(paths: Iterable[str]) -> Iterable[str]:
+    """
+    Yield absolute local paths to process.
+    - Deduplicate, preserve input order
+    - Expand simple globs
+    """
+    seen: set[str] = set()
+    import os, glob
+    for p in paths:
+        matches: list[str] = glob.glob(p)
+        if not matches:
+            matches = [p]
+        for m in matches:
+            ap: str = os.path.abspath(m)
+            if ap not in seen:
+                seen.add(ap)
+                yield ap
