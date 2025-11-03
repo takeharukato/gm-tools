@@ -1,4 +1,10 @@
 # -*- coding:utf-8 -*-
+#
+#
+#環境変数:
+# GM_SCATTER_DEBUG=1|on|true|yes|on
+#   診断用ログ（tzf 比較や -T 検証）を出力する (デフォルトは出力しない)
+
 from __future__ import annotations
 
 import os
@@ -30,6 +36,9 @@ EXTRACT_TIMEOUT_EXIST: float = 180.0
 CHECK_REGFILE_TIMEOUT: float = 30.0
 OVERWRITE_TIMEOUT: float = 120.0
 
+# デバッグフラグ
+_DEBUG: bool = str(os.environ.get("GM_SCATTER_DEBUG", "")).lower() in ("1","true","yes","on")
+
 from .core_cmd_flavor import (
     CmdFlavor,
     TarFlavor,
@@ -49,6 +58,14 @@ class ScatterOpts:
     sudo_extract: bool = False  # (ssh_user != user) and pack のとき True
     ssh_user: Optional[str] = None
     local_user: Optional[str] = None
+
+def _dbg_log(msg: str) -> None:
+    if _DEBUG:
+        try:
+            print(msg)
+        except Exception:
+            pass
+
 
 def local_pack_paths_to_tmp(paths: Iterable[str], follow_symlinks: bool) -> Tuple[str, List[str]]:
     """
@@ -78,6 +95,62 @@ def local_pack_paths_to_tmp(paths: Iterable[str], follow_symlinks: bool) -> Tupl
 
     return tar_path, deref
 
+def write_members_file(
+    sftp: "paramiko.SFTPClient",
+    remote_path: str,
+    members: Iterable[str],
+    *,
+    normalize_paths: bool = True,
+) -> None:
+    """
+    tar -T で参照するメンバーリストを生成・書き出す。
+    ポリシー:
+      - 重複排除し、ASCII順に安定ソート
+      - 各行はアーカイブ内部の相対パス（先頭'./'や'/'は除去）
+      - 相対パスは大文字小文字を区別し、アーカイブ内部の名前と完全に一致しなければならない
+      - バックスラッシュはスラッシュに統一（将来的なWindows対応のため）
+      - 行区切りは LF('\n')。末尾にも LF('\n') を付与
+      - CRLF/CR 混入は _sftp_write_text() 側で LF('\n') 正規化することを前提とする
+
+    normalize_paths=False の場合は、与えられた文字列をそのまま並べ替え・連結のみ行う。
+    """
+
+    def _normalize_members_content(s: str) -> bytes:
+        # どのプラットフォームからでも LF に正規化して UTF-8 バイナリで返す
+        # （tar -T は CR を含むと一致しないことがあるため）
+        return s.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+    def _sftp_write_text(path: str, content: str) -> None:
+
+        # UTF-8 (LF 正規化済み) で members file を配置（バイナリモードで明示）
+        data = _normalize_members_content(content)
+
+        f: "paramiko.SFTPFile" = sftp.file(path, mode="wb")
+        try:
+            f.write(data)
+        finally:
+            f.close()
+
+
+    canon: List[str] = []
+    seen: set[str] = set()
+    for m in members:
+        s = str(m)
+        if normalize_paths:
+            s = s.replace("\\", "/")      # 保険：Windows由来などを吸収
+            while s.startswith("./"):     # 先頭 "./" を剥がす
+                s = s[2:]
+            s = s.lstrip("/")             # 念のため絶対パス化を防止
+        # 空行は除外
+        if not s:
+            continue
+        if s in seen:
+            continue
+        seen.add(s)
+        canon.append(s)
+
+    text = "\n".join(sorted(canon)) + "\n"
+    _sftp_write_text(remote_path, text)
 
 def upload_pack_and_extract(
     ssh: "paramiko.SSHClient",
@@ -99,14 +172,6 @@ def upload_pack_and_extract(
     2) tar -xzf payload.tar.gz -C DEST
     で展開する。これは GNU tar / bsdtar の共通オプションで動く。
     """
-
-    def _sftp_write_text(path: str, content: str) -> None:
-        # UTF-8 で members file を配置（バイナリモードで明示）
-        f: "paramiko.SFTPFile" = sftp.file(path, mode="wb")
-        try:
-            f.write(content.encode("utf-8"))
-        finally:
-            f.close()
 
     # --- cleanup 対象を先に None 初期化（分岐で束縛されない経路があるため） ---
     members_file_new: Optional[str] = None
@@ -164,10 +229,8 @@ def upload_pack_and_extract(
             timeout=PREFLIGHT_TEST_TIMEOUT,
         )
 
-        try:
-            print(f"[preflight] host={host} tar={flavor} EXIST={len(exist_set)} NEW={len(new_set)} DEST={dest_abs_root}")
-        except Exception:
-            pass
+        _dbg_log(f"[preflight] host={host} tar={flavor} EXIST={len(exist_set)} NEW={len(new_set)} DEST={dest_abs_root}")
+
     except Exception as _ex:
         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_PREFLIGHT: {str(_ex)}"))
         return
@@ -184,14 +247,16 @@ def upload_pack_and_extract(
             return
 
     # === Step3 実動作 ===
+    # メンバーファイルを作成し, 以下を実施
     #  1) NEW セットのみを DEST に抽出（-T list）
     #  2) EXIST セットは別 tmp に抽出 → 内容のみ既存へ上書き（属性は変更しない）
 
     # NEW セット抽出
     if new_set:
         members_file_new = f"{rtmp}/members.new.txt"
-        # list_tar_members_local は相対パス（アーカイブ内の名前）なので、そのまま 1 行 1 メンバーで書く
-        _sftp_write_text(members_file_new, "\n".join(sorted(new_set)) + "\n")
+        # list_tar_members_local は相対パス（アーカイブ内の名前）、
+        # LF 終端（最後も LF）を約束し、内部で CR/LF を正規化して書き出す
+        write_members_file(sftp, members_file_new, new_set)
         try:
             extract_cmd_new: List[str] = build_tar_extract_cmd(
                 flavor=flavor,
@@ -215,7 +280,10 @@ def upload_pack_and_extract(
         _stdin2, stdout2, _stderr2 = ssh.exec_command("mktemp -d /tmp/gm-exist.XXXXXXXX")
         rtmp_exist = stdout2.read().decode().strip() or "/tmp"
         members_file_exist = f"{rtmp}/members.exist.txt"
-        _sftp_write_text(members_file_exist, "\n".join(sorted(exist_set)) + "\n")
+
+        # list_tar_members_local は相対パス（アーカイブ内の名前）、
+        # LF 終端（最後も LF）を約束し、内部で CR/LF を正規化して書き出す
+        write_members_file(sftp, members_file_exist, exist_set)
         try:
             extract_cmd_exist: List[str] = build_tar_extract_cmd(
                 flavor=flavor,
@@ -227,10 +295,43 @@ def upload_pack_and_extract(
         except Exception as _ex:
             report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_BUILD_EXTRACT_EXIST: {str(_ex)}"))
             return
+
         rc_e, out_e, err_e = run_remote_cmd_capture(ssh, extract_cmd_exist, timeout=EXTRACT_TIMEOUT_EXIST)
         if rc_e != 0:
             reason_e: str = (err_e.strip() or out_e.strip() or f"E_EXTRACT_EXIST_TMP: rc={rc_e}")
             report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_e))
+            return
+
+        # -T 抽出で 本当に rtmp_exist/<rel> が作られたことを確認
+        missing_after_extract: List[str] = []
+        for rel in sorted(exist_set):
+            src_tmp_chk = os.path.join(rtmp_exist, rel)
+            qsrc_chk = shlex.quote(src_tmp_chk)
+            # 通常ファイル判定。失敗時は親ディレクトリの情報も付ける
+            rc_chk, _o_chk, _e_chk = run_remote_cmd_capture(
+                ssh,
+                (["bash","-lc", f"test -f {qsrc_chk} || (echo '__MISSING__'; ls -ld {qsrc_chk} 2>/dev/null || true; echo '__PARENT__'; ls -ld $(dirname {qsrc_chk}) 2>/dev/null || true; exit 1)"]),
+                timeout=CHECK_REGFILE_TIMEOUT
+            )
+            if rc_chk != 0:
+                missing_after_extract.append(rel)
+        if missing_after_extract:
+            # 代表1件の状況をログ化して即失敗させる（早期に原因を表面化）
+            sample = missing_after_extract[0]
+            sample_abs = os.path.join(rtmp_exist, sample)
+            qsample = shlex.quote(sample_abs)
+            _rc_ls, _out_ls, _ = run_remote_cmd_capture(
+                ssh,
+                (["bash","-lc", f"echo 'missing sample:' {qsample}; ls -ld {qsample} 2>/dev/null || true; echo 'parent:'; ls -ld $(dirname {qsample}) 2>/dev/null || true; echo 'members.exist.txt:'; sed -n '1,120p' {shlex.quote(members_file_exist)} 2>/dev/null || true"]),
+                timeout=CHECK_REGFILE_TIMEOUT
+            )
+            report.add(host, TransferItem(
+                host=host,
+                remote_path=f"{dest_abs_root}/...",
+                phase="transfer",
+                status="failed",
+                reason=f"E_EXIST_EXTRACT_MISSING: {len(missing_after_extract)} paths (e.g. {sample}); see logs"
+            ))
             return
 
         # 置換ループ（通常ファイルのみ）。属性保持のため、ファイル自体は置き換えず、中身だけ上書き。
@@ -240,26 +341,56 @@ def upload_pack_and_extract(
             # 安全な相対 → 絶対
             src_tmp: str = os.path.join(rtmp_exist, rel)
             dst_abs: str = os.path.join(dest_abs_root, rel)
+            dst_dir: str = os.path.dirname(dst_abs)
 
             # ファイル種別確認：通常ファイルだけ扱う（シェルの [ -f ] 判定）
             # sudo が必要な場合があるので、確認も sudo 経由で行う。
             # 1) src_tmp は通常ファイルであること
             # 2) dst_abs は通常ファイルであること（存在は EXSIT 前提）
-            check_cmd: List[str] = (["sudo"] if sudo_extract else []) + [
-                "bash", "-lc",
-                shlex.quote(f'[ -f "{src_tmp}" ] && [ -f "{dst_abs}" ]')
-            ]
-            rc_c, _o_c, _e_c = run_remote_cmd_capture(ssh, check_cmd, timeout=CHECK_REGFILE_TIMEOUT)
-            if rc_c != 0:
-                report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason="skip exist: non-regular file (src or dst)"))
+            # 注意：bash -lc へは生のコマンド文字列を渡し、個々のパスは quote する
+            qsrc = shlex.quote(src_tmp)
+            qdst = shlex.quote(dst_abs)
+            cmd_src: List[str] = (["sudo"] if sudo_extract else []) + ["bash", "-lc", f"test -f {qsrc}"]
+            cmd_dst: List[str] = (["sudo"] if sudo_extract else []) + ["bash", "-lc", f"test -f {qdst}"]
+            rc_src, _o_src, _e_src = run_remote_cmd_capture(ssh, cmd_src, timeout=CHECK_REGFILE_TIMEOUT)
+            rc_dst, _o_dst, _e_dst = run_remote_cmd_capture(ssh, cmd_dst, timeout=CHECK_REGFILE_TIMEOUT)
+            if rc_src != 0 or rc_dst != 0:
+                if rc_src != 0 and rc_dst == 0:
+                    reason = "skip exist: src-not-regular"
+                elif rc_src == 0 and rc_dst != 0:
+                    reason = "skip exist: dst-not-regular"
+                else:
+                    reason = "skip exist: both-non-regular"
+                report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason=reason))
+                continue
+
+            # 親ディレクトリを必ず確保（欠落しているとリダイレクトが失敗する）
+            try:
+                # note: remote_mkdir_p内で, クォート処理を行うため, dst_dirは
+                # shlex.quoteしてはならないことに注意
+                remote_mkdir_p(ssh, dst_dir, use_sudo=sudo_extract)
+            except Exception as _ex:
+                report.add(
+                    host,
+                    TransferItem(
+                        host=host,
+                        remote_path=dst_abs,
+                        phase="transfer",
+                        status="failed",
+                        reason=f"E_MKDIR_PARENT: {str(_ex)}",
+                    ),
+                )
                 continue
 
             # 中身のみ置換（truncate+write）。属性（owner/group/mode/xattr/ACL/SELinux）は変更しない。
-            # - シンプルに cat > で十分（inode は不変、mtime/ctime は変わり得る：仕様通り）。
-            # - sudo が要れば sudo 経由。
-            # - エスケープは安全のため shlex.quote 済みの一括シェルで実行。
-            overwrite_cmd_str: str = f'cat {shlex.quote(src_tmp)} > {shlex.quote(dst_abs)}'
-            overwrite_cmd: List[str] = (["sudo"] if sudo_extract else []) + ["bash", "-lc", shlex.quote(overwrite_cmd_str)]
+            # - cat > で置換する（inode は不変にしつつ、mtime/ctime は設定ファイル更新日時を記録するために更新する必要があるため）。
+            # - sudo が必要な場合は, sudo 経由で実施する
+            # - パスは個別に shlex.quote() 済みのため、コマンド全体をshlex.quoteの対象にしてはいけないことに注意。
+            #   (全体を一重引用するとリダイレクトが文字列として扱われるため)
+
+            # リダイレクトはシェルで解釈させる必要があるため、全体は生文字列で渡し、個々のパスを quote 済みにする
+            overwrite_cmd_str: str = f"cat {shlex.quote(src_tmp)} > {shlex.quote(dst_abs)}"
+            overwrite_cmd: List[str] = (["sudo"] if sudo_extract else []) + ["bash", "-lc", overwrite_cmd_str]
             rc_w, _o_w, err_w = run_remote_cmd_capture(ssh, overwrite_cmd, timeout=OVERWRITE_TIMEOUT)
             if rc_w != 0:
                 report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason=(err_w.strip() or "E_OVERWRITE")))
