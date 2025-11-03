@@ -7,7 +7,8 @@ import shlex
 import tarfile
 import tempfile
 from pathlib import PurePosixPath
-from typing import Iterable, List, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
+from typing import Iterable, List, Tuple
 
 if TYPE_CHECKING:
     import paramiko  # type: ignore
@@ -167,16 +168,36 @@ def download_and_extract_tar(
         print(f"[pack] downloaded {remote_tar_gz} -> extracted {extracted} file(s) to {dest_root}")
     return extracted, extracted_paths
 
-def list_tar_members_local(tar_path: str) -> List[str]:
+def list_tar_members_local(tar_path: str) -> Tuple[List[str], List[str]]:
     """
-    ローカル tar.gz のメンバー名（相対パス）を列挙して返す。
-    ディレクトリも含む。先頭の '/' は取り除く。
+    ローカル tar.gz のメンバーをハードニングして列挙する。
+    戻り値は (regular_files, empty_dirs) のタプル。
+      - regular_files: 通常ファイルのみ（symlink/ハードリンク/デバイス等は含めない）
+      - empty_dirs   : 空ディレクトリ（配下にメンバーを持たないディレクトリ）
+    いずれもアーカイブ内の相対パス（先頭の '/' は除去）で返す。
     """
-    names: List[str] = []
-    # NOTE: dereference の有無はアーカイブ作成時の話で、ここは「アーカイブ内の名前列挙」だけ行う
+    regular_files: List[str] = []
+    dirs: List[str] = []
+
     with tarfile.open(tar_path, mode="r:gz") as tf:
-        for m in tf.getmembers():
+        members = tf.getmembers()
+        for m in members:
             nm: str = m.name.lstrip("/")
-            if nm:
-                names.append(nm)
-    return names
+            if not nm:
+                continue
+            # 通常ファイルのみ採用（symlink/hardlink は除外）
+            if m.isfile():
+                regular_files.append(nm)
+            elif m.isdir():
+                # 判定用に末尾'/'で保持
+                dirs.append(nm if nm.endswith("/") else nm + "/")
+
+    # 空ディレクトリ判定：配下に他メンバーが存在しないもの
+    all_names_set = set(m.name.lstrip("/") for m in members if m.name)
+    empty_dirs: List[str] = []
+    for d in dirs:
+        has_child = any(n != d.rstrip("/") and n.startswith(d) for n in all_names_set)
+        if not has_child:
+            empty_dirs.append(d.rstrip("/"))
+
+    return sorted(regular_files), sorted(empty_dirs)

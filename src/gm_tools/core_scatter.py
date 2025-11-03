@@ -135,13 +135,13 @@ def upload_pack_and_extract(
     try:
         remote_mkdir_p(ssh, dest_abs_root, use_sudo=sudo_extract)
     except Exception as _ex:
-        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=str(_ex)))
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_MKDIR_DEST: {str(_ex)}"))
         return
 
     # sudo が必要な場合は sudo を先頭につける
     # preflight（tar flavor 検知／NEW/EXIST 仕分けのログ）
     try:
-        cmd_flavor: CmdFlavor = detect_tar_flavor_remote(ssh)
+        cmd_flavor: CmdFlavor = detect_tar_flavor_remote(ssh,timeout=TAR_DETECT_TIMEOUT)
         flavor: TarFlavor = cmd_flavor.tar
     except Exception as _ex:
         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_TAR_DETECT: {str(_ex)}"))
@@ -149,7 +149,8 @@ def upload_pack_and_extract(
 
     # tar のローカルメンバー一覧（相対パス）を得て、DEST 直下に置く前提でそのまま仕分け
     try:
-        rel_members: List[str] = list_tar_members_local(tar_path)
+        rel_files: List[str]; empty_dirs: List[str]
+        rel_files, empty_dirs = list_tar_members_local(tar_path)
     except Exception as _ex:
         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_TAR_LIST: {str(_ex)}"))
         return
@@ -158,7 +159,7 @@ def upload_pack_and_extract(
         exist_set, new_set = split_exist_new_by_remote_presence(
             ssh,
             dest_abs_root,
-            rel_members,
+            rel_files,
             use_sudo=sudo_extract,
             timeout=PREFLIGHT_TEST_TIMEOUT,
         )
@@ -170,6 +171,17 @@ def upload_pack_and_extract(
     except Exception as _ex:
         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_PREFLIGHT: {str(_ex)}"))
         return
+
+    # 空ディレクトリの作成（属性変更は行わない）。EXIST/NEW 仕分けには影響しない。
+    for _d in empty_dirs:
+        try:
+            remote_mkdir_p(ssh, os.path.join(dest_abs_root, _d), use_sudo=sudo_extract)
+        except Exception as _ex:
+            report.add(
+                host,
+                TransferItem(host=host, remote_path=os.path.join(dest_abs_root, _d), phase="transfer", status="failed", reason=f"E_MKDIR_EMPTY: {str(_ex)}"),
+            )
+            return
 
     # === Step3 実動作 ===
     #  1) NEW セットのみを DEST に抽出（-T list）
@@ -215,7 +227,7 @@ def upload_pack_and_extract(
         except Exception as _ex:
             report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_BUILD_EXTRACT_EXIST: {str(_ex)}"))
             return
-        rc_e, out_e, err_e = run_remote_cmd_capture(ssh, extract_cmd_exist, timeout=EXTRACT_TIMEOUT_NEW)
+        rc_e, out_e, err_e = run_remote_cmd_capture(ssh, extract_cmd_exist, timeout=EXTRACT_TIMEOUT_EXIST)
         if rc_e != 0:
             reason_e: str = (err_e.strip() or out_e.strip() or f"E_EXTRACT_EXIST_TMP: rc={rc_e}")
             report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_e))
