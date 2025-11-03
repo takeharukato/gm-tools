@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Literal
+from typing import Set, List, Optional, Tuple, Literal
 
 try:
     import paramiko  # type: ignore
@@ -144,6 +144,64 @@ def parse_tar_t_list_to_relpaths(listing_text: str) -> List[str]:
         rels.append(s)
     return rels
 
+# === 統一リモート実行ラッパ（sudo 経路の一元化） =========================
+def exec_remote(
+    ssh: "paramiko.SSHClient",
+    cmd: str,
+    *,
+    use_sudo: bool = False,
+    timeout: Optional[float] = None,
+) -> Tuple[int, str, str]:
+    """
+    リモートでコマンドを実行し、(rc, stdout, stderr) を返す。
+    use_sudo=True の場合は常に 'sudo -n' を前置（パスワードプロンプト禁止）。
+    """
+    full_cmd: str = f"sudo -n {cmd}" if use_sudo else cmd
+    _stdin, stdout, stderr = ssh.exec_command(full_cmd, timeout=timeout)
+    out_s: str = stdout.read().decode(errors="ignore")
+    err_s: str = stderr.read().decode(errors="ignore")
+    rc: int = stdout.channel.recv_exit_status()
+
+    try:
+        # 念のため close 順序は stdout/err を先にする
+        stdout.close()
+        stderr.close()
+        _stdin.close()
+    except Exception:
+        pass
+    return rc, out_s, err_s
+
+
+def remote_path_exists(
+    ssh: "paramiko.SSHClient",
+    path: str,
+    *,
+    use_sudo: bool,
+    timeout: float = 60.0,
+) -> bool:
+    """
+    test -e で存在確認。sudo 失敗（rc!=0 かつ 権限由来が明白）の場合は呼び出し側で中断判断可能。
+    ここでは True/False のみ返す。
+    """
+    rc, _out, _err = exec_remote(ssh, f"test -e {path}", use_sudo=use_sudo, timeout=timeout)
+    return rc == 0
+
+
+def remote_mkdir_p(
+    ssh: "paramiko.SSHClient",
+    path: str,
+    *,
+    use_sudo: bool,
+    timeout: float = 60.0,
+) -> None:
+    """
+    mkdir -p を sudo 有無で実行。失敗時は詳細を含む例外を送出（上位で即時中断方針）。
+    """
+    rc, _out, err = exec_remote(ssh, f"mkdir -p {path}", use_sudo=use_sudo, timeout=timeout)
+    if rc != 0:
+        raise RuntimeError(
+            f"mkdir -p failed (rc={rc}) path={path} sudo={use_sudo}: {err.strip()}"
+        )
 
 def split_exist_new_by_remote_presence(
     ssh: "paramiko.SSHClient",
@@ -152,26 +210,29 @@ def split_exist_new_by_remote_presence(
     *,
     use_sudo: bool = False,
     timeout: float = 60.0,
-) -> Tuple[List[str], List[str]]:
+) -> Tuple[Set[str], Set[str]]:
     """
-    リモートの <dest_abs>/<rel> が存在するかをチェックし、(EXIST_SET, NEW_SET) に分割。
+    既存の関数を sudo 経路対応に更新。
+    - DEST 配下の相対パス群について、存在(EXIST) / 新規(NEW) を仕分ける
+    - use_sudo=True のとき sudo -n で test を実行
+    - sudo 不能や権限エラー時は自動フォールバックしない（上位で方針により即中断）
     """
-    exists: List[str] = []
-    news: List[str] = []
-
-    # 一括で test するより、パスの特殊文字考慮や sudo 運用差があるため逐次で安全に。
+    exist_set: Set[str] = set()
+    new_set: Set[str] = set()
     for rp in rel_paths:
-        rp_str: str = rp
-        remote_path: str = f"{dest_abs.rstrip('/')}/{rp_str}"
-        _rc: int
-        out: str
-        _err: str
-        prefix: str = "sudo " if use_sudo else ""
-        test_cmd: str = f"{prefix}test -e {shlex.quote(remote_path)} && echo YES || echo NO"
-        _rc, out, _err = _exec_simple(ssh, test_cmd, timeout=timeout)
-        verdict: str = (out.strip() or "NO").upper()
-        if verdict == "YES":
-            exists.append(rp_str)
+        # 絶対化（DEST + 相対）
+        remote_p: str = f"{dest_abs.rstrip('/')}/{rp.lstrip('/')}"
+        rc, _out, err = exec_remote(ssh, f"test -e {remote_p}", use_sudo=use_sudo, timeout=timeout)
+        if rc == 0:
+            exist_set.add(rp)
         else:
-            news.append(rp_str)
-    return exists, news
+            # sudo 経路で失敗したが、test -e 不在なのか、sudo 不可なのかは err で判断する。
+            # この段階では NEW と仮置きし、上位（policy）で必要に応じてエラーにする。
+            # （方針：フォールバックせず、実際の作成/抽出段で mkdir/tar が失敗すれば中断）
+            # ただし err が明確な sudo 不可を示す場合は、早期に例外化して中断させる。
+            if use_sudo and "sudo" in err.lower() and ("permission" in err.lower() or "not allowed" in err.lower()):
+                raise RuntimeError(
+                    f"sudo test failed for path={remote_p}: {err.strip()}"
+                )
+            new_set.add(rp)
+    return exist_set, new_set

@@ -13,8 +13,14 @@ try:
 except Exception as e:
     raise RuntimeError("Paramiko is required: pip install paramiko") from e
 
-from .core_report import TransferReport, TransferItem
+from .core_report import (
+    TransferReport,
+    TransferItem
+)
 
+from .core_cmd_flavor import (
+    remote_mkdir_p,
+)
 
 @dataclass
 class ScatterOpts:
@@ -25,16 +31,6 @@ class ScatterOpts:
     sudo_extract: bool = False  # (ssh_user != user) and pack のとき True
     ssh_user: Optional[str] = None
     local_user: Optional[str] = None
-
-
-def _mkdir_p_remote(ssh: "paramiko.SSHClient", path: str, sudo: bool) -> None:
-    """
-    リモート側で mkdir -p を実行する。
-    sudo=True の場合は sudo 経由で mkdir -p を呼び出す。
-    """
-    cmd: str = ("sudo mkdir -p " + shlex.quote(path)) if sudo else ("mkdir -p " + shlex.quote(path))
-    ssh.exec_command(cmd)
-
 
 def local_pack_paths_to_tmp(paths: Iterable[str], follow_symlinks: bool) -> Tuple[str, List[str]]:
     """
@@ -104,7 +100,13 @@ def upload_pack_and_extract(
     sftp.put(tar_path, remote_tar)
 
     # 展開先 DEST を作成
-    _mkdir_p_remote(ssh, dest_abs_root, sudo_extract)
+    # mkdir -p をリモートホストで実行
+    # sudo 経路を統一ラッパで実施。失敗時は例外で即中断
+    try:
+        remote_mkdir_p(ssh, dest_abs_root, use_sudo=sudo_extract)
+    except Exception as _ex:
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=str(_ex)))
+        return
 
     # sudo が必要な場合は sudo を先頭につける
     extract_cmd: str = (
@@ -193,7 +195,14 @@ def sftp_put_one(
 
     # mkdir -p は ssh 経由で実施
     rdir: str = os.path.dirname(rpath)
-    _mkdir_p_remote(ssh, rdir, sudo_mkdir)
+    # mkdir -p をリモートホストで実行
+    # sudo 経路を統一ラッパで実施。失敗時は例外で即中断
+    try:
+        remote_mkdir_p(ssh, rdir, use_sudo=sudo_mkdir)
+    except Exception as _ex:
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=str(_ex)))
+        return
+
 
     if os.path.isdir(ap):
         for root, _dirs, files in os.walk(ap):
@@ -201,7 +210,14 @@ def sftp_put_one(
             # root_str が ap 自身なら rel のまま、それ以外なら ap からの相対パスを連結
             sub_rel: str = os.path.join(rel, os.path.relpath(root_str, ap)) if root_str != ap else rel
             rr: str = os.path.join(dest_abs_root, sub_rel)
-            _mkdir_p_remote(ssh, rr, sudo_mkdir)
+            # mkdir -p をリモートホストで実行
+            # sudo 経路を統一ラッパで実施。失敗時は例外で即中断
+            try:
+                remote_mkdir_p(ssh, rr, use_sudo=sudo_mkdir)
+            except Exception as _ex:
+                report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=str(_ex)))
+                return
+
             for fn in files:
                 lp: str = os.path.join(root_str, fn)
                 if os.path.islink(lp):
