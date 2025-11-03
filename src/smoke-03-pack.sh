@@ -6,7 +6,7 @@ ensure_hostfile
 prepare_src_tree
 clean_dest
 
-run_scatter "${DEST}" "${SRC_BASE}" -H "${HOSTFILE}" --pack
+run_scatter "${SRC_BASE}" "${DEST}" -H "${HOSTFILE}" --pack
 
 # a.txt / sub/b.txt は存在
 must_exist "$(to_dest_path "${SRC_BASE}/a.txt")"

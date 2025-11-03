@@ -13,10 +13,16 @@ DEST=/var/lib/gm-scatter-dest
 
 ensure_hostfile
 prepare_src_tree
-clean_dest || true  # /var/lib 配下は一般ユーザーでは消せないことがあるので失敗は無視
+
+# /var/lib 配下は sudo で確実に掃除する
+if [[ -d "${DEST}" ]]; then
+  sudo rm -rf "${DEST:?}/"*
+else
+  sudo mkdir -p "${DEST}"
+fi
 
 # 成功ケース：--pack + -x（sudo 展開）
-run_scatter "${DEST}" "${SRC_BASE}" \
+run_scatter "${SRC_BASE}" "${DEST}" \
   -H "${HOSTFILE}" \
   --pack -x \
   -u "${TARGET_USER}" -s "${SSH_USER}"
