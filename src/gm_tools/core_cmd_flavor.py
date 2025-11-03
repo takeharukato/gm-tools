@@ -13,6 +13,11 @@ except Exception as e:
 
 TarFlavor = Literal["gnu", "bsdtar", "unknown"]
 
+# === Timeouts (seconds) used by remote ops ===
+DEFAULT_TIMEOUT_SCATTER: float = 60.0
+TAR_DETECT_TIMEOUT: float = 10.0
+MKDIR_TIMEOUT: float = 60.0
+
 @dataclass(frozen=True)
 class CmdFlavor:
     """
@@ -182,15 +187,16 @@ def remote_mkdir_p(
     path: str,
     *,
     use_sudo: bool,
-    timeout: float = 60.0,
+    timeout: float = MKDIR_TIMEOUT,
 ) -> None:
     """
     mkdir -p を sudo 有無で実行。失敗時は詳細を含む例外を送出（上位で即時中断方針）。
     """
-    rc, _out, err = exec_remote(ssh, f"mkdir -p {path}", use_sudo=use_sudo, timeout=timeout)
+    qpath: str = shlex.quote(path)
+    rc, _out, err = exec_remote(ssh, f"mkdir -p {qpath}", use_sudo=use_sudo, timeout=timeout)
     if rc != 0:
         raise RuntimeError(
-            f"mkdir -p failed (rc={rc}) path={path} sudo={use_sudo}: {err.strip()}"
+            f"E_MKDIR: mkdir -p failed (rc={rc}) path={path} sudo={use_sudo}: {err.strip()}"
         )
 
 def split_exist_new_by_remote_presence(
@@ -222,7 +228,7 @@ def split_exist_new_by_remote_presence(
             # ただし err が明確な sudo 不可を示す場合は、早期に例外化して中断させる。
             if use_sudo and "sudo" in err.lower() and ("permission" in err.lower() or "not allowed" in err.lower()):
                 raise RuntimeError(
-                    f"sudo test failed for path={remote_p}: {err.strip()}"
+                    f"E_SUDO_TEST_DENIED: path={remote_p}: {err.strip()}"
                 )
             new_set.add(rp)
 

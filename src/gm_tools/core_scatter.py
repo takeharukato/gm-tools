@@ -22,6 +22,14 @@ from .core_archive import (
     list_tar_members_local,
 )
 
+# === Timeouts (seconds) ===
+TAR_DETECT_TIMEOUT: float = 10.0
+PREFLIGHT_TEST_TIMEOUT: float = 60.0
+EXTRACT_TIMEOUT_NEW: float = 180.0
+EXTRACT_TIMEOUT_EXIST: float = 180.0
+CHECK_REGFILE_TIMEOUT: float = 30.0
+OVERWRITE_TIMEOUT: float = 120.0
+
 from .core_cmd_flavor import (
     CmdFlavor,
     TarFlavor,
@@ -136,14 +144,14 @@ def upload_pack_and_extract(
         cmd_flavor: CmdFlavor = detect_tar_flavor_remote(ssh)
         flavor: TarFlavor = cmd_flavor.tar
     except Exception as _ex:
-        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"tar flavor detect failed: {str(_ex)}"))
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_TAR_DETECT: {str(_ex)}"))
         return
 
     # tar のローカルメンバー一覧（相対パス）を得て、DEST 直下に置く前提でそのまま仕分け
     try:
         rel_members: List[str] = list_tar_members_local(tar_path)
     except Exception as _ex:
-        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"tar list failed: {str(_ex)}"))
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_TAR_LIST: {str(_ex)}"))
         return
 
     try:
@@ -152,7 +160,7 @@ def upload_pack_and_extract(
             dest_abs_root,
             rel_members,
             use_sudo=sudo_extract,
-            timeout=60.0,
+            timeout=PREFLIGHT_TEST_TIMEOUT,
         )
 
         try:
@@ -160,7 +168,7 @@ def upload_pack_and_extract(
         except Exception:
             pass
     except Exception as _ex:
-        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"preflight failed: {str(_ex)}"))
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_PREFLIGHT: {str(_ex)}"))
         return
 
     # === Step3 実動作 ===
@@ -181,11 +189,11 @@ def upload_pack_and_extract(
                 members_file=members_file_new,
             )
         except Exception as _ex:
-            report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"build extract cmd (new) failed: {str(_ex)}"))
+            report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_BUILD_EXTRACT_NEW: {str(_ex)}"))
             return
-        rc_n, out_n, err_n = run_remote_cmd_capture(ssh, extract_cmd_new, timeout=180.0)
+        rc_n, out_n, err_n = run_remote_cmd_capture(ssh, extract_cmd_new, timeout=EXTRACT_TIMEOUT_NEW)
         if rc_n != 0:
-            reason_n: str = (err_n.strip() or out_n.strip() or f"extract NEW failed rc={rc_n}")
+            reason_n: str = (err_n.strip() or out_n.strip() or f"E_EXTRACT_NEW: rc={rc_n}")
             report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_n))
             return
 
@@ -205,11 +213,11 @@ def upload_pack_and_extract(
                 members_file=members_file_exist,
             )
         except Exception as _ex:
-            report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"build extract cmd (exist) failed: {str(_ex)}"))
+            report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_BUILD_EXTRACT_EXIST: {str(_ex)}"))
             return
-        rc_e, out_e, err_e = run_remote_cmd_capture(ssh, extract_cmd_exist, timeout=180.0)
+        rc_e, out_e, err_e = run_remote_cmd_capture(ssh, extract_cmd_exist, timeout=EXTRACT_TIMEOUT_NEW)
         if rc_e != 0:
-            reason_e: str = (err_e.strip() or out_e.strip() or f"extract EXIST tmp failed rc={rc_e}")
+            reason_e: str = (err_e.strip() or out_e.strip() or f"E_EXTRACT_EXIST_TMP: rc={rc_e}")
             report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_e))
             return
 
@@ -229,7 +237,7 @@ def upload_pack_and_extract(
                 "bash", "-lc",
                 shlex.quote(f'[ -f "{src_tmp}" ] && [ -f "{dst_abs}" ]')
             ]
-            rc_c, _o_c, _e_c = run_remote_cmd_capture(ssh, check_cmd, timeout=30.0)
+            rc_c, _o_c, _e_c = run_remote_cmd_capture(ssh, check_cmd, timeout=CHECK_REGFILE_TIMEOUT)
             if rc_c != 0:
                 report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason="skip exist: non-regular file (src or dst)"))
                 continue
@@ -240,9 +248,9 @@ def upload_pack_and_extract(
             # - エスケープは安全のため shlex.quote 済みの一括シェルで実行。
             overwrite_cmd_str: str = f'cat {shlex.quote(src_tmp)} > {shlex.quote(dst_abs)}'
             overwrite_cmd: List[str] = (["sudo"] if sudo_extract else []) + ["bash", "-lc", shlex.quote(overwrite_cmd_str)]
-            rc_w, _o_w, err_w = run_remote_cmd_capture(ssh, overwrite_cmd, timeout=120.0)
+            rc_w, _o_w, err_w = run_remote_cmd_capture(ssh, overwrite_cmd, timeout=OVERWRITE_TIMEOUT)
             if rc_w != 0:
-                report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason=(err_w.strip() or "overwrite failed")))
+                report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason=(err_w.strip() or "E_OVERWRITE")))
             else:
                 report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="done"))
 
