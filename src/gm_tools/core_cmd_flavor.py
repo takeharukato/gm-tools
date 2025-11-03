@@ -13,7 +13,6 @@ except Exception as e:
 
 TarFlavor = Literal["gnu", "bsdtar", "unknown"]
 
-
 @dataclass(frozen=True)
 class CmdFlavor:
     """
@@ -72,44 +71,34 @@ def detect_tar_flavor_remote(ssh: "paramiko.SSHClient", *, timeout: float = 10.0
             flavor = "unknown"
     return CmdFlavor(tar=flavor)
 
-
 def build_tar_extract_cmd(
     *,
     flavor: TarFlavor,
-    tar_gz_path: str,
     dest_abs: str,
+    tar_gz_path: str,
     use_sudo: bool,
+    members_file: Optional[str] = None,
 ) -> List[str]:
     """
-    互換な抽出コマンドを配列で構築する。
-    - GNU:    tar -xzf <tar> -C <dest> --no-same-owner --no-same-permissions
-    - bsdtar: tar -xzf <tar> -C <dest>   （-p は付けない = 所有/ACL等を積極復元しない）
-    - unknown: 同上（最小互換セット）
+    tar.gz を dest_abs に展開するコマンド argv を返す。
+    - GNU/bsdtar 共通: -xzf, -C
+    - メンバー限定抽出: -T <members_file> を使用（GNU/bsdtar ともにサポート）
+      （members_file は改行区切りの相対パス列。アーカイブ内パスと一致させる）
     """
-    cmd: List[str] = []
-    sudo_prefix: List[str] = ["sudo"] if use_sudo else []
-    quoted_tar: str = shlex.quote(tar_gz_path)
-    quoted_dest: str = shlex.quote(dest_abs)
 
-    if flavor == "gnu":
-        # 既存メタデータ非破壊のため GNU 拡張で積極適用を抑止
-        cmd = sudo_prefix + ["tar", "-xzf", quoted_tar, "-C", quoted_dest, "--no-same-owner", "--no-same-permissions"]
-    else:
-        # bsdtar / unknown: -p を付与しない（メタデータ復元を抑止）
-        cmd = sudo_prefix + ["tar", "-xzf", quoted_tar, "-C", quoted_dest]
-
-    return cmd
-
+    base: List[str] = ["sudo", "-n"] if use_sudo else []
+    argv: List[str] = base + ["tar", "-xzf", tar_gz_path, "-C", dest_abs]
+    if members_file:
+        argv += ["-T", members_file]
+    return argv
 
 def build_tar_list_cmd(*, tar_gz_path: str, use_sudo: bool) -> List[str]:
     """
     アーカイブ内パスの列挙（互換動作）。`tar -tzf`。
     """
-    sudo_prefix: List[str] = ["sudo"] if use_sudo else []
-    quoted_tar: str = shlex.quote(tar_gz_path)
-    cmd: List[str] = sudo_prefix + ["tar", "-tzf", quoted_tar]
+    sudo_prefix: List[str] = ["sudo", "-n"] if use_sudo else []
+    cmd: List[str] = sudo_prefix + ["tar", "-tzf", tar_gz_path]
     return cmd
-
 
 def run_remote_cmd_capture(
     ssh: "paramiko.SSHClient",
@@ -120,7 +109,8 @@ def run_remote_cmd_capture(
     """
     argv をシェル安全に結合して実行する（単純連結）。
     """
-    cmd_str: str = " ".join(cmd_argv)
+
+    cmd_str: str = shlex.join(cmd_argv)
     rc: int
     out: str
     err: str
@@ -183,7 +173,7 @@ def remote_path_exists(
     test -e で存在確認。sudo 失敗（rc!=0 かつ 権限由来が明白）の場合は呼び出し側で中断判断可能。
     ここでは True/False のみ返す。
     """
-    rc, _out, _err = exec_remote(ssh, f"test -e {path}", use_sudo=use_sudo, timeout=timeout)
+    rc, _out, _err = exec_remote(ssh, f"test -e {shlex.quote(path)}", use_sudo=use_sudo, timeout=timeout)
     return rc == 0
 
 
@@ -222,7 +212,7 @@ def split_exist_new_by_remote_presence(
     for rp in rel_paths:
         # 絶対化（DEST + 相対）
         remote_p: str = f"{dest_abs.rstrip('/')}/{rp.lstrip('/')}"
-        rc, _out, err = exec_remote(ssh, f"test -e {remote_p}", use_sudo=use_sudo, timeout=timeout)
+        rc, _out, err = exec_remote(ssh, f"test -e {shlex.quote(remote_p)}", use_sudo=use_sudo, timeout=timeout)
         if rc == 0:
             exist_set.add(rp)
         else:
@@ -235,4 +225,5 @@ def split_exist_new_by_remote_presence(
                     f"sudo test failed for path={remote_p}: {err.strip()}"
                 )
             new_set.add(rp)
+
     return exist_set, new_set
