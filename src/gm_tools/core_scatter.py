@@ -1,10 +1,10 @@
-# src/gm_tools/core_scatter.py
 # -*- coding:utf-8 -*-
 from __future__ import annotations
 
 import os
 import tarfile
 import tempfile
+import shlex
 from dataclasses import dataclass
 from typing import Iterable, List, Tuple, Optional
 
@@ -28,8 +28,13 @@ class ScatterOpts:
 
 
 def _mkdir_p_remote(ssh: "paramiko.SSHClient", path: str, sudo: bool) -> None:
-    cmd: str = ("sudo mkdir -p " + path) if sudo else ("mkdir -p " + path)
+    """
+    リモート側で mkdir -p を実行する。
+    sudo=True の場合は sudo 経由で mkdir -p を呼び出す。
+    """
+    cmd: str = ("sudo mkdir -p " + shlex.quote(path)) if sudo else ("mkdir -p " + shlex.quote(path))
     ssh.exec_command(cmd)
+
 
 def local_pack_paths_to_tmp(paths: Iterable[str], follow_symlinks: bool) -> Tuple[str, List[str]]:
     """
@@ -51,10 +56,14 @@ def local_pack_paths_to_tmp(paths: Iterable[str], follow_symlinks: bool) -> Tupl
                 continue
             if follow_symlinks and islink:
                 deref.append(ap)
-            arcname: str = ap.lstrip(os.sep)  # 先頭スラッシュを落として相対名に
+
+            # アーカイブ内のパス名は「先頭スラッシュを落とした絶対パス」とする
+            #   /tmp/gmtest/sub/b.txt -> tmp/gmtest/sub/b.txt
+            arcname: str = ap.lstrip(os.sep)
             tar.add(ap, arcname=arcname, recursive=True)
 
     return tar_path, deref
+
 
 def upload_pack_and_extract(
     ssh: "paramiko.SSHClient",
@@ -67,30 +76,43 @@ def upload_pack_and_extract(
     dry_run: bool,
 ) -> None:
     """
-    作成済みtar.gzをリモート一時領域へアップロードし、DEST/abs/ 以下に展開する。
+    作成済みtar.gzをリモート一時領域へアップロードし、DEST/ 以下に展開する。
+    レイアウト:
+        DEST/<local_abs_without_leading_slash>
+
+    ここでは GNU tar 固有の --transform は使わず、
+    1) DEST を mkdir -p
+    2) tar -xzf payload.tar.gz -C DEST
+    で展開する。これは GNU tar / bsdtar の共通オプションで動く。
     """
     planned_item: TransferItem = TransferItem(
-        host=host, remote_path=f"{dest_abs_root}/abs/...", phase="plan", status="planned"
+        host=host,
+        remote_path=f"{dest_abs_root}/...",
+        phase="plan",
+        status="planned",
     )
     report.add(host, planned_item)
 
     if dry_run:
         return
 
+    # リモートで一時ディレクトリを作成して、そこに tar.gz を置く
     _stdin, stdout, _stderr = ssh.exec_command("mktemp -d /tmp/gm-scatter.XXXXXXXX")
     rtmp: str = stdout.read().decode().strip() or "/tmp"
     remote_tar: str = f"{rtmp}/payload.tar.gz"
 
     sftp.put(tar_path, remote_tar)
 
+    # 展開先 DEST を作成
     _mkdir_p_remote(ssh, dest_abs_root, sudo_extract)
 
+    # sudo が必要な場合は sudo を先頭につける
     extract_cmd: str = (
-        f"cd {dest_abs_root} && "
-        + ("sudo " if sudo_extract else "")
+        ("sudo " if sudo_extract else "")
         + "tar -xzf "
-        + remote_tar
-        + " --transform='s,^,abs/,'"
+        + shlex.quote(remote_tar)
+        + " -C "
+        + shlex.quote(dest_abs_root)
     )
     _c2, _o2, e2 = ssh.exec_command(extract_cmd)
     err: str = e2.read().decode().strip()
@@ -99,7 +121,7 @@ def upload_pack_and_extract(
             host,
             TransferItem(
                 host=host,
-                remote_path=f"{dest_abs_root}/abs/...",
+                remote_path=f"{dest_abs_root}/...",
                 phase="transfer",
                 status="failed",
                 reason=err,
@@ -110,13 +132,14 @@ def upload_pack_and_extract(
             host,
             TransferItem(
                 host=host,
-                remote_path=f"{dest_abs_root}/abs/...",
+                remote_path=f"{dest_abs_root}/...",
                 phase="transfer",
                 status="done",
             ),
         )
 
-    ssh.exec_command(f"rm -f {remote_tar} || true")
+    # 後始末
+    ssh.exec_command(f"rm -f {shlex.quote(remote_tar)} || true")
 
 
 def sftp_put_one(
@@ -132,10 +155,12 @@ def sftp_put_one(
     """
     単一のファイル（またはディレクトリ）を逐次SFTPで配置する。
     シンボルリンクは無視（dropped）する。
+    レイアウト:
+        DEST/<local_abs_without_leading_slash>
     """
     ap: str = os.path.abspath(local_abs)
     rel: str = ap.lstrip(os.sep)
-    rpath: str = os.path.join(dest_abs_root, "abs", rel)
+    rpath: str = os.path.join(dest_abs_root, rel)
 
     # symlink は送らない
     if os.path.islink(ap):
@@ -173,8 +198,9 @@ def sftp_put_one(
     if os.path.isdir(ap):
         for root, _dirs, files in os.walk(ap):
             root_str: str = str(root)
+            # root_str が ap 自身なら rel のまま、それ以外なら ap からの相対パスを連結
             sub_rel: str = os.path.join(rel, os.path.relpath(root_str, ap)) if root_str != ap else rel
-            rr: str = os.path.join(dest_abs_root, "abs", sub_rel)
+            rr: str = os.path.join(dest_abs_root, sub_rel)
             _mkdir_p_remote(ssh, rr, sudo_mkdir)
             for fn in files:
                 lp: str = os.path.join(root_str, fn)

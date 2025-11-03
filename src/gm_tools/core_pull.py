@@ -43,9 +43,9 @@ def download_one(
     """
     単一リモートファイルをローカルにダウンロードする。
 
-    保存先は DEST/<HOST>/abs/<remote_abs_path> の形に正規化する。
+    保存先は DEST/<HOST>/<remote_abs_path> の形に正規化する。
     例: remote_abs_path='/etc/hosts'、host='node1'、dest_base_dir='/tmp/out'
-        -> '/tmp/out/node1/abs/etc/hosts'
+        -> '/tmp/out/node1/etc/hosts'
     """
     local_abs: str = local_path_for_download(dest_base_dir, host, remote_abs_path)
     ensure_local_dir(os.path.dirname(local_abs))

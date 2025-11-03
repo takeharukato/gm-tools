@@ -15,11 +15,11 @@ def build_parser() -> argparse.ArgumentParser:
     p: argparse.ArgumentParser = argparse.ArgumentParser(
         prog="gm-scatter",
         description=("gm-scatter: upload local files to remote DEST.\n"
-                     "Remote layout: DEST/abs/<local_abs_without_leading_slash>"),
+                     "Remote layout: DEST/<local_abs_without_leading_slash>"),
         formatter_class=argparse.RawTextHelpFormatter,
     )
     p.add_argument("dest", help="remote DEST absolute root (e.g., /dest)")
-    p.add_argument("paths", nargs="+", help="local paths (abs or rel)")
+    p.add_argument("paths", nargs="+", help="local paths")
 
     # SSH (align with gather)
     p.add_argument("-H", "--hosts", default="hostfile", help="Hosts file. Default: hostfile.")

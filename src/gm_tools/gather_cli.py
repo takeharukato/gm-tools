@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import os
 import sys
 import traceback
 from typing import List, Optional
@@ -53,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  - SRC: absolute path starting with '/', 'X:/' (Windows), or '~/'.\n"
             "         The portion after the root is treated as a regex path.\n"
             "         e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/bar\\.txt'.\n"
-            "  - DEST: local directory where files are stored as DEST/<HOST>/abs/..."
+            "  - DEST: local directory where files are stored as DEST/<HOST>/..."
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -198,7 +197,7 @@ def _worker(
                         follow_symlinks=follow_symlinks,
                     )
                     extracted, _ = download_and_extract_tar(
-                        sftp_client, remote_gz, dest_local, os.path.join(host, "abs")
+                        sftp_client, remote_gz, dest_local, host
                     )
                     downloaded += extracted
                     if verbose:
@@ -213,7 +212,7 @@ def _worker(
             # 逐次 SFTP：リンクは無視、通常ファイルのみ
             for remote_path in files_only:
                 try:
-                    # local_path は download_one 内で正規化（DEST/<HOST>/abs/...）
+                    # local_path は download_one 内で正規化（DEST/<HOST>/...）
                     download_one(sftp_client, remote_path, dest_local, host)
                     downloaded += 1
                     if verbose:

@@ -53,13 +53,13 @@ must_not_exist() {
 
 show_dest_tree() {
   log "結果: 宛先ツリー"
-  ( set +e; ls -lR "${DEST}/abs" || true )
+  ( set +e; ls -lR "${DEST}" || true )
 }
 
-# 絶対パス→DEST/abs/…への変換ヘルパ（期待確認用）
+# 絶対パス => DEST への変換ヘルパ（期待確認用）
 to_dest_path() {
-  # /tmp/gmtest/sub/b.txt -> ${DEST}/abs/tmp/gmtest/sub/b.txt
+  # /tmp/gmtest/sub/b.txt -> ${DEST}/tmp/gmtest/sub/b.txt
   local ap="$1"
   local rel="${ap#/}"  # 先頭スラッシュ除去
-  printf '%s\n' "${DEST}/abs/${rel}"
+  printf '%s\n' "${DEST}/${rel}"
 }

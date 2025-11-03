@@ -17,11 +17,20 @@ def ensure_local_dir(path: str) -> None:
 
 def local_path_for_download(dest_dir: str, host: str, remote_abs_path: str) -> str:
     """
-    保存先は DEST/<HOST>/abs/<remote_abs_path> の形に正規化する
-    例) remote_abs_path='/etc/hosts' -> DEST/<HOST>/abs/etc/hosts
+    リモートの絶対パス remote_abs_path を、ローカルの保存先パスにマッピングする。
+
+    保存先は DEST/<HOST>/<remote_abs_path_without_leading_slash> の形に正規化する。
+    例:
+        dest_dir = "/tmp/out"
+        host     = "node1"
+        remote_abs_path = "/etc/hosts"
+      -> "/tmp/out/node1/etc/hosts"
+
+    つまり gather は /etc/hosts を取得した場合、
+    /tmp/out/node1/etc/hosts に保存する、というルールになる。
     """
-    rel = remote_abs_path.lstrip('/').replace('\\', '/')
-    return os.path.join(dest_dir, host, "abs", rel)
+    rel = remote_abs_path.lstrip("/").replace("\\", "/")
+    return os.path.join(dest_dir, host, rel)
 
 # --------------------------------------------------------------------
 # SRC 正規化 / ルート分割
