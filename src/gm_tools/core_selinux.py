@@ -2,123 +2,45 @@
 from __future__ import annotations
 
 import shlex
-from dataclasses import dataclass
-from typing import List, Optional, Tuple, Literal
+from typing import Tuple
 
 try:
     import paramiko  # type: ignore
 except Exception as e:
     raise RuntimeError("Paramiko is required: pip install paramiko") from e
 
-
-SelinuxMode = Literal["auto", "policy", "ignore"]
-
-
-@dataclass(frozen=True)
-class SelinuxSupport:
-    """
-    SELinux 対応可否の判定結果。
-    """
-    supported: bool
-    reason: Optional[str] = None
+from .core_cmd_flavor import run_remote_cmd_capture
 
 
-def _exec_simple(ssh: "paramiko.SSHClient", cmd: str, timeout: Optional[float] = None) -> Tuple[int, str, str]:
-    """
-    依存の少ない実行ヘルパ。stdout/err を全読みして (rc, out, err) を返す。
-    """
-    _stdin: "paramiko.ChannelFile"
-    stdout: "paramiko.ChannelFile"
-    stderr: "paramiko.ChannelFile"
-    _stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
-    out_s: str = stdout.read().decode(errors="ignore")
-    err_s: str = stderr.read().decode(errors="ignore")
-    rc: int = stdout.channel.recv_exit_status()
-    try:
-        stdout.close()
-        stderr.close()
-        _stdin.close()
-    except Exception:
-        pass
-    return rc, out_s, err_s
+class SelinuxMode:
+    AUTO: str = "auto"
+    POLICY: str = "policy"
+    IGNORE: str = "ignore"
 
 
-def detect_selinux_supported_remote(ssh: "paramiko.SSHClient", *, timeout: float = 10.0) -> SelinuxSupport:
-    """
-    以下両方を満たすと 'supported=True':
-      1) /sys/fs/selinux が存在 もしくは selinuxfs がマウントされている
-      2) restorecon コマンドが存在
-    """
-    rc1: int
-    _out1: str
-    _err1: str
-    rc1, _out1, _err1 = _exec_simple(
-        ssh,
-        r"""test -d /sys/fs/selinux || mount | grep -q selinuxfs""",
-        timeout=timeout,
-    )
-    rc2: int
-    _out2: str
-    _err2: str
-    rc2, _out2, _err2 = _exec_simple(
-        ssh,
-        r"""command -v restorecon >/dev/null 2>&1""",
-        timeout=timeout,
-    )
-
-    supported: bool = (rc1 == 0) and (rc2 == 0)
-    reason: Optional[str] = None
-    if not supported:
-        reason = f"probe1_rc={rc1}, probe2_rc={rc2}"
-    return SelinuxSupport(supported=supported, reason=reason)
+def _run0(ssh: "paramiko.SSHClient", cmd: str, use_sudo: bool, timeout: float = 30.0) -> Tuple[int, str, str]:
+    return run_remote_cmd_capture(ssh, (["sudo"] if use_sudo else []) + ["bash", "-lc", cmd], timeout=timeout)
 
 
-def restorecon_newset_remote(
+def selinux_supported(ssh: "paramiko.SSHClient", use_sudo: bool) -> bool:
+    """リモートが SELinux ラベル適用に対応できるか（selinuxfs 存在、restorecon 実行可）。"""
+    rc1, _, _ = _run0(ssh, "[ -d /sys/fs/selinux ] || mount | grep -q selinuxfs", use_sudo, 5.0)
+    rc2, _, _ = _run0(ssh, "command -v restorecon >/dev/null 2>&1", use_sudo, 5.0)
+    return rc1 == 0 and rc2 == 0
+
+
+def apply_restorecon_for_members(
     ssh: "paramiko.SSHClient",
-    *,
-    dest_abs: str,
-    new_rel_paths: List[str],
-    mode: SelinuxMode,
-    selinux_supported: bool,
+    dest_abs_root: str,
+    members_file: str,
     use_sudo: bool,
-    dry_run: bool,
-    timeout: float = 120.0,
-) -> None:
+    timeout: float = 180.0,
+) -> Tuple[int, str, str]:
     """
-    NEW_SET（新規作成された相対パス群）に対してのみ restorecon を実行する。
-    - mode='auto'   : selinux_supported=True の場合のみ実行。False なら何もしない。
-    - mode='policy' : selinux_supported=False の場合はエラー（例外）を送出。True なら実行。
-    - mode='ignore' : 何もしない。
+    members_file に列挙された相対パス（NEW のみを想定）へ restorecon -RF を適用。
     """
-    if mode == "ignore":
-        return
-
-    if not selinux_supported:
-        if mode == "policy":
-            raise RuntimeError("SELinux is not supported on remote host (mode=policy).")
-        # auto: 対応不可なら黙ってスキップ
-        return
-
-    if not new_rel_paths:
-        return
-
-    # まとめて DEST を対象にするよりも NEW_SET のみ対象にする。処理コスト低減と既存ラベル保護のため。
-    for rp in new_rel_paths:
-        rp_str: str = rp
-        abs_path: str = f"{dest_abs.rstrip('/')}/{rp_str}"
-        prefix: str = "sudo " if use_sudo else ""
-        cmd: str = f"""{prefix}restorecon -RF {shlex.quote(abs_path)}"""
-        if dry_run:
-            # dry-run は実コマンドを投げない
-            continue
-        rc: int
-        out: str
-        err: str
-        rc, out, err = _exec_simple(ssh, cmd, timeout=timeout)
-        if rc != 0:
-            # エラーだが致命化はしない（方針によりここで raise も可）
-            # 呼び出し側が TransferReport に失敗を記録するのが望ましい。
-            # ここでは例外を投げず継続。
-            _ = (out, err)  # 型のために束縛
-            # ログ出力は呼び出し側に委ねる
-            pass
+    qdest: str = shlex.quote(dest_abs_root)
+    qmem: str = shlex.quote(members_file)
+    # 1 行ずつ対象に適用（-RF）：ディレクトリにもファイルにも対応
+    cmd: str = f'while IFS= read -r p; do [ -n "$p" ] || continue; restorecon -RF "{qdest}/$p" || exit 1; done < {qmem}'
+    return _run0(ssh, cmd, use_sudo, timeout)
