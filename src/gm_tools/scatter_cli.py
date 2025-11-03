@@ -10,17 +10,17 @@ from .core_select import enumerate_candidates_local
 from .core_ssh import SSHConfig, ssh_open, finalize_sockets
 from .core_report import TransferReport, TransferItem
 
-
 def build_parser() -> argparse.ArgumentParser:
     p: argparse.ArgumentParser = argparse.ArgumentParser(
         prog="gm-scatter",
         description=("gm-scatter: upload local files to remote DEST.\n"
+                     "Usage: gm-scatter [SRC ...] DEST\n"
                      "Remote layout: DEST/<local_abs_without_leading_slash>"),
         formatter_class=argparse.RawTextHelpFormatter,
     )
+    # gather/scatterともに: SRC ... DEST の順に指定
+    p.add_argument("src", nargs="+", help="local SRC paths (abs or rel)")
     p.add_argument("dest", help="remote DEST absolute root (e.g., /dest)")
-    p.add_argument("paths", nargs="+", help="local paths")
-
     # SSH (align with gather)
     p.add_argument("-H", "--hosts", default="hostfile", help="Hosts file. Default: hostfile.")
     p.add_argument("-u", "--user", default=getpass.getuser(), help="Target account semantics on remote (展開アカウント).")
@@ -67,7 +67,8 @@ def run_one_host(host: str, args: Namespace) -> None:
             ssh_user=ssh_user,
             local_user=getpass.getuser(),
         )
-        cands: List[str] = list(enumerate_candidates_local(list(args.paths)))
+        # SRC 群を列挙（globbing → 絶対化 → 重複排除）
+        cands: List[str] = list(enumerate_candidates_local(list(args.src)))
         if opts.pack:
             # When packing, symlink deref handling is decided by --follow-symlinks.
             tar_path, _deref = local_pack_paths_to_tmp(cands, follow_symlinks=opts.follow_symlinks)
