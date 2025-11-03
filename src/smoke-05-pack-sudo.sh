@@ -6,7 +6,7 @@ set -euo pipefail
 : "${SSH_USER:=${USER:-$(id -un)}}"
 
 # 展開アカウント（所有者概念としての --user）。ssh_user と異なる値にする
-: "${TARGET_USER:=targetuser}"
+: "${TARGET_USER:=ansible}"
 
 # sudo が必要なディレクトリを宛先に（権限で書けない場所）
 DEST=/var/lib/gm-scatter-dest

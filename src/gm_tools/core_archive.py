@@ -166,3 +166,17 @@ def download_and_extract_tar(
     if verbose:
         print(f"[pack] downloaded {remote_tar_gz} -> extracted {extracted} file(s) to {dest_root}")
     return extracted, extracted_paths
+
+def list_tar_members_local(tar_path: str) -> List[str]:
+    """
+    ローカル tar.gz のメンバー名（相対パス）を列挙して返す。
+    ディレクトリも含む。先頭の '/' は取り除く。
+    """
+    names: List[str] = []
+    # NOTE: dereference の有無はアーカイブ作成時の話で、ここは「アーカイブ内の名前列挙」だけ行う
+    with tarfile.open(tar_path, mode="r:gz") as tf:
+        for m in tf.getmembers():
+            nm: str = m.name.lstrip("/")
+            if nm:
+                names.append(nm)
+    return names

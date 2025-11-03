@@ -18,8 +18,18 @@ from .core_report import (
     TransferItem
 )
 
+from .core_archive import (
+    list_tar_members_local,
+)
+
 from .core_cmd_flavor import (
+    CmdFlavor,
+    TarFlavor,
     remote_mkdir_p,
+    detect_tar_flavor_remote,
+    build_tar_extract_cmd,
+    run_remote_cmd_capture,
+    split_exist_new_by_remote_presence,
 )
 
 @dataclass
@@ -81,12 +91,11 @@ def upload_pack_and_extract(
     2) tar -xzf payload.tar.gz -C DEST
     で展開する。これは GNU tar / bsdtar の共通オプションで動く。
     """
-    planned_item: TransferItem = TransferItem(
-        host=host,
+
+    planned_item: TransferItem = TransferItem(host=host,
         remote_path=f"{dest_abs_root}/...",
         phase="plan",
-        status="planned",
-    )
+        status="planned")
     report.add(host, planned_item)
 
     if dry_run:
@@ -109,16 +118,53 @@ def upload_pack_and_extract(
         return
 
     # sudo が必要な場合は sudo を先頭につける
-    extract_cmd: str = (
-        ("sudo " if sudo_extract else "")
-        + "tar -xzf "
-        + shlex.quote(remote_tar)
-        + " -C "
-        + shlex.quote(dest_abs_root)
-    )
-    _c2, _o2, e2 = ssh.exec_command(extract_cmd)
-    err: str = e2.read().decode().strip()
-    if err:
+    # --- Step2: preflight（tar flavor 検知／NEW/EXIST 仕分けのログのみ） ---
+    try:
+        cmd_flavor: CmdFlavor = detect_tar_flavor_remote(ssh)
+        flavor: TarFlavor = cmd_flavor.tar
+    except Exception as _ex:
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"tar flavor detect failed: {str(_ex)}"))
+        return
+
+    # tar のローカルメンバー一覧（相対パス）を得て、DEST 直下に置く前提でそのまま仕分け
+    try:
+        rel_members: List[str] = list_tar_members_local(tar_path)
+    except Exception as _ex:
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"tar list failed: {str(_ex)}"))
+        return
+
+    try:
+        exist_set, new_set = split_exist_new_by_remote_presence(
+            ssh,
+            dest_abs_root,
+            rel_members,
+            use_sudo=sudo_extract,
+            timeout=60.0,
+        )
+        # 仕分け結果はログ出力のみ（動作は従来どおり）
+        try:
+            print(f"[preflight] host={host} tar={flavor} EXIST={len(exist_set)} NEW={len(new_set)} DEST={dest_abs_root}")
+        except Exception:
+            pass
+    except Exception as _ex:
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"preflight failed: {str(_ex)}"))
+        return
+
+    # --- Step2: GNU/bsdtar 抽出コマンドの切替＆rcで厳密評価 ---
+    try:
+        extract_cmd: List[str] = build_tar_extract_cmd(
+            flavor=flavor,
+            dest_abs=dest_abs_root,
+            tar_gz_path=remote_tar,
+            use_sudo=sudo_extract,
+        )
+    except Exception as _ex:
+        report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"build extract cmd failed: {str(_ex)}"))
+        return
+
+    rc2, out2, err2 = run_remote_cmd_capture(ssh, extract_cmd, timeout=120.0)
+    if rc2 != 0:
+        reason: str = (err2.strip() or out2.strip() or f"extract failed rc={rc2}")
         report.add(
             host,
             TransferItem(
@@ -126,7 +172,7 @@ def upload_pack_and_extract(
                 remote_path=f"{dest_abs_root}/...",
                 phase="transfer",
                 status="failed",
-                reason=err,
+                reason=reason,
             ),
         )
     else:
