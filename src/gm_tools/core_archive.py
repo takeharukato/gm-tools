@@ -13,14 +13,7 @@ from typing import Iterable, List, Tuple
 if TYPE_CHECKING:
     import paramiko  # type: ignore
 
-
-def _run(ssh: "paramiko.SSHClient", cmd: str, timeout: float) -> Tuple[int, bytes, bytes]:
-    _stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
-    out = stdout.read()
-    err = stderr.read()
-    rc = stdout.channel.recv_exit_status()
-    return rc, out, err
-
+from .core_cmd_flavor import run_remote_cmd_capture
 
 def remote_pack_paths(
     ssh: "paramiko.SSHClient",
@@ -43,45 +36,38 @@ def remote_pack_paths(
     tarf = f"{ident}.tar"
     tgz = f"{tarf}.gz"
 
-    # 1) 一時リストにパス列挙
-    content = "\n".join(abs_paths) + "\n"
-    put_cmd = f"cat > {shlex.quote(lst)}"
-    ch_in, ch_out, ch_err = ssh.exec_command(put_cmd, timeout=timeout)
-    try:
-        ch_in.write(content)
-        ch_in.channel.shutdown_write()
-        _ = ch_out.read()
-        _ = ch_err.read()
-        rc = ch_out.channel.recv_exit_status()
-        if rc != 0:
-            raise RuntimeError("prepare list failed")
-    finally:
-        try:
-            ch_in.close()
-            ch_out.close()
-            ch_err.close()
-        except Exception:
-            pass
+    # 1) 一時リストにパス列挙（printf 経由で安全に書き込み）
+    #    各要素は printf の % 展開を避けるためにクォートして "%s\n" で渡す
+    q_lst = shlex.quote(lst)
+    q_paths: List[str] = [shlex.quote(p) for p in abs_paths]
+    printf_args: str = " ".join(q_paths)
+    list_cmd: List[str] = ["bash", "-lc", f"printf '%s\\n' {printf_args} > {q_lst}"]
+    rc_l, _out_l, err_l = run_remote_cmd_capture(ssh, list_cmd, timeout=timeout)
+    if rc_l != 0:
+        raise RuntimeError(f"prepare list failed: {err_l.strip()}")
 
-    sudo = "sudo -n " if use_sudo else ""
-    deref = " -h" if follow_symlinks else ""
+    # 2) tar 作成（-P は付けない：アーカイブ内部は相対パス）
+    deref_flag: str = " -h" if follow_symlinks else ""
+    q_tarf: str = shlex.quote(tarf)
+    tar_cmd_str: str = f"LC_ALL=C tar{deref_flag} -cf {q_tarf} -T {q_lst}"
+    tar_argv: List[str] = (["sudo", "-n"] if use_sudo else []) + ["bash", "-lc", tar_cmd_str]
+    rc_t, _out_t, err_t = run_remote_cmd_capture(ssh, tar_argv, timeout=timeout)
+    if rc_t != 0:
+        # list ファイルの掃除だけは試みる
+        _ = run_remote_cmd_capture(ssh, ["bash", "-lc", f"rm -f {q_lst} || true"], timeout=timeout)
+        raise RuntimeError(f"tar failed: {err_t.strip() or '(no stderr)'}")
 
-    # 2) tar作成（-P を付けない：アーカイブ内部は相対パスにする）
-    cmd_tar = f"{sudo}sh -lc 'LC_ALL=C tar{deref} -cf {shlex.quote(tarf)} -T {shlex.quote(lst)}'"
-    rc, _out, err = _run(ssh, cmd_tar, timeout)
-    if rc != 0:
-        _run(ssh, f"rm -f {shlex.quote(lst)}", timeout)
-        raise RuntimeError(f"tar failed: {err.decode(errors='ignore')}")
+    # 3) gzip 圧縮
+    gz_cmd_str: str = f"LC_ALL=C gzip -f {q_tarf}"
+    gz_argv: List[str] = (["sudo", "-n"] if use_sudo else []) + ["bash", "-lc", gz_cmd_str]
+    rc_g, _out_g, err_g = run_remote_cmd_capture(ssh, gz_argv, timeout=timeout)
+    if rc_g != 0:
+        # tar と list の掃除だけは試みる
+        _ = run_remote_cmd_capture(ssh, ["bash", "-lc", f"rm -f {q_tarf} {q_lst} || true"], timeout=timeout)
+        raise RuntimeError(f"gzip failed: {err_g.strip() or '(no stderr)'}")
 
-    # 3) gzip圧縮
-    cmd_gz = f"{sudo}sh -lc 'LC_ALL=C gzip -f {shlex.quote(tarf)}'"
-    rc, _out, err = _run(ssh, cmd_gz, timeout)
-    if rc != 0:
-        _run(ssh, f"rm -f {shlex.quote(tarf)} {shlex.quote(lst)}", timeout)
-        raise RuntimeError(f"gzip failed: {err.decode(errors='ignore')}")
-
-    # 4) 一時リスト掃除（tgzは後でSFTP GETするため残す）
-    _run(ssh, f"rm -f {shlex.quote(lst)}", timeout)
+    # 4) 一時リスト掃除（tgzはこの後 SFTP GET するため残す）
+    _ = run_remote_cmd_capture(ssh, ["bash", "-lc", f"rm -f {q_lst} || true"], timeout=timeout)
 
     return tgz
 
