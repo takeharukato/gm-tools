@@ -9,6 +9,7 @@ from .core_scatter import ScatterOpts, local_pack_paths_to_tmp, upload_pack_and_
 from .core_select import enumerate_candidates_local
 from .core_ssh import SSHConfig, ssh_open, finalize_sockets
 from .core_report import TransferReport, TransferItem
+from .core_selinux import SelinuxMode
 
 def build_parser() -> argparse.ArgumentParser:
     p: argparse.ArgumentParser = argparse.ArgumentParser(
@@ -37,11 +38,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--follow-symlinks", action="store_true", help="when packing, dereference symlinks")
     p.add_argument("--dry-run", action="store_true", help="plan only")
     p.add_argument("-x", "--sudo-extract", action="store_true", help="use sudo to mkdir/extract on remote when packing")
+    # SELinuxはpack経路のみ有効（SFTP経路では無効）
+    p.add_argument(
+        "--selinux",
+        choices=["auto", "policy", "ignore"],
+        default="auto",
+        help="SELinux label restore policy (pack path only). Default: auto.",
+    )
     return p
 
 
 def run_one_host(host: str, args: Namespace) -> None:
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)
+    target_user: str = str(args.user)
+    selinux_mode: SelinuxMode = str(args.selinux) if hasattr(args, "selinux") else "auto"  # type: ignore[assignment]
     report: TransferReport = TransferReport()
 
     # SSH open
@@ -66,6 +76,9 @@ def run_one_host(host: str, args: Namespace) -> None:
             sudo_extract=bool(args.sudo_extract) and bool(args.pack) and (ssh_user != str(args.user)),
             ssh_user=ssh_user,
             local_user=getpass.getuser(),
+            # Step4 追加
+            target_user=target_user,
+            selinux_mode=selinux_mode,
         )
         # SRC 群を列挙（globbing → 絶対化 → 重複排除）
         cands: List[str] = list(enumerate_candidates_local(list(args.src)))
@@ -73,7 +86,18 @@ def run_one_host(host: str, args: Namespace) -> None:
             # When packing, symlink deref handling is decided by --follow-symlinks.
             tar_path, _deref = local_pack_paths_to_tmp(cands, follow_symlinks=opts.follow_symlinks)
             # (Optional) deref note printing could be added if desired.
-            upload_pack_and_extract(ssh, sftp, tar_path, opts.dest_abs_root, opts.sudo_extract, host, report, opts.dry_run)
+            upload_pack_and_extract(
+                ssh,
+                sftp,
+                tar_path,
+                opts.dest_abs_root,
+                opts.sudo_extract,
+                host,
+                report,
+                opts.dry_run,
+                target_user=opts.target_user,
+                selinux_mode=opts.selinux_mode,
+            )
         else:
             # Sequential SFTP: mkdir は SSH 経由の 'mkdir -p'（core_scatter 側実装）を使用
             for pth in cands:

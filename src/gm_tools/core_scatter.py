@@ -1,10 +1,8 @@
 # -*- coding:utf-8 -*-
 #
-#
-#環境変数:
-# GM_SCATTER_DEBUG=1|on|true|yes|on
-#   診断用ログ（tzf 比較や -T 検証）を出力する (デフォルトは出力しない)
-
+# 環境変数:
+#   GM_SCATTER_DEBUG=1|true|yes|on
+#     診断用ログ（tzf 比較や -T 検証等）を出力する（既定: 抑制）
 from __future__ import annotations
 
 import os
@@ -12,7 +10,7 @@ import tarfile
 import tempfile
 import shlex
 from dataclasses import dataclass
-from typing import Iterable, List, Tuple, Optional
+from typing import Iterable, List, Tuple, Optional, Set, Dict
 
 try:
     import paramiko  # type: ignore
@@ -21,23 +19,12 @@ except Exception as e:
 
 from .core_report import (
     TransferReport,
-    TransferItem
+    TransferItem,
 )
 
 from .core_archive import (
     list_tar_members_local,
 )
-
-# === Timeouts (seconds) ===
-TAR_DETECT_TIMEOUT: float = 10.0
-PREFLIGHT_TEST_TIMEOUT: float = 60.0
-EXTRACT_TIMEOUT_NEW: float = 180.0
-EXTRACT_TIMEOUT_EXIST: float = 180.0
-CHECK_REGFILE_TIMEOUT: float = 30.0
-OVERWRITE_TIMEOUT: float = 120.0
-
-# デバッグフラグ
-_DEBUG: bool = str(os.environ.get("GM_SCATTER_DEBUG", "")).lower() in ("1","true","yes","on")
 
 from .core_cmd_flavor import (
     CmdFlavor,
@@ -49,6 +36,44 @@ from .core_cmd_flavor import (
     split_exist_new_by_remote_presence,
 )
 
+# Step4 分離モジュール（新規）
+from .core_selinux import (
+    SelinuxMode,                  # Literal["auto","policy","ignore"]
+    detect_selinux_capable,       # (ssh) -> bool
+    restorecon_recursive_if_needed,  # (ssh, paths, mode) -> None (必要時のみ実行)
+)
+
+from .core_xattr import (
+    check_acl_tools_available,     # (ssh) -> bool
+    check_xattr_tools_available,   # (ssh) -> bool
+    stat_owner_group_mode,         # (ssh, path, use_sudo) -> Tuple[str,str,int]
+    chown_chmod,                   # (ssh, path, owner, group, mode, use_sudo) -> None
+    capture_acl_dump,              # (ssh, path, dump_dir, use_sudo) -> Optional[str]
+    restore_acl_dump,              # (ssh, dump_file, use_sudo) -> None
+    capture_xattr_dump,            # (ssh, path, dump_dir, use_sudo) -> Optional[str]
+    restore_xattr_dump,            # (ssh, dump_file, use_sudo) -> None
+)
+
+# === Timeouts (seconds) ===
+TAR_DETECT_TIMEOUT: float = 10.0
+PREFLIGHT_TEST_TIMEOUT: float = 60.0
+EXTRACT_TIMEOUT_NEW: float = 180.0
+EXTRACT_TIMEOUT_EXIST: float = 180.0
+CHECK_REGFILE_TIMEOUT: float = 30.0
+OVERWRITE_TIMEOUT: float = 120.0
+
+# デバッグフラグ
+_DEBUG: bool = str(os.environ.get("GM_SCATTER_DEBUG", "")).lower() in ("1", "true", "yes", "on")
+
+
+def _dbg_log(msg: str) -> None:
+    if _DEBUG:
+        try:
+            print(msg)
+        except Exception:
+            pass
+
+
 @dataclass
 class ScatterOpts:
     dest_abs_root: str
@@ -58,13 +83,9 @@ class ScatterOpts:
     sudo_extract: bool = False  # (ssh_user != user) and pack のとき True
     ssh_user: Optional[str] = None
     local_user: Optional[str] = None
-
-def _dbg_log(msg: str) -> None:
-    if _DEBUG:
-        try:
-            print(msg)
-        except Exception:
-            pass
+    # Step4 追加（既存呼び出し互換性を壊さない既定あり）
+    target_user: Optional[str] = None          # --user の解決結果
+    selinux_mode: SelinuxMode = "auto"         # --selinux {auto,policy,ignore} （pack 経路のみ）
 
 
 def local_pack_paths_to_tmp(paths: Iterable[str], follow_symlinks: bool) -> Tuple[str, List[str]]:
@@ -95,6 +116,7 @@ def local_pack_paths_to_tmp(paths: Iterable[str], follow_symlinks: bool) -> Tupl
 
     return tar_path, deref
 
+
 def write_members_file(
     sftp: "paramiko.SFTPClient",
     remote_path: str,
@@ -114,34 +136,26 @@ def write_members_file(
 
     normalize_paths=False の場合は、与えられた文字列をそのまま並べ替え・連結のみ行う。
     """
-
     def _normalize_members_content(s: str) -> bytes:
-        # どのプラットフォームからでも LF に正規化して UTF-8 バイナリで返す
-        # （tar -T は CR を含むと一致しないことがあるため）
         return s.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
 
     def _sftp_write_text(path: str, content: str) -> None:
-
-        # UTF-8 (LF 正規化済み) で members file を配置（バイナリモードで明示）
-        data = _normalize_members_content(content)
-
+        data: bytes = _normalize_members_content(content)
         f: "paramiko.SFTPFile" = sftp.file(path, mode="wb")
         try:
             f.write(data)
         finally:
             f.close()
 
-
     canon: List[str] = []
-    seen: set[str] = set()
+    seen: Set[str] = set()
     for m in members:
-        s = str(m)
+        s: str = str(m)
         if normalize_paths:
-            s = s.replace("\\", "/")      # 保険：Windows由来などを吸収
-            while s.startswith("./"):     # 先頭 "./" を剥がす
+            s = s.replace("\\", "/")
+            while s.startswith("./"):
                 s = s[2:]
-            s = s.lstrip("/")             # 念のため絶対パス化を防止
-        # 空行は除外
+            s = s.lstrip("/")
         if not s:
             continue
         if s in seen:
@@ -149,8 +163,9 @@ def write_members_file(
         seen.add(s)
         canon.append(s)
 
-    text = "\n".join(sorted(canon)) + "\n"
+    text: str = "\n".join(sorted(canon)) + "\n"
     _sftp_write_text(remote_path, text)
+
 
 def upload_pack_and_extract(
     ssh: "paramiko.SSHClient",
@@ -161,27 +176,34 @@ def upload_pack_and_extract(
     host: str,
     report: TransferReport,
     dry_run: bool,
+    *,
+    target_user: Optional[str] = None,
+    selinux_mode: SelinuxMode = "auto",
 ) -> None:
     """
-    作成済みtar.gzをリモート一時領域へアップロードし、DEST/ 以下に展開する。
-    レイアウト:
-        DEST/<local_abs_without_leading_slash>
+    作成済み tar.gz をリモート一時領域へアップロードし、DEST/ 以下に展開する。
+    レイアウト: DEST/<local_abs_without_leading_slash>
 
-    ここでは GNU tar 固有の --transform は使わず、
-    1) DEST を mkdir -p
-    2) tar -xzf payload.tar.gz -C DEST
-    で展開する。これは GNU tar / bsdtar の共通オプションで動く。
+    GNU tar 固有の --transform は使わず、
+      1) DEST を mkdir -p
+      2) tar -xzf payload.tar.gz -C DEST
+    （GNU tar / bsdtar 共通オプション）
     """
-
-    # --- cleanup 対象を先に None 初期化（分岐で束縛されない経路があるため） ---
+    # 事前初期化（locals() ガード禁止方針）
     members_file_new: Optional[str] = None
     members_file_exist: Optional[str] = None
     rtmp_exist: Optional[str] = None
+    rtmp: Optional[str] = None
+    rtmp_meta: Optional[str] = None
 
-    planned_item: TransferItem = TransferItem(host=host,
-        remote_path=f"{dest_abs_root}/...",
-        phase="plan",
-        status="planned")
+    # 能力検査
+    selinux_capable: bool = detect_selinux_capable(ssh)
+    acl_ok: bool = check_acl_tools_available(ssh)
+    xattr_ok: bool = check_xattr_tools_available(ssh)
+
+    planned_item: TransferItem = TransferItem(
+        host=host, remote_path=f"{dest_abs_root}/...", phase="plan", status="planned"
+    )
     report.add(host, planned_item)
 
     if dry_run:
@@ -189,7 +211,7 @@ def upload_pack_and_extract(
 
     # リモートで一時ディレクトリを作成して、そこに tar.gz を置く
     _stdin, stdout, _stderr = ssh.exec_command("mktemp -d /tmp/gm-scatter.XXXXXXXX")
-    rtmp: str = stdout.read().decode().strip() or "/tmp"
+    rtmp = stdout.read().decode().strip() or "/tmp"
     remote_tar: str = f"{rtmp}/payload.tar.gz"
 
     sftp.put(tar_path, remote_tar)
@@ -201,25 +223,35 @@ def upload_pack_and_extract(
         remote_mkdir_p(ssh, dest_abs_root, use_sudo=sudo_extract)
     except Exception as _ex:
         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_MKDIR_DEST: {str(_ex)}"))
+        # 後始末
+        ssh.exec_command(f"rm -f {shlex.quote(remote_tar)} || true")
+        if rtmp:
+            ssh.exec_command(f"rm -rf {shlex.quote(rtmp)} || true")
         return
 
     # sudo が必要な場合は sudo を先頭につける
     # preflight（tar flavor 検知／NEW/EXIST 仕分けのログ）
     try:
-        cmd_flavor: CmdFlavor = detect_tar_flavor_remote(ssh,timeout=TAR_DETECT_TIMEOUT)
+        cmd_flavor: CmdFlavor = detect_tar_flavor_remote(ssh, timeout=TAR_DETECT_TIMEOUT)
         flavor: TarFlavor = cmd_flavor.tar
     except Exception as _ex:
         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_TAR_DETECT: {str(_ex)}"))
+        ssh.exec_command(f"rm -f {shlex.quote(remote_tar)} || true")
+        if rtmp:
+            ssh.exec_command(f"rm -rf {shlex.quote(rtmp)} || true")
         return
 
-    # tar のローカルメンバー一覧（相対パス）を得て、DEST 直下に置く前提でそのまま仕分け
+    # tar のローカルメンバー一覧（相対パス）を得る
     try:
-        rel_files: List[str]; empty_dirs: List[str]
         rel_files, empty_dirs = list_tar_members_local(tar_path)
     except Exception as _ex:
         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_TAR_LIST: {str(_ex)}"))
+        ssh.exec_command(f"rm -f {shlex.quote(remote_tar)} || true")
+        if rtmp:
+            ssh.exec_command(f"rm -rf {shlex.quote(rtmp)} || true")
         return
 
+    # EXIST/NEW 仕分け
     try:
         exist_set, new_set = split_exist_new_by_remote_presence(
             ssh,
@@ -233,9 +265,12 @@ def upload_pack_and_extract(
 
     except Exception as _ex:
         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_PREFLIGHT: {str(_ex)}"))
+        ssh.exec_command(f"rm -f {shlex.quote(remote_tar)} || true")
+        if rtmp:
+            ssh.exec_command(f"rm -rf {shlex.quote(rtmp)} || true")
         return
 
-    # 空ディレクトリの作成（属性変更は行わない）。EXIST/NEW 仕分けには影響しない。
+    # 空ディレクトリ作成（属性は変更しない）
     for _d in empty_dirs:
         try:
             remote_mkdir_p(ssh, os.path.join(dest_abs_root, _d), use_sudo=sudo_extract)
@@ -244,9 +279,11 @@ def upload_pack_and_extract(
                 host,
                 TransferItem(host=host, remote_path=os.path.join(dest_abs_root, _d), phase="transfer", status="failed", reason=f"E_MKDIR_EMPTY: {str(_ex)}"),
             )
+            ssh.exec_command(f"rm -f {shlex.quote(remote_tar)} || true")
+            if rtmp:
+                ssh.exec_command(f"rm -rf {shlex.quote(rtmp)} || true")
             return
 
-    # === Step3 実動作 ===
     # メンバーファイルを作成し, 以下を実施
     #  1) NEW セットのみを DEST に抽出（-T list）
     #  2) EXIST セットは別 tmp に抽出 → 内容のみ既存へ上書き（属性は変更しない）
@@ -267,14 +304,46 @@ def upload_pack_and_extract(
             )
         except Exception as _ex:
             report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_BUILD_EXTRACT_NEW: {str(_ex)}"))
+            # cleanup は後半でまとめて実施するためここでは実施していない
             return
+
         rc_n, out_n, err_n = run_remote_cmd_capture(ssh, extract_cmd_new, timeout=EXTRACT_TIMEOUT_NEW)
         if rc_n != 0:
             reason_n: str = (err_n.strip() or out_n.strip() or f"E_EXTRACT_NEW: rc={rc_n}")
             report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_n))
+            # cleanup は後半でまとめて実施するためここでは実施していない
             return
 
-    # EXIST セットの内容置換（通常ファイルのみ）
+        # NEW の chown（sudo 経路のみ）。chmod はしない。
+        if sudo_extract and target_user:
+            # primary group 取得
+            rc_g, out_g, _ = run_remote_cmd_capture(ssh, (["bash", "-lc", f"id -gn {shlex.quote(target_user)}"]), timeout=CHECK_REGFILE_TIMEOUT)
+            if rc_g == 0:
+                primary_group: str = out_g.strip()
+                # -T list で列挙済みの NEW のみ chown -h（リンクはない想定だが -h で安全側）
+                for rel in sorted(new_set):
+                    dst_abs_new: str = os.path.join(dest_abs_root, rel)
+                    try:
+                        chown_chmod(ssh, dst_abs_new, owner=target_user, group=primary_group, mode=None, use_sudo=True)  # mode=None で chmod スキップ
+                    except Exception as _ex:
+                        report.add(host, TransferItem(host=host, remote_path=dst_abs_new, phase="transfer", status="failed", reason=f"E_CHOWN_NEW: {str(_ex)}"))
+
+        # NEW の SELinux（pack 経路のみ）
+        try:
+            restorecon_recursive_if_needed(
+                ssh=ssh,
+                paths=[os.path.join(dest_abs_root, rel) for rel in sorted(new_set)],
+                mode=selinux_mode,
+                selinux_capable=selinux_capable,
+                use_sudo=sudo_extract,
+            )
+        except Exception as _ex:
+            # policy で非対応は内部で例外化される契約（全体中断）。auto/ignore は発生しない想定。
+            report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=f"E_SELINUX_RESTORECON: {str(_ex)}"))
+            return
+
+    # EXIST: tmp に抽出して cat > 上書き（属性保持）。SFTP とは違い、原則として所有権/モード/ACL/xattr は変化しない想定だが、
+    # “復元”を仕様で明示されたため、キャプチャ→上書き→復元を実施する。
     if exist_set:
         # まず EXIST のみを別 tmp へ抽出
         _stdin2, stdout2, _stderr2 = ssh.exec_command("mktemp -d /tmp/gm-exist.XXXXXXXX")
@@ -284,120 +353,110 @@ def upload_pack_and_extract(
         # list_tar_members_local は相対パス（アーカイブ内の名前）、
         # LF 終端（最後も LF）を約束し、内部で CR/LF を正規化して書き出す
         write_members_file(sftp, members_file_exist, exist_set)
-        try:
-            extract_cmd_exist: List[str] = build_tar_extract_cmd(
-                flavor=flavor,
-                dest_abs=rtmp_exist,
-                tar_gz_path=remote_tar,
-                use_sudo=False, # tmpへの展開にsudo不要
-                members_file=members_file_exist,
-            )
-        except Exception as _ex:
-            report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_BUILD_EXTRACT_EXIST: {str(_ex)}"))
-            return
 
+        extract_cmd_exist: List[str] = build_tar_extract_cmd(
+            flavor=flavor,
+            dest_abs=rtmp_exist,
+            tar_gz_path=remote_tar,
+            use_sudo=False, # tmpへの展開にsudo不要
+            members_file=members_file_exist,
+        )
         rc_e, out_e, err_e = run_remote_cmd_capture(ssh, extract_cmd_exist, timeout=EXTRACT_TIMEOUT_EXIST)
         if rc_e != 0:
             reason_e: str = (err_e.strip() or out_e.strip() or f"E_EXTRACT_EXIST_TMP: rc={rc_e}")
             report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_e))
             return
 
-        # -T 抽出で 本当に rtmp_exist/<rel> が作られたことを確認
-        missing_after_extract: List[str] = []
+        # メタ保存ディレクトリ
+        _stdinm, stdoutm, _stderrm = ssh.exec_command("mktemp -d /tmp/gm-meta.XXXXXXXX")
+        rtmp_meta = stdoutm.read().decode().strip() or "/tmp"
+
+        # 抽出確認とメタキャプチャ
+        meta_map: Dict[str, Dict[str, Optional[str]]] = {}
         for rel in sorted(exist_set):
-            src_tmp_chk = os.path.join(rtmp_exist, rel)
-            qsrc_chk = shlex.quote(src_tmp_chk)
-            # 通常ファイル判定。失敗時は親ディレクトリの情報も付ける
+            src_tmp_chk: str = os.path.join(rtmp_exist, rel)
+            qsrc_chk: str = shlex.quote(src_tmp_chk)
             rc_chk, _o_chk, _e_chk = run_remote_cmd_capture(
                 ssh,
-                (["bash","-lc", f"test -f {qsrc_chk} || (echo '__MISSING__'; ls -ld {qsrc_chk} 2>/dev/null || true; echo '__PARENT__'; ls -ld $(dirname {qsrc_chk}) 2>/dev/null || true; exit 1)"]),
-                timeout=CHECK_REGFILE_TIMEOUT
+                (["bash", "-lc", f"test -f {qsrc_chk} || (echo '__MISSING__'; ls -ld {qsrc_chk} 2>/dev/null || true; echo '__PARENT__'; ls -ld $(dirname {qsrc_chk}) 2>/dev/null || true; exit 1)"]),
+                timeout=CHECK_REGFILE_TIMEOUT,
             )
             if rc_chk != 0:
-                missing_after_extract.append(rel)
-        if missing_after_extract:
-            # 代表1件の状況をログ化して即失敗させる（早期に原因を表面化）
-            sample = missing_after_extract[0]
-            sample_abs = os.path.join(rtmp_exist, sample)
-            qsample = shlex.quote(sample_abs)
-            _rc_ls, _out_ls, _ = run_remote_cmd_capture(
-                ssh,
-                (["bash","-lc", f"echo 'missing sample:' {qsample}; ls -ld {qsample} 2>/dev/null || true; echo 'parent:'; ls -ld $(dirname {qsample}) 2>/dev/null || true; echo 'members.exist.txt:'; sed -n '1,120p' {shlex.quote(members_file_exist)} 2>/dev/null || true"]),
-                timeout=CHECK_REGFILE_TIMEOUT
-            )
-            report.add(host, TransferItem(
-                host=host,
-                remote_path=f"{dest_abs_root}/...",
-                phase="transfer",
-                status="failed",
-                reason=f"E_EXIST_EXTRACT_MISSING: {len(missing_after_extract)} paths (e.g. {sample}); see logs"
-            ))
-            return
-
-        # 置換ループ（通常ファイルのみ）。属性保持のため、ファイル自体は置き換えず、中身だけ上書き。
-        # - 既存がディレクトリ/シンボリックリンク/デバイス等の場合はスキップ（設計通り）
-        # - 失敗時は当該パスで failed を記録しつつ続行（ホスト全体は可能なら継続）
-        for rel in sorted(exist_set):
-            # 安全な相対 → 絶対
-            src_tmp: str = os.path.join(rtmp_exist, rel)
-            dst_abs: str = os.path.join(dest_abs_root, rel)
-            dst_dir: str = os.path.dirname(dst_abs)
-
-            # ファイル種別確認：通常ファイルだけ扱う（シェルの [ -f ] 判定）
-            # sudo が必要な場合があるので、確認も sudo 経由で行う。
-            # 1) src_tmp は通常ファイルであること
-            # 2) dst_abs は通常ファイルであること（存在は EXSIT 前提）
-            # 注意：bash -lc へは生のコマンド文字列を渡し、個々のパスは quote する
-            qsrc = shlex.quote(src_tmp)
-            qdst = shlex.quote(dst_abs)
-            cmd_src: List[str] = (["sudo"] if sudo_extract else []) + ["bash", "-lc", f"test -f {qsrc}"]
-            cmd_dst: List[str] = (["sudo"] if sudo_extract else []) + ["bash", "-lc", f"test -f {qdst}"]
-            rc_src, _o_src, _e_src = run_remote_cmd_capture(ssh, cmd_src, timeout=CHECK_REGFILE_TIMEOUT)
-            rc_dst, _o_dst, _e_dst = run_remote_cmd_capture(ssh, cmd_dst, timeout=CHECK_REGFILE_TIMEOUT)
-            if rc_src != 0 or rc_dst != 0:
-                if rc_src != 0 and rc_dst == 0:
-                    reason = "skip exist: src-not-regular"
-                elif rc_src == 0 and rc_dst != 0:
-                    reason = "skip exist: dst-not-regular"
-                else:
-                    reason = "skip exist: both-non-regular"
-                report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason=reason))
-                continue
-
-            # 親ディレクトリを必ず確保（欠落しているとリダイレクトが失敗する）
-            try:
-                # note: remote_mkdir_p内で, クォート処理を行うため, dst_dirは
-                # shlex.quoteしてはならないことに注意
-                remote_mkdir_p(ssh, dst_dir, use_sudo=sudo_extract)
-            except Exception as _ex:
                 report.add(
                     host,
                     TransferItem(
                         host=host,
-                        remote_path=dst_abs,
+                        remote_path=f"{dest_abs_root}/...",
                         phase="transfer",
                         status="failed",
-                        reason=f"E_MKDIR_PARENT: {str(_ex)}",
+                        reason=f"E_EXIST_EXTRACT_MISSING: {rel}",
                     ),
                 )
-                continue
+                return
 
-            # 中身のみ置換（truncate+write）。属性（owner/group/mode/xattr/ACL/SELinux）は変更しない。
-            # - cat > で置換する（inode は不変にしつつ、mtime/ctime は設定ファイル更新日時を記録するために更新する必要があるため）。
-            # - sudo が必要な場合は, sudo 経由で実施する
-            # - パスは個別に shlex.quote() 済みのため、コマンド全体をshlex.quoteの対象にしてはいけないことに注意。
-            #   (全体を一重引用するとリダイレクトが文字列として扱われるため)
+            # 上書き対象の現在メタをキャプチャ（復元用）
+            dst_abs: str = os.path.join(dest_abs_root, rel)
+            owner, group, mode = stat_owner_group_mode(ssh, dst_abs, use_sudo=sudo_extract)
+            acl_dump: Optional[str] = capture_acl_dump(ssh, dst_abs, rtmp_meta, use_sudo=sudo_extract) if acl_ok else None
+            xat_dump: Optional[str] = capture_xattr_dump(ssh, dst_abs, rtmp_meta, use_sudo=sudo_extract) if xattr_ok else None
+            meta_map[rel] = {
+                "owner": owner,
+                "group": group,
+                "mode": str(mode),
+                "acl": acl_dump,
+                "xattr": xat_dump,
+            }
 
+        # 中身のみ上書きして復元
+        for rel in sorted(exist_set):
+            src_tmp: str = os.path.join(rtmp_exist, rel)
+            dst_abs: str = os.path.join(dest_abs_root, rel)
+
+            # 上書き（sudo の要否に合わせる）。
             # リダイレクトはシェルで解釈させる必要があるため、全体は生文字列で渡し、個々のパスを quote 済みにする
             overwrite_cmd_str: str = f"cat {shlex.quote(src_tmp)} > {shlex.quote(dst_abs)}"
             overwrite_cmd: List[str] = (["sudo"] if sudo_extract else []) + ["bash", "-lc", overwrite_cmd_str]
             rc_w, _o_w, err_w = run_remote_cmd_capture(ssh, overwrite_cmd, timeout=OVERWRITE_TIMEOUT)
             if rc_w != 0:
                 report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason=(err_w.strip() or "E_OVERWRITE")))
-            else:
-                report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="done"))
+                continue
 
-    # すべて成功していれば DEST/... 全体に done を一つ付ける
+            # 復元（EXIST のみ）。sudo が必要。
+            if sudo_extract:
+                meta = meta_map.get(rel, {})
+                try:
+                    owner_s: str = str(meta.get("owner", ""))  # 空なら chown は内部でスキップする実装でも可
+                    group_s: str = str(meta.get("group", ""))
+                    #mode_i: Optional[int] = int(meta.get("mode", "0")) if meta.get("mode") else None
+                    raw_mode: Optional[str] = meta.get("mode")
+                    if isinstance(raw_mode, str) and raw_mode.strip():
+                        try:
+                            mode_i: Optional[int] = int(raw_mode, 8)
+                        except ValueError:
+                            mode_i = None
+                    else:
+                        mode_i =None
+                    chown_chmod(ssh, dst_abs, owner=owner_s, group=group_s, mode=mode_i, use_sudo=True)
+                except Exception as _ex:
+                    report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason=f"E_RESTORE_META: {str(_ex)}"))
+
+                # ACL/xattr 復元（ツール存在時のみ）
+                acl_dump = meta.get("acl")
+                if acl_dump:
+                    try:
+                        restore_acl_dump(ssh, acl_dump, use_sudo=True)
+                    except Exception as _ex:
+                        report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason=f"E_RESTORE_ACL: {str(_ex)}"))
+                x_dump = meta.get("xattr")
+                if x_dump:
+                    try:
+                        restore_xattr_dump(ssh, x_dump, use_sudo=True)
+                    except Exception as _ex:
+                        report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="failed", reason=f"E_RESTORE_XATTR: {str(_ex)}"))
+
+            report.add(host, TransferItem(host=host, remote_path=dst_abs, phase="transfer", status="done"))
+
+    # すべて成功していれば DEST/... に done を一つ
     report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="done"))
 
     # 後始末
@@ -410,6 +469,8 @@ def upload_pack_and_extract(
         ssh.exec_command(f"rm -f {shlex.quote(members_file_exist)} || true")
     if rtmp_exist is not None:
         ssh.exec_command(f"rm -rf {shlex.quote(rtmp_exist)} || true")
+    if rtmp_meta is not None:
+        ssh.exec_command(f"rm -rf {shlex.quote(rtmp_meta)} || true")
 
     # mktemp -d で作成した rtmp 自体も掃除（失敗は無視）
     ssh.exec_command(f"rm -rf {shlex.quote(rtmp)} || true")
@@ -423,13 +484,26 @@ def sftp_put_one(
     report: TransferReport,
     dry_run: bool,
     sudo_mkdir: bool = False,
+    *,
+    # Step4 追加：EXIST 上書き時の復元に利用
+    enable_restore_meta: bool = True,
 ) -> None:
     """
-    単一のファイル（またはディレクトリ）を逐次SFTPで配置する。
+    単一のファイル（またはディレクトリ）を逐次 SFTP で配置する。
     シンボルリンクは無視（dropped）する。
     レイアウト:
         DEST/<local_abs_without_leading_slash>
     """
+    # 能力（SFTP 経路では毎回チェックしてもよいが、ここで 1 回）
+    acl_ok: bool = check_acl_tools_available(ssh)
+    xattr_ok: bool = check_xattr_tools_available(ssh)
+
+    # メタ保存先（EXIST で復元に使う）
+    rtmp_meta: Optional[str] = None
+    if enable_restore_meta and (acl_ok or xattr_ok or sudo_mkdir):
+        _stdinm, stdoutm, _stderrm = ssh.exec_command("mktemp -d /tmp/gm-meta.XXXXXXXX")
+        rtmp_meta = stdoutm.read().decode().strip() or "/tmp"
+
     ap: str = os.path.abspath(local_abs)
     rel: str = ap.lstrip(os.sep)
     rpath: str = os.path.join(dest_abs_root, rel)
@@ -458,12 +532,12 @@ def sftp_put_one(
             phase="plan",
             status="planned",
             local_path=ap,
-        ),
+        )
     )
     if dry_run:
         return
 
-    # mkdir -p は ssh 経由で実施
+    # 親 mkdir -p は ssh 経由で実施
     rdir: str = os.path.dirname(rpath)
     # mkdir -p をリモートホストで実行
     # sudo 経路を統一ラッパで実施。失敗時は例外で即中断
@@ -504,53 +578,98 @@ def sftp_put_one(
                         ),
                     )
                     continue
+
                 dst: str = os.path.join(rr, fn)
-                try:
-                    sftp.put(lp, dst)
-                    report.add(
-                        host,
-                        TransferItem(
-                            host=host,
-                            remote_path=dst,
-                            phase="transfer",
-                            status="done",
-                            local_path=lp,
-                        ),
-                    )
-                except Exception as ex:
-                    report.add(
-                        host,
-                        TransferItem(
-                            host=host,
-                            remote_path=dst,
-                            phase="transfer",
-                            status="failed",
-                            reason=str(ex),
-                            local_path=lp,
-                        ),
-                    )
+                _sftp_put_with_exist_restore(
+                    ssh=ssh,
+                    sftp=sftp,
+                    local_path=lp,
+                    remote_path=dst,
+                    host=host,
+                    report=report,
+                    sudo_needed=sudo_mkdir,  # mkdir と同一条件
+                    acl_ok=acl_ok,
+                    xattr_ok=xattr_ok,
+                    rtmp_meta=rtmp_meta,
+                )
     else:
+        _sftp_put_with_exist_restore(
+            ssh=ssh,
+            sftp=sftp,
+            local_path=ap,
+            remote_path=rpath,
+            host=host,
+            report=report,
+            sudo_needed=sudo_mkdir,
+            acl_ok=acl_ok,
+            xattr_ok=xattr_ok,
+            rtmp_meta=rtmp_meta,
+        )
+
+    # 後始末
+    if rtmp_meta is not None:
+        ssh.exec_command(f"rm -rf {shlex.quote(rtmp_meta)} || true")
+
+
+def _sftp_put_with_exist_restore(
+    *,
+    ssh: "paramiko.SSHClient",
+    sftp: "paramiko.SFTPClient",
+    local_path: str,
+    remote_path: str,
+    host: str,
+    report: TransferReport,
+    sudo_needed: bool,
+    acl_ok: bool,
+    xattr_ok: bool,
+    rtmp_meta: Optional[str],
+) -> None:
+    """
+    SFTP で 1 ファイルを put。
+    - 既存の場合は上書き前に owner/group/mode/ACL/xattr をキャプチャし、上書き後に復元（コマンドがある範囲）。
+    - 新規の場合はそのまま put（SFTP 経路では SELinux は非対応・chown/chmod は行わない）。
+    """
+    # 既存判定
+    qdst: str = shlex.quote(remote_path)
+    rc_ex, _o_ex, _e_ex = run_remote_cmd_capture(ssh, (["bash", "-lc", f"test -e {qdst}"]), timeout=CHECK_REGFILE_TIMEOUT)
+    exist_before: bool = (rc_ex == 0)
+
+    # メタの事前キャプチャ（EXIST のみ）
+    owner: Optional[str] = None
+    group: Optional[str] = None
+    mode: Optional[int] = None
+    acl_dump: Optional[str] = None
+    xat_dump: Optional[str] = None
+
+    if exist_before and sudo_needed:
+        owner, group, mode = stat_owner_group_mode(ssh, remote_path, use_sudo=True)
+        if acl_ok and rtmp_meta:
+            acl_dump = capture_acl_dump(ssh, remote_path, rtmp_meta, use_sudo=True)
+        if xattr_ok and rtmp_meta:
+            xat_dump = capture_xattr_dump(ssh, remote_path, rtmp_meta, use_sudo=True)
+
+    # put 実行
+    try:
+        sftp.put(local_path, remote_path)
+        report.add(host, TransferItem(host=host, remote_path=remote_path, phase="transfer", status="done", local_path=local_path))
+    except Exception as ex:
+        report.add(host, TransferItem(host=host, remote_path=remote_path, phase="transfer", status="failed", reason=str(ex), local_path=local_path))
+        return
+
+    # 復元（EXIST のみ）。sudo が必要。
+    if exist_before and sudo_needed:
         try:
-            sftp.put(ap, rpath)
-            report.add(
-                host,
-                TransferItem(
-                    host=host,
-                    remote_path=rpath,
-                    phase="transfer",
-                    status="done",
-                    local_path=ap,
-                ),
-            )
-        except Exception as ex:
-            report.add(
-                host,
-                TransferItem(
-                    host=host,
-                    remote_path=rpath,
-                    phase="transfer",
-                    status="failed",
-                    reason=str(ex),
-                    local_path=ap,
-                ),
-            )
+            chown_chmod(ssh, remote_path, owner=owner or "", group=group or "", mode=mode, use_sudo=True)
+        except Exception as _ex:
+            report.add(host, TransferItem(host=host, remote_path=remote_path, phase="transfer", status="failed", reason=f"E_RESTORE_META: {str(_ex)}"))
+
+        if acl_dump:
+            try:
+                restore_acl_dump(ssh, acl_dump, use_sudo=True)
+            except Exception as _ex:
+                report.add(host, TransferItem(host=host, remote_path=remote_path, phase="transfer", status="failed", reason=f"E_RESTORE_ACL: {str(_ex)}"))
+        if xat_dump:
+            try:
+                restore_xattr_dump(ssh, xat_dump, use_sudo=True)
+            except Exception as _ex:
+                report.add(host, TransferItem(host=host, remote_path=remote_path, phase="transfer", status="failed", reason=f"E_RESTORE_XATTR: {str(_ex)}"))
