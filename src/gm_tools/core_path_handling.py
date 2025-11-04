@@ -5,9 +5,42 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Optional
 
+# === Constants (shared) ===
+WIN_ABS_RE: re.Pattern[str] = re.compile(r"^[A-Za-z]:[\\/]")
+TILDE_USER_RE: re.Pattern[str] = re.compile(r"^~([^/\\]+)(?:$|[\\/])")
+HOME_DETECT_CMD_FMT: str = "getent passwd {user} | cut -d: -f6"
+HOME_FALLBACK_ROOT: str = "/root"
+HOME_FALLBACK_PREFIX: str = "/home"
+
+# === Constants (local) ===
 # エスケープされていないこれらの文字が現れた時点で「ここから正規表現」
 _REGEX_META = set(r'.^$*+?{}[]\|()')  # 逆スラッシュ自体は「エスケープ」を示すので除外
+
+# --------------------------------------------------------------------
+# 絶対パス判定/リモートホームディレクトリ検出
+# --------------------------------------------------------------------
+def is_windows_abs(p: str) -> bool:
+    # Windows ドライブレター始まり（C:\ など）を絶対パスとして判定する。
+    return bool(WIN_ABS_RE.match(p))
+
+def is_local_abs(p: str) -> bool:
+    """
+    実行 OS に依らず、UNIX の '/' 始まり、または Windows ドライブレター始まりを絶対と見なす。
+    """
+    return p.startswith("/") or is_windows_abs(p)
+
+
+def tilde_username(s: str) -> Optional[str]:
+    """
+    '~user' または '~user/...' の 'user' を返す。'~'・'~/' は None（対象外）。
+    Windows/UNIX 共通で '/' と '\\' を区切りとして扱う。
+    """
+    if s == "~" or s.startswith("~/"):
+        return None
+    m = TILDE_USER_RE.match(s)
+    return m.group(1) if m else None
 
 # --------------------------------------------------------------------
 # ローカル保存パスユーティリティ

@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import List, Optional, Tuple
 from argparse import Namespace, BooleanOptionalAction
-import argparse, getpass, sys, os, re
+import argparse, getpass, sys, os
 
 # Paramiko 型注釈用
 try:
@@ -16,15 +16,15 @@ from .core_select import enumerate_candidates_local
 from .core_ssh import SSHConfig, ssh_open, finalize_sockets,DEFAULT_SSH_PORT,DEFAULT_TIMEOUT
 from .core_report import TransferReport, TransferItem
 from .core_selinux import SelinuxMode
-from .core_cmd_flavor import run_remote_cmd_capture
+from .core_path_handling import (
+    is_windows_abs,
+    is_local_abs,       # type: ignore 使わないが将来の整合のためインポート
+    tilde_username,
+)
+
+from .core_remote_path import detect_remote_home
 
 # === Constants ===
-HOME_DETECT_CMD_FMT: str = "getent passwd {user} | cut -d: -f6"
-HOME_FALLBACK_ROOT: str = "/root"
-HOME_FALLBACK_PREFIX: str = "/home"
-WIN_ABS_RE: re.Pattern[str] = re.compile(r"^[A-Za-z]:[\\/]")
-TILDE_USER_RE: re.Pattern[str] = re.compile(r"^~([^/\\]+)(?:$|[\\/])")
-
 DEFAULT_HOSTS_FILE: str = "hostfile"
 DEFAULT_PARALLEL_HOSTS: int = 1
 
@@ -59,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # 実行
     p.add_argument("-j", "--parallel", type=int, default=DEFAULT_PARALLEL_HOSTS, help=f"Parallel hosts (not parallel per-host). Default: {DEFAULT_PARALLEL_HOSTS}.")
-    p.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not download.")
+    p.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not upload.")
     p.add_argument("-v", "--verbose", action="store_true", help="Verbose logs.")
     p.add_argument("--pack", action="store_true", help="pack to tar.gz then extract remotely")
     # pack 時のリンク追随 ( 指定時にのみ dereference ) 。デフォルトは追随しない＝リンクは含めない。
@@ -81,28 +81,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     return p
 
-def _detect_remote_home(ssh: "paramiko.SSHClient", user: str, timeout: float) -> str:
-    """getent 優先でリモート user の HOME を取得。失敗時はフォールバック。"""
-    fallback: str = HOME_FALLBACK_ROOT if user == "root" else f"{HOME_FALLBACK_PREFIX}/{user}"
-    rc, out, _ = run_remote_cmd_capture(
-        ssh, ["bash", "-lc", HOME_DETECT_CMD_FMT.format(user=user)], timeout=timeout
-    )
-    cand: str = out.strip()
-    return cand if (rc == 0 and cand.startswith("/")) else fallback
-
-def _is_windows_abs(p: str) -> bool:
-    return bool(WIN_ABS_RE.match(p))
-
-def _tilde_username(s: str) -> Optional[str]:
-    """
-    '~user' または '~user/...' の 'user' を返す。'~'・'~/' は None（対象外）。
-    Windows/UNIX 共通で '/' と '\\' を区切りとして扱う。
-    """
-    if s == "~" or s.startswith("~/"):
-        return None
-    m = TILDE_USER_RE.match(s)
-    return m.group(1) if m else None
-
 def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional[str]]:
     """
     仕様:
@@ -118,9 +96,9 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
         return remote_home, None
     if d.startswith("/"):
         return d, None
-    if _is_windows_abs(d):
+    if is_windows_abs(d):
         return d, None
-    u: Optional[str] = _tilde_username(d)
+    u: Optional[str] = tilde_username(d)
     if u is not None:
         return "", f"tilde with username is not supported: ~{u}"
     if d == "~" or d.startswith("~/"):
@@ -152,7 +130,7 @@ def run_one_host(host: str, args: Namespace) -> None:
     try:
 
         # リモート HOME 取得
-        remote_home: str = _detect_remote_home(ssh, target_user, float(args.timeout))
+        remote_home: str = detect_remote_home(ssh, target_user, float(args.timeout))
 
         # DEST 絶対解決（~user はエラー）
         raw_dest: str = str(args.dest)
@@ -168,7 +146,7 @@ def run_one_host(host: str, args: Namespace) -> None:
         # SRC の '~user' を明示エラー。'~'/'~/' はローカル HOME に展開。
         src_raw: List[str] = list(args.src)
         for s in src_raw:
-            u = _tilde_username(s)
+            u = tilde_username(s)
             if u is not None:
                 print(f"[{host}] Error: tilde with username is not supported in SRC: ~{u}", file=sys.stderr)
                 return
@@ -177,7 +155,7 @@ def run_one_host(host: str, args: Namespace) -> None:
         src_expanded: List[str] = [os.path.expanduser(s) for s in src_raw]
         # SRC が相対ならカレント起点で絶対化
         src_abs: List[str] = [
-            s if (s.startswith("/") or _is_windows_abs(s)) else os.path.abspath(s)
+            s if (s.startswith("/") or is_windows_abs(s)) else os.path.abspath(s)
             for s in src_expanded
         ]
 

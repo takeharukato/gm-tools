@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import os
-import re
 import sys
 import shlex
 import argparse
@@ -43,17 +42,14 @@ from .core_remote_fs import (
 )
 from .core_path_handling import (
     local_path_for_download,
+    is_local_abs,
+    tilde_username,
 )
+
 from .core_common import parse_hosts_file
 from .core_select import enumerate_candidates_for_host
 from .core_cmd_flavor import run_remote_cmd_capture
-
-# === Constants ===
-HOME_DETECT_CMD_FMT: str = "getent passwd {user} | cut -d: -f6"
-HOME_FALLBACK_ROOT: str = "/root"
-HOME_FALLBACK_PREFIX: str = "/home"
-WIN_ABS_RE: re.Pattern[str] = re.compile(r"^[A-Za-z]:[\\/]")
-TILDE_USER_RE: re.Pattern[str] = re.compile(r"^~([^/\\]+)(?:$|[\\/])")
+from .core_remote_path import detect_remote_home
 
 # === Defaults / Exit codes (constantized) ===
 DEFAULT_HOSTS_FILE: str = "hostfile"
@@ -63,16 +59,6 @@ EXIT_ERR_NO_HOSTS:  int = 1
 EXIT_ERR_GENERIC:   int = 2
 EXIT_ERR_TILDE_USER:int = 3
 EXIT_ERR_ARGS:      int = 5
-
-def _is_local_abs(p: str) -> bool:
-    # 実行 OS に依らず、UNIX '/' と Windows ドライブレターの双方を絶対と見なす
-    return p.startswith("/") or bool(WIN_ABS_RE.match(p))
-
-def _tilde_username(s: str) -> Optional[str]:
-    if s == "~" or s.startswith("~/"):
-        return None
-    m = TILDE_USER_RE.match(s)
-    return m.group(1) if m else None
 
 def build_parser() -> argparse.ArgumentParser:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
@@ -155,15 +141,8 @@ def _worker(
         ssh = ssh_open(cfg, debug_print=verbose)
         sftp_client = ssh.open_sftp()
 
-        # '~' 展開用ホームディレクトリの決定 ( getent優先、失敗時フォールバック )
-        home_abs: str = HOME_FALLBACK_ROOT if args_user == "root" else f"{HOME_FALLBACK_PREFIX}/{args_user}"
-        rc_h, out_h, _ = run_remote_cmd_capture(
-            ssh, ["bash", "-lc", HOME_DETECT_CMD_FMT.format(user=args_user)], timeout=timeout
-        )
-        cand: str = out_h.strip()
-        if rc_h == 0 and cand.startswith("/"):
-            home_abs = cand
-
+        # リモート HOME 検出
+        home_abs: str = detect_remote_home(ssh, args_user, timeout=timeout)
         # sudo 利用可否の三値判定 ( 未指定 None は自動 : ssh_user != user )
         sudo_collect: Optional[bool] = sudo_collect_flag
         use_sudo: bool = (ssh_user != args_user) if (sudo_collect is None) else bool(sudo_collect)
@@ -304,20 +283,20 @@ def main() -> None:
 
     # DEST: '~user' は非対応なので明示エラー
     _dest_raw: str = str(args.dest)
-    _dest_tilde_user = _tilde_username(_dest_raw)
+    _dest_tilde_user = tilde_username(_dest_raw)
     if _dest_tilde_user is not None:
         print(f"Error: tilde with username is not supported in DEST: ~{_dest_tilde_user}", file=sys.stderr)
         sys.exit(EXIT_ERR_TILDE_USER)
 
     # DEST: '~' をローカル実行ユーザの HOME で展開。相対ならカレント起点で絶対化。
     dest_local: str = os.path.expanduser(_dest_raw)
-    if not _is_local_abs(dest_local):
+    if not is_local_abs(dest_local):
         dest_local = os.path.abspath(dest_local)
     srcs: List[str] = list(args.src)
 
     # SRC に '~user' が含まれていればエラー ( 共通仕様 )
     for s in srcs:
-        u = _tilde_username(s)
+        u = tilde_username(s)
         if u is not None:
             print(f"Error: tilde with username is not supported in SRC: ~{u}", file=sys.stderr)
             sys.exit(EXIT_ERR_TILDE_USER)
