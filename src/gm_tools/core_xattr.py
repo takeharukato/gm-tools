@@ -46,9 +46,10 @@ def stat_owner_group_mode(ssh: "paramiko.SSHClient", path: str, *, use_sudo: boo
     """
     q: str = shlex.quote(path)
     prefix = "sudo " if use_sudo else ""
+    # ロケールの影響を避けるため LC_ALL=C を明示
     rc, out, _err = run_remote_cmd_capture(
         ssh,
-        (["bash", "-lc", f"{prefix}stat -c '%U:%G:%a' {q}"]),
+        (["bash", "-lc", f"LC_ALL=C {prefix}stat -c '%U:%G:%a' {q}"]),
         timeout=10.0,
     )
     if rc != 0:
@@ -103,7 +104,12 @@ def chown_chmod(
 
     if mode is not None and mode != 0:
         # chmod は 8 進を4桁相当に整形（ACL/特殊ビットは OS が解釈）
-        mstr: str = format(mode, "o")
+        # 例: 0o644 -> "0644"
+        try:
+            masked: int = int(mode) & 0o7777
+        except Exception:
+            masked = 0
+        mstr: str = format(masked, "04o")
         run_remote_cmd_capture(ssh, (["bash", "-lc", f"{prefix}chmod {shlex.quote(mstr)} {q} || true"]), timeout=15.0)
 
 
