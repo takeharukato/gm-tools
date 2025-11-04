@@ -18,6 +18,12 @@ _RESTORECON_TIMEOUT: float = 180.0
 # keep conservative to avoid "Argument list too long"
 _RESTORECON_BATCH_SIZE: int = 64
 
+# --- command strings / flags (no Final, to match project style) ---
+_SELINUX_FS_TEST_CMD: str = "test -d /sys/fs/selinux"
+_SELINUX_MOUNT_CHECK_CMD: str = "mount | grep -q selinuxfs"
+_RESTORECON_CHECK_CMD: str = "command -v restorecon >/dev/null 2>&1"
+_RESTORECON_FLAGS: str = "-RF"
+
 def detect_selinux_capable(ssh: "paramiko.SSHClient") -> bool:
     """
     リモートホストが SELinux ラベリングの復元を実施可能かを判定する。
@@ -25,18 +31,28 @@ def detect_selinux_capable(ssh: "paramiko.SSHClient") -> bool:
       - /sys/fs/selinux の存在 または mount 出力に selinuxfs がある
       - restorecon コマンドが存在
     """
+
+    rc_fs1: int
+    _o1: str
+    _e1: str
     rc_fs1, _o1, _e1 = run_remote_cmd_capture(
-        ssh, (["bash", "-lc", "test -d /sys/fs/selinux"]), timeout=_SELINUX_DETECT_TIMEOUT
+        ssh, ["bash", "-lc", _SELINUX_FS_TEST_CMD], timeout=_SELINUX_DETECT_TIMEOUT
     )
     if rc_fs1 != 0:
+        rc_fs2: int
+        _o2: str
+        _e2: str
         rc_fs2, _o2, _e2 = run_remote_cmd_capture(
-            ssh, (["bash", "-lc", "mount | grep -q selinuxfs"]), timeout=_SELINUX_DETECT_TIMEOUT
+            ssh, ["bash", "-lc", _SELINUX_MOUNT_CHECK_CMD], timeout=_SELINUX_DETECT_TIMEOUT
         )
         if rc_fs2 != 0:
             return False
 
+    rc_cmd: int
+    _o3: str
+    _e3: str
     rc_cmd, _o3, _e3 = run_remote_cmd_capture(
-        ssh, (["bash", "-lc", "command -v restorecon >/dev/null 2>&1"]), timeout=_SELINUX_DETECT_TIMEOUT
+        ssh, ["bash", "-lc", _RESTORECON_CHECK_CMD], timeout=_SELINUX_DETECT_TIMEOUT
     )
     if rc_cmd != 0:
         return False
@@ -72,8 +88,9 @@ def restorecon_recursive_if_needed(
     # 正規化：空文字除外・重複排除・安定順序
     norm: List[str] = []
     seen: Set[str] = set()
+    p: str
     for p in paths:
-        s = str(p).strip()
+        s: str = str(p).strip()
         if not s:
             continue
         if s in seen:
@@ -86,16 +103,20 @@ def restorecon_recursive_if_needed(
 
     # まとめて 1 回で実行（長い場合でも restorecon は複数引数を受ける）
     # -R（再帰）, -F（強制再ラベル）
-    prefix = "sudo " if use_sudo else ""
+    sudo_argv_prefix: List[str] = ["sudo", "-n"] if use_sudo else []
     # バッチ実行（引数超過・ARG_MAX 回避）
+    i: int
     for i in range(0, len(norm), _RESTORECON_BATCH_SIZE):
-        chunk = norm[i : i + _RESTORECON_BATCH_SIZE]
+        chunk: List[str] = norm[i : i + _RESTORECON_BATCH_SIZE]
         q_paths: List[str] = [shlex.quote(p) for p in chunk]
-        cmd = f"{prefix}restorecon -RF -- " + " ".join(q_paths)
-        rc, _out, err = run_remote_cmd_capture(ssh, (["bash", "-lc", cmd]), timeout=_RESTORECON_TIMEOUT)
+        cmd: str = f"restorecon {_RESTORECON_FLAGS} -- " + " ".join(q_paths)
+        rc: int; _out: str; err: str
+        rc, _out, err = run_remote_cmd_capture(
+            ssh, sudo_argv_prefix + ["bash", "-lc", cmd], timeout=_RESTORECON_TIMEOUT
+        )
         if rc != 0:
             # policy/auto いずれでも restorecon 失敗は中断させる（上位で failed 記録）
-            emsg = (err.strip() or f"restorecon failed (rc={rc}) on batch starting with: {chunk[0]}")
+            emsg: str = (err.strip() or f"restorecon failed (rc={rc}) on batch starting with: {chunk[0]}")
             raise RuntimeError(emsg)
 
     return

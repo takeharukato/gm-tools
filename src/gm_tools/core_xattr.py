@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import shlex
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 try:
     import paramiko  # type: ignore
@@ -11,15 +11,32 @@ except Exception as e:
 
 from .core_cmd_flavor import run_remote_cmd_capture
 
+# === constants (no Final, to match project style) ===
+CMD_CHECK_TIMEOUT: float = 10.0
+STAT_TIMEOUT: float = 10.0
+CHOWN_CHMOD_TIMEOUT: float = 15.0
+DUMP_TIMEOUT: float = 15.0
+RESTORE_TIMEOUT: float = 20.0
+ACL_CMDS: Tuple[str, str] = ("getfacl", "setfacl")
+XATTR_CMDS: Tuple[str, str] = ("getfattr", "setfattr")
+ACL_MKTEMP_TEMPLATE: str = "acl.XXXXXX"
+XATTR_MKTEMP_TEMPLATE: str = "xattr.XXXXXX"
 
 def check_acl_tools_available(ssh: "paramiko.SSHClient") -> bool:
     """
     リモートに ACL 操作用ツール (getfacl/setfacl) が存在するかを確認する。
     どちらか一方でも欠ける場合は False。
     """
-    cmds = ["getfacl", "setfacl"]
-    for c in cmds:
-        rc, _out, _err = run_remote_cmd_capture(ssh, (["bash", "-lc", f"command -v {shlex.quote(c)} >/dev/null 2>&1"]), timeout=10.0)
+
+    c: str
+    for c in ACL_CMDS:
+        rc: int
+        _out: str
+        _err: str
+        rc, _out, _err = run_remote_cmd_capture(
+            ssh, ["bash", "-lc", f"command -v {shlex.quote(c)} >/dev/null 2>&1"],
+            timeout=CMD_CHECK_TIMEOUT
+        )
         if rc != 0:
             return False
     return True
@@ -30,9 +47,16 @@ def check_xattr_tools_available(ssh: "paramiko.SSHClient") -> bool:
     リモートに xattr 操作用ツール (getfattr/setfattr) が存在するかを確認する。
     どちらか一方でも欠ける場合は False。
     """
-    cmds = ["getfattr", "setfattr"]
-    for c in cmds:
-        rc, _out, _err = run_remote_cmd_capture(ssh, (["bash", "-lc", f"command -v {shlex.quote(c)} >/dev/null 2>&1"]), timeout=10.0)
+
+    c: str
+    for c in XATTR_CMDS:
+        rc: int
+        _out: str
+        _err: str
+        rc, _out, _err = run_remote_cmd_capture(
+            ssh, ["bash", "-lc", f"command -v {shlex.quote(c)} >/dev/null 2>&1"],
+            timeout=CMD_CHECK_TIMEOUT
+        )
         if rc != 0:
             return False
     return True
@@ -45,12 +69,18 @@ def stat_owner_group_mode(ssh: "paramiko.SSHClient", path: str, *, use_sudo: boo
     - use_sudo=True の場合は sudo 経由で実行
     """
     q: str = shlex.quote(path)
-    prefix = "sudo " if use_sudo else ""
+
     # ロケールの影響を避けるため LC_ALL=C を明示
+    argv: List[str] = (
+        ["sudo", "-n", "bash", "-lc", f"LC_ALL=C stat -c '%U:%G:%a' {q}"]
+        if use_sudo else
+        ["bash", "-lc", f"LC_ALL=C stat -c '%U:%G:%a' {q}"]
+    )
+    rc: int
+    out: str
+    _err: str
     rc, out, _err = run_remote_cmd_capture(
-        ssh,
-        (["bash", "-lc", f"LC_ALL=C {prefix}stat -c '%U:%G:%a' {q}"]),
-        timeout=10.0,
+        ssh, argv, timeout=STAT_TIMEOUT
     )
     if rc != 0:
         # 取得失敗時は空を返すが、呼び出し側で None 判定するより簡潔に、既定値を返す
@@ -58,7 +88,7 @@ def stat_owner_group_mode(ssh: "paramiko.SSHClient", path: str, *, use_sudo: boo
         return ("", "", 0)
     s: str = out.strip()
     # 例: "root:root:644"
-    parts = s.split(":")
+    parts: List[str] = s.split(":")
     if len(parts) != 3:
         return ("", "", 0)
     owner: str = parts[0]
@@ -86,11 +116,12 @@ def chown_chmod(
     - use_sudo=True のとき sudo 利用。
     """
     q: str = shlex.quote(path)
-    prefix = "sudo " if use_sudo else ""
+    sudo_argv_prefix: List[str] = ["sudo", "-n"] if use_sudo else []
 
     if owner or group:
         # chown [-h] owner:group path
         # owner と group の両方が空でなければ owner:group、片方のみならその書式で
+        spec: str
         if owner and group:
             spec = f"{owner}:{group}"
         elif owner and not group:
@@ -100,7 +131,14 @@ def chown_chmod(
         else:
             spec = ""
         if spec:
-            run_remote_cmd_capture(ssh, (["bash", "-lc", f"{prefix}chown -h {shlex.quote(spec)} {q} || true"]), timeout=15.0)
+            _rc1: int
+            _o1: str
+            _e1: str
+            _rc1, _o1, _e1 = run_remote_cmd_capture(
+                ssh,
+                sudo_argv_prefix + ["bash", "-lc", f"chown -h {shlex.quote(spec)} {q} || true"],
+                timeout=CHOWN_CHMOD_TIMEOUT,
+            )
 
     if mode is not None and mode != 0:
         # chmod は 8 進を4桁相当に整形（ACL/特殊ビットは OS が解釈）
@@ -110,8 +148,14 @@ def chown_chmod(
         except Exception:
             masked = 0
         mstr: str = format(masked, "04o")
-        run_remote_cmd_capture(ssh, (["bash", "-lc", f"{prefix}chmod {shlex.quote(mstr)} {q} || true"]), timeout=15.0)
-
+        _rc2: int
+        _o2: str
+        _e2: str
+        _rc2, _o2, _e2 = run_remote_cmd_capture(
+            ssh,
+            sudo_argv_prefix + ["bash", "-lc", f"chmod {shlex.quote(mstr)} {q} || true"],
+            timeout=CHOWN_CHMOD_TIMEOUT,
+        )
 
 def capture_acl_dump(
     ssh: "paramiko.SSHClient",
@@ -127,19 +171,29 @@ def capture_acl_dump(
     """
     qpath: str = shlex.quote(path)
     qdir: str = shlex.quote(dump_dir)
-    prefix = "sudo " if use_sudo else ""
+    sudo_argv_prefix: List[str] = ["sudo", "-n"] if use_sudo else []
     # ダンプ先ファイル
-    rc, out, _ = run_remote_cmd_capture(ssh, (["bash", "-lc", f"mktemp {qdir}/acl.XXXXXX"]), timeout=10.0)
+    rc: int
+    out: str
+    _e: str
+    rc, out, _e = run_remote_cmd_capture(
+        ssh, ["bash", "-lc", f"mktemp {qdir}/{ACL_MKTEMP_TEMPLATE}"], timeout=CMD_CHECK_TIMEOUT
+    )
     if rc != 0:
         return None
     dump_path: str = out.strip()
     qdump: str = shlex.quote(dump_path)
 
     # getfacl: -p（絶対パスを保持） or --absolute-names
+    rc2: int
+    _o2: str
+    _e2: str
     rc2, _o2, _e2 = run_remote_cmd_capture(
         ssh,
-        (["bash", "-lc", f"{prefix}getfacl -p -- {qpath} > {qdump} 2>/dev/null || {prefix}getfacl --absolute-names -- {qpath} > {qdump} 2>/dev/null"]),
-        timeout=15.0,
+        sudo_argv_prefix
+        + ["bash", "-lc",
+           f"getfacl -p -- {qpath} > {qdump} 2>/dev/null || getfacl --absolute-names -- {qpath} > {qdump} 2>/dev/null"],
+        timeout=DUMP_TIMEOUT,
     )
     if rc2 != 0:
         # ダンプ失敗時は None
@@ -159,9 +213,15 @@ def restore_acl_dump(
     - use_sudo=True のとき sudo 利用
     """
     qdump: str = shlex.quote(dump_file)
-    prefix = "sudo " if use_sudo else ""
-    run_remote_cmd_capture(ssh, (["bash", "-lc", f"{prefix}setfacl --restore={qdump} || true"]), timeout=20.0)
-
+    argv: List[str] = (
+        ["sudo", "-n", "bash", "-lc", f"setfacl --restore={qdump} || true"]
+        if use_sudo else
+        ["bash", "-lc", f"setfacl --restore={qdump} || true"]
+    )
+    _rc: int
+    _o: str
+    _e: str
+    _rc, _o, _e = run_remote_cmd_capture(ssh, argv, timeout=RESTORE_TIMEOUT)
 
 def capture_xattr_dump(
     ssh: "paramiko.SSHClient",
@@ -178,8 +238,12 @@ def capture_xattr_dump(
     """
     qpath: str = shlex.quote(path)
     qdir: str = shlex.quote(dump_dir)
-    prefix = "sudo " if use_sudo else ""
-    rc, out, _ = run_remote_cmd_capture(ssh, (["bash", "-lc", f"mktemp {qdir}/xattr.XXXXXX"]), timeout=10.0)
+    rc: int
+    out: str
+    _e: str
+    rc, out, _e = run_remote_cmd_capture(
+        ssh, ["bash", "-lc", f"mktemp {qdir}/{XATTR_MKTEMP_TEMPLATE}"], timeout=CMD_CHECK_TIMEOUT
+    )
     if rc != 0:
         return None
     dump_path: str = out.strip()
@@ -187,10 +251,16 @@ def capture_xattr_dump(
 
     # getfattr のダンプ形式は setfattr --restore で復元可能
     # -h: シンボリックリンク自体の属性参照（必要に応じ安全側）
+    rc2: int
+    _o2: str
+    _e2: str
     rc2, _o2, _e2 = run_remote_cmd_capture(
         ssh,
-        (["bash", "-lc", f"{prefix}getfattr -h --absolute-names -d -- {qpath} > {qdump} 2>/dev/null || {prefix}getfattr --absolute-names -d -- {qpath} > {qdump} 2>/dev/null"]),
-        timeout=15.0,
+        (["sudo", "-n"] if use_sudo else [])
+        + ["bash", "-lc",
+           f"getfattr -h --absolute-names -d -- {qpath} > {qdump} 2>/dev/null"
+           f" || getfattr --absolute-names -d -- {qpath} > {qdump} 2>/dev/null"],
+        timeout=DUMP_TIMEOUT,
     )
     if rc2 != 0:
         return None
@@ -209,5 +279,12 @@ def restore_xattr_dump(
     - use_sudo=True のとき sudo 利用
     """
     qdump: str = shlex.quote(dump_file)
-    prefix = "sudo " if use_sudo else ""
-    run_remote_cmd_capture(ssh, (["bash", "-lc", f"{prefix}setfattr --restore={qdump} || true"]), timeout=20.0)
+    argv: List[str] = (
+        ["sudo", "-n", "bash", "-lc", f"setfattr --restore={qdump} || true"]
+        if use_sudo else
+        ["bash", "-lc", f"setfattr --restore={qdump} || true"]
+    )
+    _rc: int
+    _o: str
+    _e: str
+    _rc, _o, _e = run_remote_cmd_capture(ssh, argv, timeout=RESTORE_TIMEOUT)

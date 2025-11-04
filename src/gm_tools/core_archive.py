@@ -192,12 +192,12 @@ def list_tar_members_local(tar_path: str) -> Tuple[List[str], List[str]]:
                 # 判定用に末尾'/'で保持
                 dirs.append(nm if nm.endswith("/") else nm + "/")
 
-    # 空ディレクトリ判定：配下に他メンバーが存在しないもの
+    # 空ディレクトリ判定 : 配下に他メンバーが存在しないもの
     all_names_set = set(m.name.lstrip("/") for m in members if m.name)
     empty_dirs: List[str] = []
     for d in dirs:
         has_child = any(n != d.rstrip("/") and n.startswith(d) for n in all_names_set)
         if not has_child:
-            empty_dirs.append(d.rstrip("/"))
+            empty_dirs.append(d.rstrip("/")) # 空ディレクトリの場合は, 末尾'/'除去して返す
 
     return sorted(regular_files), sorted(empty_dirs)
