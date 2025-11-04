@@ -4,10 +4,14 @@
 
 from __future__ import annotations
 
+import os
+import re
+import sys
+import shlex
 import argparse
 import getpass
-import sys
 import traceback
+from argparse import BooleanOptionalAction
 from typing import List, Optional
 
 # Paramiko 型注釈用
@@ -42,7 +46,33 @@ from .core_path_handling import (
 )
 from .core_common import parse_hosts_file
 from .core_select import enumerate_candidates_for_host
+from .core_cmd_flavor import run_remote_cmd_capture
 
+# === Constants ===
+HOME_DETECT_CMD_FMT: str = "getent passwd {user} | cut -d: -f6"
+HOME_FALLBACK_ROOT: str = "/root"
+HOME_FALLBACK_PREFIX: str = "/home"
+WIN_ABS_RE: re.Pattern[str] = re.compile(r"^[A-Za-z]:[\\/]")
+TILDE_USER_RE: re.Pattern[str] = re.compile(r"^~([^/\\]+)(?:$|[\\/])")
+
+# === Defaults / Exit codes (constantized) ===
+DEFAULT_HOSTS_FILE: str = "hostfile"
+DEFAULT_PARALLEL_HOSTS: int = 1
+EXIT_OK:            int = 0
+EXIT_ERR_NO_HOSTS:  int = 1
+EXIT_ERR_GENERIC:   int = 2
+EXIT_ERR_TILDE_USER:int = 3
+EXIT_ERR_ARGS:      int = 5
+
+def _is_local_abs(p: str) -> bool:
+    # 実行 OS に依らず、UNIX '/' と Windows ドライブレターの双方を絶対と見なす
+    return p.startswith("/") or bool(WIN_ABS_RE.match(p))
+
+def _tilde_username(s: str) -> Optional[str]:
+    if s == "~" or s.startswith("~/"):
+        return None
+    m = TILDE_USER_RE.match(s)
+    return m.group(1) if m else None
 
 def build_parser() -> argparse.ArgumentParser:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
@@ -56,12 +86,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    # 位置引数：SRC... DEST（最後が保存先ローカルディレクトリ）
+
+    # 位置引数 : SRC... DEST ( 最後が保存先ローカルディレクトリ )
     parser.add_argument("src", nargs="+", help="One or more SRC absolute path patterns (root '/', 'X:/', or '~/').")
     parser.add_argument("dest", help="Local destination directory.")
 
     # SSH
-    parser.add_argument("-H", "--hosts", default="hostfile", help="Hosts file. Default: hostfile.")
+    parser.add_argument("-H", "--hosts", default=DEFAULT_HOSTS_FILE, help=f"Hosts file. Default: {DEFAULT_HOSTS_FILE}.")
     parser.add_argument("-u", "--user", default=getpass.getuser(), help="Target account semantics on remote (収集アカウント).")
     parser.add_argument("-s", "--ssh-user", default=None, help="SSH login user. Default: same as --user.")
     parser.add_argument("-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=f"SSH port. Default: {DEFAULT_SSH_PORT}.")
@@ -71,12 +102,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-S", "--strict-host-key-checking", action="store_true", help="Enable strict host key checking.")
 
     # 実行
-    parser.add_argument("-j", "--parallel", type=int, default=1, help="Parallel hosts (not parallel per-host). Default: 1.")
+    parser.add_argument("-j", "--parallel", type=int, default=DEFAULT_PARALLEL_HOSTS, help=f"Parallel hosts (not parallel per-host). Default: {DEFAULT_PARALLEL_HOSTS}.")
     parser.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not download.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logs.")
     parser.add_argument("--pack", action="store_true", help="Pack on remote (tar.gz) and download once.")
     # pack 時のリンク追随 ( 指定時にのみ dereference ) 。デフォルトは追随しない＝リンクは含めない。
     parser.add_argument("--follow-symlinks", action="store_true", help="When used with --pack, dereference symlinks on remote.")
+    # sudo-collect: 三値 ( True/False/None=auto ) 。pack 経路でのみ有効。
+    parser.add_argument(
+        "-x", "--sudo-collect",
+        action=BooleanOptionalAction,
+        default=None,
+        help="Use sudo for remote packing/collection (pack path only). Omitted = auto (enabled when ssh-user != --user).")
+
     return parser
 
 
@@ -94,6 +132,7 @@ def _worker(
     dry_run: bool,
     pack_remote: bool,
     follow_symlinks: bool,
+    sudo_collect_flag: Optional[bool],
     verbose: bool,
 ) -> HostResult:
     downloaded: int = 0
@@ -116,20 +155,25 @@ def _worker(
         ssh = ssh_open(cfg, debug_print=verbose)
         sftp_client = ssh.open_sftp()
 
-        # '~' 展開用ホームディレクトリの決定（getent優先）
-        home_abs = "/root" if args_user == "root" else f"/home/{args_user}"
-        try:
-            _stdin, stdout, _stderr = ssh.exec_command(f"getent passwd {args_user} | cut -d: -f6", timeout=timeout)
-            v = stdout.read().decode().strip()
-            if v.startswith("/"):
-                home_abs = v
-        except Exception:
-            pass
+        # '~' 展開用ホームディレクトリの決定 ( getent優先、失敗時フォールバック )
+        home_abs: str = HOME_FALLBACK_ROOT if args_user == "root" else f"{HOME_FALLBACK_PREFIX}/{args_user}"
+        rc_h, out_h, _ = run_remote_cmd_capture(
+            ssh, ["bash", "-lc", HOME_DETECT_CMD_FMT.format(user=args_user)], timeout=timeout
+        )
+        cand: str = out_h.strip()
+        if rc_h == 0 and cand.startswith("/"):
+            home_abs = cand
 
-        # 権限モデル：ssh_user != user で --pack なしは不可
-        use_sudo = (ssh_user != args_user)
+        # sudo 利用可否の三値判定 ( 未指定 None は自動 : ssh_user != user )
+        sudo_collect: Optional[bool] = sudo_collect_flag
+        use_sudo: bool = (ssh_user != args_user) if (sudo_collect is None) else bool(sudo_collect)
+
+        # 権限モデル : sudo 有効なら pack 経路が必須 ( SFTP 経路では権限昇格不可 )
         if use_sudo and not pack_remote:
-            errors.append("ssh_user != user requires --pack. Please re-run with --pack.")
+            errors.append(
+                "sudo-collect requires --pack (SFTP path cannot elevate privileges). "
+                "Please re-run with --pack or disable --sudo-collect."
+            )
             print(f"[{host}] downloaded: {downloaded}")
             for w in warnings:
                 print(f"[{host}] Warning: {w}", file=sys.stderr)
@@ -137,9 +181,9 @@ def _worker(
                 print(f"[{host}] Error: {er}", file=sys.stderr)
             return HostResult(host=host, downloaded=downloaded, warnings=warnings, errors=errors)
 
-        # 候補列挙（core_select に委譲）
+        # 候補列挙 ( core_select に委譲 )
         # ここでの選択肢は、「存在する可能性のある候補」で、この後に
-        # 型別（通常ファイル/リンク/ディレクトリ）で仕分ける
+        # 型別 ( 通常ファイル/リンク/ディレクトリ ) で仕分ける
         candidates: List[str] = enumerate_candidates_for_host(
             ssh=ssh,
             sftp_client=sftp_client,
@@ -159,7 +203,7 @@ def _worker(
                     print(f"[planned] {host}:{pth} -> {lp_dbg}")
             return HostResult(host=host, downloaded=0, warnings=warnings, errors=errors)
 
-        # まず候補を型別に仕分け（存在チェックもここで実施）
+        # まず候補を型別に仕分け ( 存在チェックもここで実施 )
         files_only: List[str] = []
         symlinks:   List[str] = []
         for remote_path in candidates:
@@ -168,7 +212,7 @@ def _worker(
                     warnings.append(f"not found (skip): {remote_path}")
                     continue
                 if sftp_isdir(sftp_client, remote_path):
-                    # ディレクトリはここでは扱わない（`--pack`でも -T に列挙しない）
+                    # ディレクトリはここでは扱わない ( `--pack`でも -T に列挙しない )
                     continue
                 if sftp_islink(sftp_client, remote_path):
                     symlinks.append(remote_path)
@@ -180,8 +224,8 @@ def _worker(
 
         # 実ダウンロード
         if pack_remote:
-            # --pack 経路：
-            #   - デフォルト: symlink は含めない（安全第一）
+            # --pack 経路 :
+            #   - デフォルト: symlink は含めない ( 安全第一 )
             #   - --follow-symlinks 指定時のみ symlink もリストに入れ、tar -h で実体参照
             pack_list: List[str] = list(files_only)
             if follow_symlinks and symlinks:
@@ -202,17 +246,19 @@ def _worker(
                     downloaded += extracted
                     if verbose:
                         print(f"[pack] {host}:{remote_gz} -> extracted {extracted} file(s)")
-                    try:
-                        ssh.exec_command(f"rm -f {remote_gz}", timeout=timeout)
-                    except Exception:
-                        pass
+
+                    # 一時アーカイブ削除は PATH 注入・エラー抑止で統一
+                    _ = run_remote_cmd_capture(
+                        ssh, ["bash", "-lc", f"rm -f {shlex.quote(remote_gz)} || true"], timeout=timeout
+                    )
+
             except Exception as e:
                 errors.append(f"pack/download failed: {e}")
         else:
-            # 逐次 SFTP：リンクは無視、通常ファイルのみ
+            # 逐次 SFTP : リンクは無視、通常ファイルのみ
             for remote_path in files_only:
                 try:
-                    # local_path は download_one 内で正規化（DEST/<HOST>/...）
+                    # local_path は download_one 内で正規化 ( DEST/<HOST>/... )
                     download_one(sftp_client, remote_path, dest_local, host)
                     downloaded += 1
                     if verbose:
@@ -253,15 +299,33 @@ def main() -> None:
     # 位置引数の検証
     if len(args.src) < 1 or not args.dest:
         print("At least one SRC and a DEST are required.", file=sys.stderr)
-        sys.exit(5)
+        sys.exit(EXIT_ERR_ARGS)
 
-    dest_local: str = str(args.dest)
+
+    # DEST: '~user' は非対応なので明示エラー
+    _dest_raw: str = str(args.dest)
+    _dest_tilde_user = _tilde_username(_dest_raw)
+    if _dest_tilde_user is not None:
+        print(f"Error: tilde with username is not supported in DEST: ~{_dest_tilde_user}", file=sys.stderr)
+        sys.exit(EXIT_ERR_TILDE_USER)
+
+    # DEST: '~' をローカル実行ユーザの HOME で展開。相対ならカレント起点で絶対化。
+    dest_local: str = os.path.expanduser(_dest_raw)
+    if not _is_local_abs(dest_local):
+        dest_local = os.path.abspath(dest_local)
     srcs: List[str] = list(args.src)
+
+    # SRC に '~user' が含まれていればエラー ( 共通仕様 )
+    for s in srcs:
+        u = _tilde_username(s)
+        if u is not None:
+            print(f"Error: tilde with username is not supported in SRC: ~{u}", file=sys.stderr)
+            sys.exit(EXIT_ERR_TILDE_USER)
 
     hosts: List[str] = parse_hosts_file(str(args.hosts))
     if len(hosts) == 0:
         print("No hosts found in hosts file.", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_ERR_NO_HOSTS)
 
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)
     args_user: str = str(args.user)
@@ -286,6 +350,7 @@ def main() -> None:
             dry_run=bool(args.dry_run),
             pack_remote=bool(args.pack),
             follow_symlinks=bool(args.follow_symlinks),
+            sudo_collect_flag=(args.sudo_collect if hasattr(args, "sudo_collect") else None),
             verbose=bool(args.verbose),
         )
         results.append(res)
@@ -310,7 +375,7 @@ def main() -> None:
         print("(Note) With --pack and --follow-symlinks, hardlink targets are dereferenced and "
               "included in the 'downloaded' count.")
 
-    exit_code: int = 2 if len(err_hosts) > 0 else 0
+    exit_code: int = EXIT_ERR_GENERIC if len(err_hosts) > EXIT_OK else EXIT_OK
     sys.exit(exit_code)
 
 if __name__ == "__main__":
