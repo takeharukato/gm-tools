@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Hosts file. Default: {DEFAULT_HOSTS_FILE}.",
     )
     parser.add_argument(
-        "-u", "--user", default=getpass.getuser(), help="Target account on remote (収集アカウント)."
+        "-u", "--user", default=getpass.getuser(), help="Target account on remote."
     )
     parser.add_argument(
         "-s", "--ssh-user", default=None, help="SSH login user. Default: same as --user."
