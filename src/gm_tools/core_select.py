@@ -292,27 +292,23 @@ def _enumerate_via_sftp_walk(
         # 絶対パスでなければスキップ
         is_abs = abs_norm.startswith("/") or re.match(r"^[A-Za-z]:/", abs_norm)
         if not is_abs:
-            if verbose:
-                _LOG.warning("skip non-absolute SRC: %s", src)
+            _LOG.warning("skip non-absolute SRC: %s", src)
             continue
         try:
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
         except ValueError as e:
-            if verbose:
-                _LOG.warning("bad SRC pattern %s: %s", src, e)
+            _LOG.warning("bad SRC pattern %s: %s", src, e)
             continue
 
         if not sftp_exists(sftp_client, root) or not sftp_isdir(sftp_client, root):
-            if verbose:
-                _LOG.debug("skip missing/non-dir root: %s", root)
+            _LOG.debug("skip missing/non-dir root: %s", root)
             continue
 
         pattern = tail_re if tail_re else r".*"
         try:
             rx = re.compile(pattern)
         except re.error as e:
-            if verbose:
-                _LOG.warning("bad regex for %s: %s", src, e)
+            _LOG.warning("bad regex for %s: %s", src, e)
             continue
 
         for ap in remote_walk_files(sftp_client, root):
@@ -322,8 +318,7 @@ def _enumerate_via_sftp_walk(
                 candidates.add(ap)
 
     out = sorted(candidates)
-    if verbose:
-        _LOG.debug("candidates (remote): %d", len(out))
+    _LOG.debug("candidates (remote): %d", len(out))
     return out
 
 def _enumerate_via_remote_walk_with_sudo(
@@ -353,23 +348,20 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
         abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
         is_abs = abs_norm.startswith("/") or re.match(r"^[A-Za-z]:/", abs_norm)
         if not is_abs:
-            if verbose:
-                _LOG.warning("skip non-absolute SRC: %s", src)
+            _LOG.warning("skip non-absolute SRC: %s", src)
             continue
 
         try:
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
         except ValueError as e:
-            if verbose:
-                _LOG.warning("bad SRC pattern %s: %s", src, e)
+            _LOG.warning("bad SRC pattern %s: %s", src, e)
             continue
 
         # root ディレクトリの存在確認 ( sudo/非 sudo のどちらかで通ればOK )
         check = f"sudo -n test -d {shlex.quote(root)} || test -d {shlex.quote(root)}"
         rc, _out, _err = run_remote_cmd_capture(ssh, ["bash", "-lc", check], timeout=DEFAULT_TIMEOUT)
         if rc != 0:
-            if verbose:
-                _LOG.debug("skip missing/non-dir root: %s", root)
+            _LOG.debug("skip missing/non-dir root: %s", root)
             continue
 
         pat = tail_re if tail_re else r".*"
@@ -391,9 +383,8 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
             )
             rc2, out2, err2 = run_remote_cmd_capture(ssh, ["bash", "-lc", cmd_nonsudo], timeout=DEFAULT_TIMEOUT)
             if rc2 != 0:
-                if verbose:
-                    reason = (err or err2 or "").strip()
-                    _LOG.debug("remote walk failed at root=%s: %s", root, reason)
+                reason = (err or err2 or "").strip()
+                _LOG.debug("remote walk failed at root=%s: %s", root, reason)
                 continue
             out = out2
 
@@ -403,8 +394,7 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
                 acc.add(p)
 
     out = sorted(acc)
-    if verbose:
-        _LOG.debug("candidates (remote/sudo-walk): %d", len(out))
+    _LOG.debug("candidates (remote/sudo-walk): %d", len(out))
     return out
 
 def enumerate_candidates_for_host(
