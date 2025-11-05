@@ -251,7 +251,7 @@ def unpack_tar_to_directory(
 #
 
 def remote_pack_paths(
-    ssh: SSHClientLike,       # paramiko.SSHClient 想定（型固定しない）
+    ssh: SSHClientLike,       # paramiko.SSHClient 想定 ( 型固定しない )
     abs_paths: List[str],
     *,
     timeout: float = 30.0,
@@ -259,9 +259,9 @@ def remote_pack_paths(
     follow_symlinks: bool = False,
 ) -> str:
     """
-    Step4 互換: 絶対パス群をリモートで .tar.gz にまとめ、そのリモートパスを返す。
-      1) printfでリスト作成 → 2) tar -cf → 3) gzip -f → 4) リスト削除
-    - アーカイブ内部パスは相対（-Pは使わない）
+    絶対パス群をリモートで .tar.gz にまとめ, そのリモートパスを返す。
+      1) printfでリスト作成  =>  2) tar -cf  =>  3) gzip -f  =>  4) リスト削除
+    - アーカイブ内部パスは相対 ( -Pは使わない )
     - follow_symlinks=True なら 'tar -h'
     - use_sudo=True なら 'sudo -n' で tar/gzip を実行
     """
@@ -275,13 +275,13 @@ def remote_pack_paths(
 
     q_lst = shlex.quote(lst)
     q_paths = " ".join(shlex.quote(p) for p in abs_paths)
-    # 1) list 作成（sudo なし）
+    # 1) list 作成 ( sudo なし )
     rc_l, _out_l, err_l = run_remote_cmd_capture(ssh, ["bash", "-lc", f"printf '%s\\n' {q_paths} > {q_lst}"], timeout=timeout)
     if rc_l != 0:
         raise RuntimeError(f"prepare list failed: {(err_l or '').strip()}")
 
     try:
-        # 2) tar 作成（-h は必要時のみ）
+        # 2) tar 作成 ( -h は必要時のみ )
         deref = " -h" if follow_symlinks else ""
         q_tarf = shlex.quote(tarf)
         tar_cmd = f"LC_ALL=C tar{deref} -cf {q_tarf} -T {q_lst}"
@@ -297,7 +297,7 @@ def remote_pack_paths(
         if rc_g != 0:
             raise RuntimeError(f"gzip failed: {(err_g or '(no stderr)').strip()}")
     except Exception:
-        # 失敗時の掃除（ベストエフォート）
+        # 失敗時の掃除 ( ベストエフォート )
         _ = run_remote_cmd_capture(ssh, ["bash", "-lc", f"rm -f {shlex.quote(tarf)} {q_lst} || true"], timeout=timeout)
         raise
     finally:
@@ -309,7 +309,7 @@ def remote_pack_paths(
 
 def _safe_members(base_dir: str, members: Iterable[tarfile.TarInfo]) -> List[tarfile.TarInfo]:
     """
-    Tar 展開のパストラバーサル対策（Step4同等）。
+    Tar 展開のパストラバーサル対策。
       - 絶対/ルート始まりを除外
       - '..' バックトラックを除外
       - 展開先が base_dir 配下に収まることを保証
@@ -331,7 +331,7 @@ def _safe_members(base_dir: str, members: Iterable[tarfile.TarInfo]) -> List[tar
 
 
 def download_and_extract_tar(
-    sftp: SFTPClientLike,   # paramiko.SFTPClient 想定（型固定しない）
+    sftp: SFTPClientLike,   # paramiko.SFTPClient 想定 ( 型固定しない )
     remote_tar_gz: str,
     extract_base: str,
     subdir: str,
@@ -339,10 +339,10 @@ def download_and_extract_tar(
     verbose: bool = False,
 ) -> Tuple[int, List[str]]:
     """
-    Step4 互換: リモート .tar.gz をローカルに保存し、extract_base/subdir に安全展開。
+    リモート .tar.gz をローカルに保存し, extract_base/subdir に安全展開。
     戻り値: (extracted_count, extracted_paths)
       - extracted_count は「通常ファイル + ハードリンク」をカウント
-      - extracted_paths は tar 内パス（相対）一覧
+      - extracted_paths は tar 内パス ( 相対 ) 一覧
     """
     os.makedirs(extract_base, exist_ok=True)
     dest_root = os.path.join(extract_base, subdir)
@@ -384,9 +384,9 @@ def list_tar_members_local(tar_path: str) -> Tuple[List[str], List[str]]:
     """
     ローカル tar.gz のメンバーをハードニングして列挙する。
     戻り値は (regular_files, empty_dirs) のタプル。
-      - regular_files: 通常ファイルのみ（symlink/ハードリンク/デバイス等は含めない）
-      - empty_dirs   : 空ディレクトリ（配下にメンバーを持たないディレクトリ）
-    いずれもアーカイブ内の相対パス（先頭の '/' は除去）で返す。
+      - regular_files: 通常ファイルのみ ( symlink/ハードリンク/デバイス等は含めない )
+      - empty_dirs   : 空ディレクトリ ( 配下にメンバーを持たないディレクトリ )
+    いずれもアーカイブ内の相対パス ( 先頭の '/' は除去 ) で返す。
     """
     regular_files: List[str] = []
     dirs: List[str] = []
@@ -400,7 +400,7 @@ def list_tar_members_local(tar_path: str) -> Tuple[List[str], List[str]]:
             nm: str = m.name.lstrip("/")
             if not nm:
                 continue
-            # 通常ファイルのみ採用（symlink/hardlink は除外）
+            # 通常ファイルのみ採用 ( symlink/hardlink は除外 )
             if m.isfile():
                 regular_files.append(nm)
             elif m.isdir():

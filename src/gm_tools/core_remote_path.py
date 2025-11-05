@@ -14,8 +14,8 @@ from .core_path_handling import (
 def detect_remote_home(ssh: SSHClientLike, user: str, timeout: float) -> str:
     """
     getent 優先でリモート user の HOME を取得。失敗時はフォールバック。
-    - PATH 注入は run_remote_cmd_capture 側ポリシーに従う（bash -lc）。
-    - 失敗/未設定時は root→/root、その他→/home/<user> にフォールバック。
+    - PATH 注入は run_remote_cmd_capture 側ポリシーに従う ( bash -lc ) 。
+    - 失敗/未設定時は root => /root, その他 => /home/<user> にフォールバック。
     """
     fallback: str = HOME_FALLBACK_ROOT if user == "root" else f"{HOME_FALLBACK_PREFIX}/{user}"
     rc, out, _ = run_remote_cmd_capture(

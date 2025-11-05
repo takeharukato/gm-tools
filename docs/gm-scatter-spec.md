@@ -360,7 +360,7 @@ GNU tar の場合は --acls/--xattrs を作成時にも付けて格納する。b
 
 ### 基本的な使用法
 
-#### 明示的な src 群を指定して、各ホストの ~/deploy へ配布 ( SFTP, 逐次 put )
+#### 明示的な src 群を指定して, 各ホストの ~/deploy へ配布 ( SFTP, 逐次 put )
 
 ```:shell
 gm-scatter.py -H hostfile -u appuser src/app.conf src/start.sh deploy
@@ -368,7 +368,7 @@ gm-scatter.py -H hostfile -u appuser src/app.conf src/start.sh deploy
 
 src は 0 個以上のファイル/ディレクトリ。最後の位置引数が `dest` ( 必須 ) 。
 
-dest が相対の場合は、`--user` の HOME 配下に展開される。
+dest が相対の場合は, `--user` の HOME 配下に展開される。
 この例では `~appuser/deploy`配下に展開される。
 
 #### ディレクトリをそのまま配布 ( SFTP, 逐次 put )
@@ -377,7 +377,7 @@ dest が相対の場合は、`--user` の HOME 配下に展開される。
 gm-scatter.py -H hostfile -u appuser config/ webroot/ deploy
 ```
 
-config/ と webroot/ の中身を走査し、個々のファイルを SFTP で ~/deploy に作成。
+config/ と webroot/ の中身を走査し, 個々のファイルを SFTP で ~/deploy に作成。
 
 デフォルトではシンボリックリンクはたどらない ( リンク自体の転送も除外 ) 。シンボリックリンクをたどる場合は, `--follow-symlinks`をつける。
 
@@ -460,7 +460,7 @@ gm-scatter.py -H hostfile -u appuser --pack --selinux auto src_dir/ deploy
 gm-scatter.py -H hostfile -u appuser --pack --selinux policy src_dir/ deploy
 ```
 
-##### アーカイブに xattrs を保持し、展開後に xattrs 復元 ( GNU tar + setfattr 必須 )
+##### アーカイブに xattrs を保持し, 展開後に xattrs 復元 ( GNU tar + setfattr 必須 )
 
 ```:shell
 gm-scatter.py -H hostfile -u appuser --pack --preserve-xattrs --selinux archive src_dir/ deploy
@@ -468,7 +468,7 @@ gm-scatter.py -H hostfile -u appuser --pack --preserve-xattrs --selinux archive 
 
 `--selinux archive` を指定するためには `--pack` と `--preserve-xattrs` の両方のオプションをつける必要がある。また, リモートホストに `setfattr`コマンド が必要。
 
-リモートホスト側のtarコマンドが GNU tar でない場合、--preserve-* の一部は無効化される可能性があり, 警告またはエラー ( `--preserve-*`オプションを明示指定した場合 ) として集計出力。
+リモートホスト側のtarコマンドが GNU tar でない場合, --preserve-* の一部は無効化される可能性があり, 警告またはエラー ( `--preserve-*`オプションを明示指定した場合 ) として集計出力。
 
 
 #### 並列度・タイムアウト・SSH 認証の指定
@@ -479,9 +479,9 @@ gm-scatter.py -H hostfile -u appuser \
   src/ deploy
 ```
 
-- `-j` でホスト並列数、-T で SSH/コマンドタイムアウト秒。
+- `-j` でホスト並列数, -T で SSH/コマンドタイムアウト秒。
 
-- `-P` でポート、`-K` で秘密鍵ファイル、`-S` で厳格なホスト鍵検証を有効化。
+- `-P` でポート, `-K` で秘密鍵ファイル, `-S` で厳格なホスト鍵検証を有効化。
 
 - `--ssh-user` を併用すると「SSH ログインユーザー」と「リモート上のターゲットアカウント ( `--user` ) 」を分離できる ( `sudo -n` を使用した復元作業などに使用 ) 。
 
@@ -507,8 +507,8 @@ gm-scatter.py -H hostfile -u appuser --include-empty-dirs config-dir/ deploy
 gm-scatter.py -H hostfile -u appuser --follow-symlinks project-root/ deploy
 ```
 
-SFTP モードで、リンク先をたどってファイルを転送したい場合に使用。
-デフォルトでは、リンクは安全側でスキップ ( 壊れたリンクは常にスキップ ) 。
+SFTP モードで, リンク先をたどってファイルを転送したい場合に使用。
+デフォルトでは, リンクは安全側でスキップ ( 壊れたリンクは常にスキップ ) 。
 
 ## hostfile の例
 

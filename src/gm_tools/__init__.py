@@ -18,7 +18,7 @@ __all__ = [
 
 __version__ = "0.1.0"
 
-# 型チェッカー向けに参照可能化（実行時には import されない）
+# 型チェッカー向けに参照可能化 ( 実行時には import されない )
 if TYPE_CHECKING:
     from . import gather_cli as gather_cli
     from . import scatter_cli as scatter_cli

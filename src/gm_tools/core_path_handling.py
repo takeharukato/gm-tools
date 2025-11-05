@@ -22,19 +22,19 @@ _REGEX_META = set(r'.^$*+?{}[]\|()')  # 逆スラッシュ自体は「エスケ�
 # 絶対パス判定/リモートホームディレクトリ検出
 # --------------------------------------------------------------------
 def is_windows_abs(p: str) -> bool:
-    # Windows ドライブレター始まり（C:\ など）を絶対パスとして判定する。
+    # Windows ドライブレター始まり ( C:\ など ) を絶対パスとして判定する。
     return bool(WIN_ABS_RE.match(p))
 
 def is_local_abs(p: str) -> bool:
     """
-    実行 OS に依らず、UNIX の '/' 始まり、または Windows ドライブレター始まりを絶対と見なす。
+    実行 OS に依らず, UNIX の '/' 始まり, または Windows ドライブレター始まりを絶対と見なす。
     """
     return p.startswith("/") or is_windows_abs(p)
 
 
 def tilde_username(s: str) -> Optional[str]:
     """
-    '~user' または '~user/...' の 'user' を返す。'~'・'~/' は None（対象外）。
+    '~user' または '~user/...' の 'user' を返す。'~'・'~/' は None ( 対象外 ) 。
     Windows/UNIX 共通で '/' と '\\' を区切りとして扱う。
     """
     if s == "~" or s.startswith("~/"):
@@ -50,7 +50,7 @@ def ensure_local_dir(path: str) -> None:
 
 def local_path_for_download(dest_dir: str, host: str, remote_abs_path: str) -> str:
     """
-    リモートの絶対パス remote_abs_path を、ローカルの保存先パスにマッピングする。
+    リモートの絶対パス remote_abs_path を, ローカルの保存先パスにマッピングする。
 
     保存先は DEST/<HOST>/<remote_abs_path_without_leading_slash> の形に正規化する。
     例:
@@ -59,8 +59,8 @@ def local_path_for_download(dest_dir: str, host: str, remote_abs_path: str) -> s
         remote_abs_path = "/etc/hosts"
       -> "/tmp/out/node1/etc/hosts"
 
-    つまり gather は /etc/hosts を取得した場合、
-    /tmp/out/node1/etc/hosts に保存する、というルールになる。
+    つまり gather は /etc/hosts を取得した場合,
+    /tmp/out/node1/etc/hosts に保存する, というルールになる。
     """
     rel = remote_abs_path.lstrip("/").replace("\\", "/")
     return os.path.join(dest_dir, host, rel)
@@ -85,10 +85,10 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
 def split_src_to_root_and_tail_regex(abs_src: str) -> tuple[str, str]:
     """
     絶対 SRC を (root, tail_regex) に分割する。
-    - root は実在ディレクトリ候補（POSIX なら '/' で始まる部分、Windows なら 'C:/'）
+    - root は実在ディレクトリ候補 ( POSIX なら '/' で始まる部分, Windows なら 'C:/' )
     - tail_regex は root 直下からの相対正規表現
-    - 正規表現メタ文字が含まれない場合は、basename を re.escape したものを返す
-    - ディレクトリ指定（末尾 '/'）は tail_regex='' とし、「配下すべて」の意味にする
+    - 正規表現メタ文字が含まれない場合は, basename を re.escape したものを返す
+    - ディレクトリ指定 ( 末尾 '/' ) は tail_regex='' とし, 「配下すべて」の意味にする
     """
     if re.match(r'^[A-Za-z]:/', abs_src):
         prefix, tail = abs_src[:3], abs_src[3:]     # 'C:/', 'path/...'
@@ -98,14 +98,14 @@ def split_src_to_root_and_tail_regex(abs_src: str) -> tuple[str, str]:
     raise ValueError("SRC must be an absolute path starting with '/', 'X:/', or '~/'. (got: %r)" % abs_src)
 
 def _normalize_root(root: str) -> str:
-    # '/' や 'C:/' の末尾スラッシュは保持し、それ以外は末尾スラッシュを落とす
+    # '/' や 'C:/' の末尾スラッシュは保持し, それ以外は末尾スラッシュを落とす
     if root == '/' or re.match(r'^[A-Za-z]:/$', root):
         return root
     return root.rstrip('/')
 
 def _find_first_regex_start(tail: str) -> tuple[int, int | None]:
     """
-    tail 内を走査し、エスケープされていない正規表現メタ文字の最初の位置を返す。
+    tail 内を走査し, エスケープされていない正規表現メタ文字の最初の位置を返す。
     返り値: (last_slash_index, meta_index or None)
     """
     last_slash = -1
@@ -138,12 +138,12 @@ def _split_from_prefix(prefix: str, tail: str) -> tuple[str, str]:
         tail_re = tail[(last_slash + 1) if last_slash >= 0 else 0:]
         return _normalize_root(root), tail_re
 
-    # 正規表現メタが無い → リテラル扱い
-    # ディレクトリ指定（末尾 '/'）なら「配下すべて」
+    # 正規表現メタが無い  =>  リテラル扱い
+    # ディレクトリ指定 ( 末尾 '/' ) なら「配下すべて」
     if tail.endswith('/'):
         return _normalize_root(prefix + tail[:-1]), ''
 
-    # ファイル指定：dirname/basename に分け、basename を escape
+    # ファイル指定：dirname/basename に分け, basename を escape
     slash = tail.rfind('/')
     if slash == -1:
         root = _normalize_root(prefix)

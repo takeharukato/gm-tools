@@ -39,7 +39,7 @@ mkdir -p "${DL_BASE}"
 pass() { echo "PASS: $*"; }
 fail() { echo "FAIL: $*" >&2; return 1; }
 
-# 常に 1 引数で bash -lc に流し込む（クォート強化）
+# 常に 1 引数で bash -lc に流し込む ( クォート強化 )
 run_ssh() {
   local host="$1"; shift
   local cmd="$*"
@@ -103,7 +103,7 @@ if [[ $RC1_L -eq 0 && $RC1_R -eq 0 ]]; then
   ABASE="$(cd "${SRC_DIR}" && pwd)"
   # 想定レイアウト: DEST/<abs_without_leading_slash>/a.txt
   CAND="${DEST_OPT}/${ABASE#/}/a.txt"
-  # 無ければフォールバックで find 検索（レイアウト差異の検出と説明用）
+  # 無ければフォールバックで find 検索 ( レイアウト差異の検出と説明用 )
   run_ssh_sudo "${HOST_LOCAL}"  "test -f '${CAND}' || find '${DEST_OPT}' -type f -name a.txt -print -quit | grep -q ."
   run_ssh_sudo "${HOST_REMOTE}" "test -f '${CAND}' || find '${DEST_OPT}' -type f -name a.txt -print -quit | grep -q ."
   pass "T1 scatter packed & sudo-extract on both hosts (found a.txt under ${DEST_OPT})"
@@ -176,7 +176,7 @@ set +e
 RC2C=$?
 set -e
 if [[ $RC2C -eq 0 ]]; then
-  # 展開先にホストディレクトリができていれば十分（深追いしない）
+  # 展開先にホストディレクトリができていれば十分 ( 深追いしない )
   test -d "${DEST_DL2C}/${HOST_LOCAL}"
   pass "T2c gather with '~/' completed"
 else
@@ -184,7 +184,7 @@ else
 fi
 echo
 
-# -------- T3: gather (non-pack + --sudo-collect) → FAIL --------
+# -------- T3: gather (non-pack + --sudo-collect)  =>  FAIL --------
 echo "[T3] gather (non-pack) + --sudo-collect should FAIL"
 DEST_DL2="${DL_BASE}/nonpack_sudo_collect"
 mkdir -p "${DEST_DL2}"

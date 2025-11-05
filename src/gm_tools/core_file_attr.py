@@ -12,7 +12,7 @@ from typing import Optional
 @dataclass(frozen=True)
 class FileAttrs:
     """
-    適用したい属性の指定（None は「変更しない」）。
+    適用したい属性の指定 ( None は「変更しない」 ) 。
     """
     mode: Optional[int] = None   # 例: 0o644
     uid: Optional[int] = None
@@ -44,7 +44,7 @@ def get_current_attrs(path: str) -> FileAttrs:
 
 def resolve_user(user: Optional[int | str | None]) -> Optional[int]:
     """
-    ユーザー指定（数値UID or 名前 or None）を数値UIDに解決。解決不可なら None。
+    ユーザー指定 ( 数値UID or 名前 or None ) を数値UIDに解決。解決不可なら None。
     """
     if user is None:
         return None
@@ -60,7 +60,7 @@ def resolve_user(user: Optional[int | str | None]) -> Optional[int]:
 
 def resolve_group(group: Optional[int | str | None]) -> Optional[int]:
     """
-    グループ指定（数値GID or 名前 or None）を数値GIDに解決。解決不可なら None。
+    グループ指定 ( 数値GID or 名前 or None ) を数値GIDに解決。解決不可なら None。
     """
     if group is None:
         return None
@@ -76,8 +76,8 @@ def resolve_group(group: Optional[int | str | None]) -> Optional[int]:
 def apply_attrs_best_effort(path: str, attrs: FileAttrs) -> ApplyResult:
     """
     可能な範囲で mode / uid / gid を適用する。
-    - どれかの適用で例外が起きても残りは試す（best-effort）
-    - 失敗した理由は error に格納（最後のエラーを記録）
+    - どれかの適用で例外が起きても残りは試す ( best-effort )
+    - 失敗した理由は error に格納 ( 最後のエラーを記録 )
     """
     changed_mode: bool = False
     changed_owner: bool = False

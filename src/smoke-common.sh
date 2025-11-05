@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# === 可変項目（環境変数で上書き可） ===
+# === 可変項目 ( 環境変数で上書き可 )  ===
 : "${PY:=python3}"
 : "${MOD:=gm_tools.scatter_cli}"
 : "${HOSTFILE:=hostfile}"
@@ -56,7 +56,7 @@ show_dest_tree() {
   ( set +e; ls -lR "${DEST}" || true )
 }
 
-# 絶対パス => DEST への変換ヘルパ（期待確認用）
+# 絶対パス => DEST への変換ヘルパ ( 期待確認用 )
 to_dest_path() {
   # /tmp/gmtest/sub/b.txt -> ${DEST}/tmp/gmtest/sub/b.txt
   local ap="$1"

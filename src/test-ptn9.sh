@@ -19,14 +19,14 @@ echo '--- grep link.conf (ヒットしないはず)'
 echo '--- grep broken.conf (ヒットしないはず)'
 ! grep -R 'broken.conf' -n /tmp/gather-test || exit 1
 
-echo '## 9-2 --pack + --follow-symlinks （実体追随。link.conf→a.conf を収集、broken は除外）'
+echo '## 9-2 --pack + --follow-symlinks  ( 実体追随。link.conf => a.conf を収集, broken は除外 ) '
 rm -rf /tmp/gather-test
 python3 -m gm_tools.gather_cli -H hostfile --pack --follow-symlinks '/tmp/gmtest/(a\.conf|link\.conf|broken\.conf)$' /tmp/gather-test
 echo '--- tree'
 tree /tmp/gather-test || true
-echo '--- a.conf は1つ以上存在（元+リンク先の解決で重複は tar がまとめる場合あり）'
+echo '--- a.conf は1つ以上存在 ( 元+リンク先の解決で重複は tar がまとめる場合あり ) '
 test -f /tmp/gather-test/localhost/abs/tmp/gmtest/a.conf
-echo '--- link.conf 自体のエントリは（dereference のため）原則出力されない想定'
+echo '--- link.conf 自体のエントリは ( dereference のため ) 原則出力されない想定'
 ! test -f /tmp/gather-test/localhost/abs/tmp/gmtest/link.conf || echo '(実装/環境によりメタエントリが残ることはあり)'
 echo '--- broken.conf は存在しない'
 ! test -f /tmp/gather-test/localhost/abs/tmp/gmtest/broken.conf

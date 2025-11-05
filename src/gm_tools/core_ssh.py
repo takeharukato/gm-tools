@@ -186,8 +186,8 @@ class SSHConfig:
 
 def ssh_open(cfg: SSHConfig, *, debug_print: bool = False) -> SSHClientLike:
     """
-    Step4 互換: Paramiko で接続を張る薄いヘルパ。
-    - 返り値は SSHClientLike として扱われる（register_connection で登録）
+    Paramiko で接続を張る薄いヘルパ。
+    - 返り値は SSHClientLike として扱われる ( register_connection で登録 )
     """
     try:
         import paramiko  # type: ignore
@@ -208,7 +208,7 @@ def ssh_open(cfg: SSHConfig, *, debug_print: bool = False) -> SSHClientLike:
         look_for_keys=True,
         allow_agent=True,
     )
-    # 互換: 呼び出し側が明示 close しない前提だったため、登録して idempotent close させる
+    # 互換: 呼び出し側が明示 close しない前提だったため, 登録して idempotent close させる
     register_connection(cfg.host, client)  # type: ignore[arg-type]
     return client  # type: ignore[return-value]
 

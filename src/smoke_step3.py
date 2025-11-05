@@ -69,11 +69,11 @@ def run_once():
     try:
         ensure_remote_clean(ssh)
 
-        # pack 作成（ローカル）
+        # pack 作成 ( ローカル )
         tgz_path, _deref = local_pack_paths_to_tmp([SRC], follow_symlinks=False)
         print(f"[local] created pack: {tgz_path}")
 
-        # --- 追加1: アーカイブのメンバー列挙（ローカル） ---
+        # --- 追加1: アーカイブのメンバー列挙 ( ローカル )  ---
         rel_files, empty_dirs = list_tar_members_local(tgz_path)
         print("[diag] list_tar_members_local: regular_files:")
         for p in rel_files:
@@ -91,7 +91,7 @@ def run_once():
         if rc != 0:
             raise RuntimeError(f"tar -tzf failed: {err}")
         listing = [ln.strip() for ln in out.splitlines() if ln.strip()]
-        # 末尾の / は除去（ディレクトリエントリ）
+        # 末尾の / は除去 ( ディレクトリエントリ )
         tzf_norm = []
         for s in listing:
             if s.endswith("/"):
@@ -102,13 +102,13 @@ def run_once():
         print(f"[diag] tar -tzf listed {len(set_tzf)} entries (normalized)")
         _show_set_diff("tzf-vs-local", "local", set_local, "tzf", set_tzf)
 
-        # --- 追加3: -T 抽出の直接検証（rtmp2 に展開） ---
+        # --- 追加3: -T 抽出の直接検証 ( rtmp2 に展開 )  ---
         rtmp2 = _remote_mktempdir(ssh)
-        # members ファイルを3種類用意: (A)そのまま, (B) './' 付与, (C) CRLF 終端（悪条件）
+        # members ファイルを3種類用意: (A)そのまま, (B) './' 付与, (C) CRLF 終端 ( 悪条件 )
         members_A = "\n".join(sorted(rel_files)) + "\n"
         with_dot = []
         for p in sorted(rel_files):
-            # すでに './' で始まらないものにだけ付ける（二重防止）
+            # すでに './' で始まらないものにだけ付ける ( 二重防止 )
             with_dot.append(p if p.startswith("./") else f"./{p}")
         members_B = "\n".join(with_dot) + "\n"
         members_C = members_A.replace("\n", "\r\n")
@@ -142,14 +142,14 @@ def run_once():
         if rcC != 0:
             print(f"[diag]  (C) err: {errC.strip()}")
 
-        # 抽出結果の可視化（どのパスが出力されたかを評価）
+        # 抽出結果の可視化 ( どのパスが出力されたかを評価 )
         rc_find, out_find, _ = exec_remote(
             ssh, f"bash -lc 'cd {rtmp2} && find . -type f -o -type d | sort'", use_sudo=False, timeout=30.0
         )
         print(f"[diag] extracted tree under {rtmp2}:\n{out_find}")
 
-        # 期待ファイルが作られているか（A→OK であるべき）
-        # A/B/C どれで作られたかに関わらず、find の結果で存在を判断
+        # 期待ファイルが作られているか ( A => OK であるべき )
+        # A/B/C どれで作られたかに関わらず, find の結果で存在を判断
         expected = [
             f"{rtmp2}/tmp/gm_src_step3/dirA/a.txt",
             f"{rtmp2}/tmp/gm_src_step3/dirB/sub/b.txt",
@@ -158,7 +158,7 @@ def run_once():
             rc_e, _, _ = exec_remote(ssh, f"test -f {p}", use_sudo=False, timeout=10.0)
             print(f"[diag] expect file exists? {p}: {'YES' if rc_e==0 else 'NO'}")
 
-        # --- 既存の本体テスト（pack 経由の通常動作） ---
+        # --- 既存の本体テスト ( pack 経由の通常動作 )  ---
         opts = ScatterOpts(
             dest_abs_root=DEST,
             pack=True,
@@ -189,7 +189,7 @@ def run_once():
             rc, out, err = exec_remote(ssh, f"bash -lc 'test -e {p}'", use_sudo=False, timeout=30.0)
             assert rc == 0, f"missing after extract: {p}"
 
-        # シンボリックリンクは「dropped」想定（ファイルとしては存在しない）
+        # シンボリックリンクは「dropped」想定 ( ファイルとしては存在しない )
         for p in [
             f"{DEST}/tmp/gm_src_step3/link_to_file",
             f"{DEST}/tmp/gm_src_step3/link_to_dir",
@@ -197,7 +197,7 @@ def run_once():
             rc, out, err = exec_remote(ssh, f"bash -lc 'test -e {p}'", use_sudo=False, timeout=30.0)
             assert rc != 0, f"symlink appears (should be dropped): {p}"
 
-        # 内容チェック（簡易）
+        # 内容チェック ( 簡易 )
         rc, out, _ = exec_remote(ssh, f"bash -lc 'cat {DEST}/tmp/gm_src_step3/dirA/a.txt'", use_sudo=False, timeout=30.0)
         assert out.strip() == "hello A", "content mismatch for a.txt"
 
@@ -205,7 +205,7 @@ def run_once():
         ls_remote(ssh, f"{DEST}/tmp/gm_src_step3")
 
         # === Overwrite 検証 ===
-        # 1回目の後でローカルSRCを更新し、新しいpackを作って2回目で上書きされることを確認
+        # 1回目の後でローカルSRCを更新し, 新しいpackを作って2回目で上書きされることを確認
         rc, _, _ = exec_remote(ssh, f"bash -lc 'echo hello A v2 > {SRC}/dirA/a.txt && echo \"data v2\" > {SRC}/dirB/sub/b.txt'", use_sudo=False, timeout=30.0)
         assert rc == 0, "failed to mutate local SRC for overwrite test"
         tgz_path2, _ = local_pack_paths_to_tmp([SRC], follow_symlinks=False)
@@ -227,7 +227,7 @@ def run_once():
         assert out.strip() == "data v2", "overwrite content mismatch for b.txt"
         print("[OK] second run (overwrite verified) passed")
 
-        # 後片付け（診断領域）
+        # 後片付け ( 診断領域 )
         exec_remote(ssh, f"rm -rf {rtmp} {rtmp2}", use_sudo=False, timeout=30.0)
 
     finally:
@@ -238,7 +238,7 @@ def run_once():
         ssh.close()
 
 class DummyReport:
-    # TransferReport 互換の最小ダミー実装（コンソールに流すだけ）
+    # TransferReport 互換の最小ダミー実装 ( コンソールに流すだけ )
     def add(self, host, item):
         # item は TransferItem 想定。最低限表示して観察。
         try:

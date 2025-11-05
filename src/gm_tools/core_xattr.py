@@ -60,7 +60,7 @@ def check_xattr_tools_available(ssh: SSHClientLike) -> bool:
 
 def stat_owner_group_mode(ssh: SSHClientLike, path: str, *, use_sudo: bool) -> Tuple[str, str, int]:
     """
-    対象パスのオーナ、グループ、モード(8進数) を取得する。
+    対象パスのオーナ, グループ, モード(8進数) を取得する。
     - stat(1) の -c '%U:%G:%a' を利用
     - use_sudo=True の場合は sudo 経由で実行
     """
@@ -79,8 +79,8 @@ def stat_owner_group_mode(ssh: SSHClientLike, path: str, *, use_sudo: bool) -> T
         ssh, argv, timeout=STAT_TIMEOUT
     )
     if rc != 0:
-        # 取得失敗時は空を返すが、呼び出し側で None 判定するより簡潔に、既定値を返す
-        # （呼出側では空の場合 chown/chmod をスキップする設計）
+        # 取得失敗時は空を返すが, 呼び出し側で None 判定するより簡潔に, 既定値を返す
+        #  ( 呼出側では空の場合 chown/chmod をスキップする設計 )
         return ("", "", 0)
     s: str = out.strip()
     # 例: "root:root:644"
@@ -108,7 +108,7 @@ def chown_chmod(
     """
     所有者・グループ・モードを復元する共通関数。
     - owner/group は空文字や None の場合はスキップ。
-    - mode は None の場合はスキップ。数値は 8 進で解釈・適用（例: 0o644）。
+    - mode は None の場合はスキップ。数値は 8 進で解釈・適用 ( 例: 0o644 ) 。
     - use_sudo=True のとき sudo 利用。
     """
     q: str = shlex.quote(path)
@@ -116,7 +116,7 @@ def chown_chmod(
 
     if owner or group:
         # chown [-h] owner:group path
-        # owner と group の両方が空でなければ owner:group、片方のみならその書式で
+        # owner と group の両方が空でなければ owner:group, 片方のみならその書式で
         spec: str
         if owner and group:
             spec = f"{owner}:{group}"
@@ -137,7 +137,7 @@ def chown_chmod(
             )
 
     if mode is not None and mode != 0:
-        # chmod は 8 進を4桁相当に整形（ACL/特殊ビットは OS が解釈）
+        # chmod は 8 進を4桁相当に整形 ( ACL/特殊ビットは OS が解釈 )
         # 例: 0o644 -> "0644"
         try:
             masked: int = int(mode) & 0o7777
@@ -161,9 +161,9 @@ def capture_acl_dump(
     use_sudo: bool,
 ) -> Optional[str]:
     """
-    ACL をダンプしてファイルに保存し、そのダンプファイルのパスを返す。
-    - setfacl --restore で復元できる形式（getfacl -p または --absolute-names）
-    - ツールが無ければ呼出側でこの関数自体を呼ばない設計（check_acl_tools_available）
+    ACL をダンプしてファイルに保存し, そのダンプファイルのパスを返す。
+    - setfacl --restore で復元できる形式 ( getfacl -p または --absolute-names )
+    - ツールが無ければ呼出側でこの関数自体を呼ばない設計 ( check_acl_tools_available )
     """
     qpath: str = shlex.quote(path)
     qdir: str = shlex.quote(dump_dir)
@@ -180,7 +180,7 @@ def capture_acl_dump(
     dump_path: str = out.strip()
     qdump: str = shlex.quote(dump_path)
 
-    # getfacl: -p（絶対パスを保持） or --absolute-names
+    # getfacl: -p ( 絶対パスを保持 )  or --absolute-names
     rc2: int
     _o2: str
     _e2: str
@@ -227,10 +227,10 @@ def capture_xattr_dump(
     use_sudo: bool,
 ) -> Optional[str]:
     """
-    xattr をダンプしてファイルに保存し、そのダンプファイルのパスを返す。
-    - getfattr -d（ダンプ形式）を利用（--absolute-names で絶対パス）
+    xattr をダンプしてファイルに保存し, そのダンプファイルのパスを返す。
+    - getfattr -d ( ダンプ形式 ) を利用 ( --absolute-names で絶対パス )
     - setfattr --restore で復元可能な形式
-    - ツールが無ければ呼出側でこの関数自体を呼ばない設計（check_xattr_tools_available）
+    - ツールが無ければ呼出側でこの関数自体を呼ばない設計 ( check_xattr_tools_available )
     """
     qpath: str = shlex.quote(path)
     qdir: str = shlex.quote(dump_dir)
@@ -246,7 +246,7 @@ def capture_xattr_dump(
     qdump: str = shlex.quote(dump_path)
 
     # getfattr のダンプ形式は setfattr --restore で復元可能
-    # -h: シンボリックリンク自体の属性参照（必要に応じ安全側）
+    # -h: シンボリックリンク自体の属性参照 ( 必要に応じ安全側 )
     rc2: int
     _o2: str
     _e2: str

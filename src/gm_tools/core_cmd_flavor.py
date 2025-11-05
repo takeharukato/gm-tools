@@ -8,7 +8,7 @@ from .core_ssh import SSHClientLike
 
 
 # NOTE:
-# "bash -lc" 経由で実行されるシェルコマンド（sudoの有無を問わず）の前に
+# "bash -lc" 経由で実行されるシェルコマンド ( sudoの有無を問わず ) の前に
 # 設定されるPATH環境変数の設定値。
 # FreeBSD系システムでは portsからインストールされたコマンドが,
 # /usr/local/bin, /usr/local/sbin に配置されることを想定して,
@@ -101,8 +101,8 @@ def build_tar_extract_cmd(
     """
     tar.gz を dest_abs に展開するコマンド argv を返す。
     - GNU/bsdtar 共通: -xzf, -C
-    - メンバー限定抽出: -T <members_file> を使用（GNU/bsdtar ともにサポート）
-      （members_file は改行区切りの相対パス列。アーカイブ内パスと一致させる）
+    - メンバー限定抽出: -T <members_file> を使用 ( GNU/bsdtar ともにサポート )
+       ( members_file は改行区切りの相対パス列。アーカイブ内パスと一致させる )
     """
     _ = flavor  # 現状は共通オプションで対応。分岐時の将来拡張用に受け取る。
 
@@ -118,7 +118,7 @@ def build_tar_extract_cmd(
 
 def build_tar_list_cmd(*, tar_gz_path: str, use_sudo: bool) -> List[str]:
     """
-    アーカイブ内パスの列挙（互換動作）。`tar -tzf`。
+    アーカイブ内パスの列挙 ( 互換動作 ) 。`tar -tzf`。
     """
     sudo_prefix: List[str] = ["sudo", "-n"] if use_sudo else []
     cmd: List[str] = sudo_prefix + ["tar", "-tzf", tar_gz_path]
@@ -127,7 +127,7 @@ def build_tar_list_cmd(*, tar_gz_path: str, use_sudo: bool) -> List[str]:
 
 def _inject_path_for_bash_argv(cmd_argv: List[str]) -> List[str]:
     """
-    ['bash','-lc', ...] 形式、または ['sudo', ...可変..., 'bash','-lc', ...] 形式に対して、
+    ['bash','-lc', ...] 形式, または ['sudo', ...可変..., 'bash','-lc', ...] 形式に対して,
     シェル文字列の先頭へ DEFAULT_PATH_EXPORT を注入する。
     それ以外は argv を変更せず返す。
     """
@@ -146,7 +146,7 @@ def _inject_path_for_bash_argv(cmd_argv: List[str]) -> List[str]:
                 idx = i + 1
                 break
         if idx == 0:
-            # sudo はあるが後続が bash ではない → 変更しない
+            # sudo はあるが後続が bash ではない  =>  変更しない
             return cmd_argv[:]
     else:
         idx = 0
@@ -155,7 +155,7 @@ def _inject_path_for_bash_argv(cmd_argv: List[str]) -> List[str]:
     if not is_bash_lc:
         return cmd_argv[:]
 
-    # コマンド本体（存在しなければ空文字）
+    # コマンド本体 ( 存在しなければ空文字 )
     orig_cmd: str = str(cmd_argv[idx + 2]) if (n - idx) >= 3 else ""
     injected: str = f"{DEFAULT_PATH_EXPORT} {orig_cmd}".strip()
 
@@ -182,7 +182,7 @@ def run_remote_cmd_capture(
 ) -> Tuple[int, str, str]:
     """
     argv をシェル安全に結合して実行する。
-    ['bash','-lc', ...] または ['sudo',...,'bash','-lc', ...] 形式の場合のみ、
+    ['bash','-lc', ...] または ['sudo',...,'bash','-lc', ...] 形式の場合のみ,
     シェル文字列の先頭に DEFAULT_PATH_EXPORT を注入する。
     """
     safe_argv: List[str] = _inject_path_for_bash_argv(cmd_argv)
@@ -213,7 +213,7 @@ def parse_tar_t_list_to_relpaths(listing_text: str) -> List[str]:
     return rels
 
 
-# === 統一リモート実行ラッパ（sudo 経路の一元化） =========================
+# === 統一リモート実行ラッパ ( sudo 経路の一元化 )  =========================
 def exec_remote(
     ssh: SSHClientLike,
     cmd: str,
@@ -222,9 +222,9 @@ def exec_remote(
     timeout: Optional[float] = None,
 ) -> Tuple[int, str, str]:
     """
-    リモートでコマンドを実行し、(rc, stdout, stderr) を返す。
-    use_sudo=True の場合は常に 'sudo -n' を前置（パスワードプロンプト禁止）。
-    PATH の注入は行わない（非シェルコマンドもあるため）。bash 経路は run_remote_cmd_capture() を利用。
+    リモートでコマンドを実行し, (rc, stdout, stderr) を返す。
+    use_sudo=True の場合は常に 'sudo -n' を前置 ( パスワードプロンプト禁止 ) 。
+    PATH の注入は行わない ( 非シェルコマンドもあるため ) 。bash 経路は run_remote_cmd_capture() を利用。
     """
     full_cmd: str = f"sudo -n {cmd}" if use_sudo else cmd
 
@@ -255,7 +255,7 @@ def remote_path_exists(
     timeout: float = 60.0,
 ) -> bool:
     """
-    test -e で存在確認。sudo 失敗（rc!=0 かつ 権限由来が明白）の場合は呼び出し側で中断判断可能。
+    test -e で存在確認。sudo 失敗 ( rc!=0 かつ 権限由来が明白 ) の場合は呼び出し側で中断判断可能。
     ここでは True/False のみ返す。
     """
     qpath: str = shlex.quote(path)
@@ -277,7 +277,7 @@ def remote_mkdir_p(
     timeout: float = MKDIR_TIMEOUT,
 ) -> None:
     """
-    mkdir -p を sudo 有無で実行。失敗時は詳細を含む例外を送出（上位で即時中断方針）。
+    mkdir -p を sudo 有無で実行。失敗時は詳細を含む例外を送出 ( 上位で即時中断方針 ) 。
     """
     qpath: str = shlex.quote(path)
 
@@ -300,7 +300,7 @@ def split_exist_new_by_remote_presence(
     timeout: float = 60.0,
 ) -> Tuple[Set[str], Set[str]]:
     """
-    DEST 配下の相対パス群について、存在(EXIST) / 新規(NEW) を仕分ける。
+    DEST 配下の相対パス群について, 存在(EXIST) / 新規(NEW) を仕分ける。
     use_sudo=True のとき sudo -n で test を実行。sudo 不能や権限エラー時は自動フォールバックしない。
     """
     exist_set: Set[str] = set()
