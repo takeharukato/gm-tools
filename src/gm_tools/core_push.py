@@ -8,13 +8,9 @@ Per-host execution unit for "scatter" (local -> remote push).
 Design principles
 -----------------
 - Library-agnostic: concrete SSH/SFTP implementations are injected via callables.
-- No logging here; CLI owns logging/serialization. We only report progress via callback.
+- No logging here; CLI/parallel layer owns logging/serialization. Only progress via callback.
 - Respect cooperative cancellation using `abort_point()` at key checkpoints.
-- Do not close connections directly; register via core_ssh and let CLI cleanup.
-- Direct remote path creation (e.g., mkdir -p) は本モジュールでは行わず、push_one 側で実施可とする。
-  （実装を簡潔に保つため。必要なら ensure_remote_dir などのコールバックを将来追加する）
-
-This module performs no side effects on import.
+- Do not close connections directly; they are owned by the caller.
 """
 
 from __future__ import annotations
@@ -33,7 +29,6 @@ from .core_ssh import (
     register_sftp,
     CancelledError,
 )
-
 
 # ---- Result model ------------------------------------------------------------
 
@@ -55,7 +50,8 @@ OnProgress = Callable[[int, int, int, int], None]
 SSHFactory = Callable[[str], SSHClientLike]
 SFTPFactory = Callable[[SSHClientLike], SFTPClientLike]
 
-# Push callback for one item. is_dir indicates directory; implementation may no-op for dirs.
+# Push callback for one item.
+# remote_root is the per-host remote base directory where relpaths are placed (e.g., DEST or DEST/<HOST>).
 PushOne = Callable[[SFTPClientLike, Path, str, bool], None]
 
 
@@ -76,8 +72,8 @@ def run_host_scatter(
     host: str,
     plan: Plan,
     *,
-    local_root: Path,
     remote_root: str,
+    local_root: Path,  # unused; plan entries store absolute local paths
     abort_event: threading.Event,
     on_progress: Optional[OnProgress],
     open_ssh: SSHFactory,
@@ -92,17 +88,17 @@ def run_host_scatter(
     host : str
         Target host name (for connection factories and registry keys).
     plan : Plan
-        Stable plan produced by core_select; len(plan) is the `total` for logging.
-    local_root : Path
-        Local source root; entries will be read under this root following plan.relpath.
+        Stable plan produced by caller; len(plan) is the `total` for logging.
     remote_root : str
-        POSIX-style root on the remote host to join with plan.relpath. May be "" for absolute entries.
+        Remote base directory (e.g., DEST or DEST/<HOST>).
+    local_root : Path
+        Unused (kept for symmetry); actual local paths come from PlanEntry.path.
     abort_event : threading.Event
         Cooperative cancellation flag (set by signal handlers).
     on_progress : Optional[OnProgress]
         Callback invoked after each trial with (seq, trial, processed, total). May be None.
     open_ssh : SSHFactory
-        Factory to create an SSH client instance.
+        Factory to create an SSH client instance. Must NOT raise for transient connection states.
     open_sftp : SFTPFactory
         Factory to create an SFTP client using the SSH client.
     push_one : PushOne
@@ -118,14 +114,11 @@ def run_host_scatter(
     # Abort checkpoint before any network I/O
     abort_point(abort_event)
 
-    # Establish connections (library-agnostic) and register for idempotent cleanup.
+    # Establish connections and register for finalization (idempotent cleanup by upper layer)
     ssh = open_ssh(host)
     register_connection(host, ssh)
     sftp = open_sftp(ssh)
     register_sftp(host, sftp)
-
-    # Normalize local root
-    local_root = Path(local_root)
 
     warnings: int = 0
     errors: int = 0
@@ -133,27 +126,23 @@ def run_host_scatter(
     processed: int = 0
 
     for seq, entry in plan.iter_seq():
-        # next-trial checkpoint
         abort_point(abort_event)
         trial += 1
 
-        local_path: Path = (local_root / entry.relpath)
+        # Remote path = remote_root + entry.relpath (used by some push_one implementations)
         remote_path: str = _join_remote(remote_root, entry.relpath)
+        local_path: Path = entry.path
 
-        # Long I/O section: the transfer itself
         try:
             abort_point(abort_event)  # before remote call
             push_one(sftp, local_path, remote_path, entry.is_dir)
             abort_point(abort_event)  # after remote call
             processed += 1
         except CancelledError:
-            # Propagate cancellation (upper layer will finalize/cleanup)
             raise
         except Exception:
-            # Count as error and continue to next
             errors += 1
 
-        # Progress notification
         if on_progress is not None:
             on_progress(seq, trial, processed, total)
 

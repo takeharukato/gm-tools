@@ -23,8 +23,22 @@ from typing import Tuple
 #: Normal termination.
 EXIT_OK: int = 0
 
-#: Termination with one or more errors detected during host processing.
-EXIT_ERR: int = 2
+#: Termination due to no hosts specified.
+EXIT_ERR_NO_HOSTS: int = 1
+
+#: Generic error (e.g., internal exception not mapped to specific code).
+EXIT_ERR_GENERIC: int = 2
+
+#: Termination due to invalid tilde user in remote path.
+EXIT_ERR_TILDE_USER: int = 3
+
+#: Termination due to invalid arguments.
+EXIT_ERR_ARGS: int = 4
+
+# ---------------------------------------------------------------------------
+# Hosts file
+# ---------------------------------------------------------------------------
+DEFAULT_HOSTS_FILE: str = "hostfile"
 
 # ---------------------------------------------------------------------------
 # Parallelism
@@ -70,8 +84,12 @@ KEYS_OPTIONAL: Tuple[str, ...] = (
 
 __all__ = [
     "EXIT_OK",
-    "EXIT_ERR",
+    "EXIT_ERR_GENERIC",
+    "EXIT_ERR_NO_HOSTS",
+    "EXIT_ERR_TILDE_USER",
+    "EXIT_ERR_ARGS",
     "DEFAULT_PARALLEL_HOSTS",
+    "DEFAULT_HOSTS_FILE",
     "LOG_DOMAIN",
     "LOCALE_DIR",
     "KEYS_PREFIX",

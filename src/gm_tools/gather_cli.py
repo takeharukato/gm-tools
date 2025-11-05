@@ -47,16 +47,15 @@ from .core_select import (
 from .core_cmd_flavor import run_remote_cmd_capture
 from .core_remote_path import detect_remote_home
 from .gather_parallel import execute as run_parallel
-from .core_constants import DEFAULT_PARALLEL_HOSTS, EXIT_OK
+from .core_constants import (
+    DEFAULT_PARALLEL_HOSTS,
+    EXIT_OK,
+    EXIT_ERR_ARGS,
+    EXIT_ERR_NO_HOSTS,
+    EXIT_ERR_TILDE_USER,
+)
 from .core_logging import init_logging, shutdown_logging, HostLogAggregator
-
-# === Defaults / Exit codes (constantized) ===
-DEFAULT_HOSTS_FILE: str = "hostfile"
-EXIT_ERR_NO_HOSTS: int = 1
-EXIT_ERR_GENERIC: int = 2
-EXIT_ERR_TILDE_USER: int = 3
-EXIT_ERR_ARGS: int = 5
-
+from .core_constants import DEFAULT_HOSTS_FILE
 
 def build_parser() -> argparse.ArgumentParser:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
@@ -139,7 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _make_pull_one_sftp() -> Callable[[SFTPClientLike, str, Path, bool], None]:
-    """Step4相当の逐次GET。PlanEntry.relpathはローカル相対、remote_rootは per-entry。"""
+    """SFTP 逐次GET。PlanEntry.relpathはローカル相対, remote_rootは per-entry。"""
 
     def _pull_one(sftp: SFTPClientLike, remote_path: str, local_path: Path, is_dir: bool) -> None:
         if is_dir:
@@ -163,7 +162,7 @@ def _make_pull_one_pack(
 ) -> Callable[[SFTPClientLike, str, Path, bool], None]:
     """
     初回呼出しで pack+download+extract を実施。以降 no-op。
-    Step4の権限/復元挙動（sudo指定時の権限復元含む）を維持。
+    Step4の権限/復元挙動 ( sudo指定時の権限復元含む ) を維持。
     """
     state: Dict[str, int | bool] = {"ran": False, "extracted": 0}
 
@@ -174,7 +173,7 @@ def _make_pull_one_pack(
         remote_gz: str = remote_pack_paths(
             ssh, pack_list, timeout=timeout, use_sudo=use_sudo, follow_symlinks=follow_symlinks
         )
-        # _local は DEST/<HOST>/<first-relpath> を指すので、HOST 直下に展開させる
+        # _local は DEST/<HOST>/<first-relpath> を指すので, HOST 直下に展開させる
         dest_host_root: Path = Path(_local).parents[1]
         extracted, _ = download_and_extract_tar(_sftp, remote_gz, str(dest_host_root), host)
         state["extracted"] = extracted  # type: ignore[assignment]
@@ -207,7 +206,7 @@ def _split_remote_root_for_abs(
         return home_abs.rstrip("/"), p[2:].lstrip("/")
     if p.startswith("/"):
         return "/", p.lstrip("/")
-    # ここに来るのは非絶対の不正ケースだが、呼び出し側で弾いている前提
+    # ここに来るのは非絶対の不正ケースだが, 呼び出し側で弾いている前提
     return "", p
 
 
@@ -248,7 +247,7 @@ def _build_plan_for_host(
     sudo_collect: Optional[bool] = sudo_collect_flag
     use_sudo: bool = (ssh_user != args_user) if (sudo_collect is None) else bool(sudo_collect)
 
-    # 候補列挙（SRCの正規表現混在を解決）
+    # 候補列挙 ( SRCの正規表現混在を解決 )
     candidates: List[str] = enumerate_candidates_for_host(
         ssh=ssh,
         sftp_client=sftp,
@@ -259,7 +258,7 @@ def _build_plan_for_host(
         verbose=verbose,
     )
 
-    # ファイルのみに絞る（symlink は pack+follow 指定時のみ pack_list に含める）
+    # ファイルのみに絞る ( symlink は pack+follow 指定時のみ pack_list に含める )
     files_only: List[str] = []
     symlinks: List[str] = []
     for rp in candidates:
@@ -274,10 +273,10 @@ def _build_plan_for_host(
             if sftp_isfile(sftp, rp):
                 files_only.append(rp)
         except Exception:
-            # 事前検査エラーは対象外扱い（進捗は run_host_gather 側でERROR加算）
+            # 事前検査エラーは対象外扱い ( 進捗は run_host_gather 側でERROR加算 )
             pass
 
-    # Plan 構築：relpath はローカル相対（DEST/<HOST>/relpath）
+    # Plan 構築：relpath はローカル相対 ( DEST/<HOST>/relpath )
     entries: List[PlanEntry] = []
     dest_host_root: str = os.path.join(dest_local, host)
     os.makedirs(dest_host_root, exist_ok=True)
@@ -298,8 +297,8 @@ def _build_plan_for_host(
             is_dir=False,
             remote_root=remote_root,
         )
-        # Step5 仕様を保ちつつ、混在ルートでも確実に元の絶対パスへ到達できるように付帯情報を持たせる
-        # - core_pull は remote_abs を最優先、次点で remote_root + remote_rel を使用
+        # 並行処理仕様を保ちつつ, 混在ルートでも確実に元の絶対パスへ到達できるように付帯情報を持たせる
+        # - core_pull は remote_abs を最優先, 次点で remote_root + remote_rel を使用
         setattr(pe, "remote_abs", rp)       # type: ignore[attr-defined]
         setattr(pe, "remote_rel", inner)    # type: ignore[attr-defined]
         entries.append(pe)
@@ -355,7 +354,7 @@ def main() -> None:
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)
     args_user: str = str(args.user)
 
-    # per-host Plan 構築（regex 展開・~ 展開・drive対応）
+    # per-host Plan 構築 ( regex 展開・~ 展開・drive対応 )
     plan_per_host: Dict[str, Plan] = {}
     meta_per_host: Dict[str, Dict[str, object]] = {}
 
@@ -381,7 +380,7 @@ def main() -> None:
         plan_per_host[h] = plan
         meta_per_host[h] = meta
 
-    # ---- dry-run: 計画だけ報告して終了（集計は CLI 側で実施） ----
+    # ---- dry-run: 計画だけ報告して終了 ( 集計は CLI 側で実施 )  ----
     if bool(args.dry_run):
         init_logging(verbose=bool(args.verbose))
         aggr: HostLogAggregator = HostLogAggregator(op="gather")
@@ -394,7 +393,7 @@ def main() -> None:
         shutdown_logging()
         sys.exit(EXIT_OK)
 
-    # 接続ファクトリ（事前確立済みを返す）
+    # 接続ファクトリ ( 事前確立済みを返す )
     def _open_ssh(host: str) -> SSHClientLike:
         return meta_per_host[host]["ssh"]  # type: ignore[return-value]
 
@@ -402,13 +401,13 @@ def main() -> None:
         for _h, m in meta_per_host.items():
             if m["ssh"] is ssh:
                 return m["sftp"]  # type: ignore[return-value]
-        # fallback（通常到達しない）
+        # fallback ( 通常到達しない )
         return list(meta_per_host.values())[0]["sftp"]  # type: ignore[index, return-value]
 
     # SFTP 逐次 pull_one
     pull_one: Callable[[SFTPClientLike, str, Path, bool], None] = _make_pull_one_sftp()
 
-    # --pack の場合、ホストごとに「一回だけ pack+extract」を実行する pull_one を差し替える
+    # --pack の場合, ホストごとに「一回だけ pack+extract」を実行する pull_one を差し替える
     pull_one_map: Optional[Dict[str, Callable[[SFTPClientLike, str, Path, bool], None]]] = None
     if bool(args.pack):
         pull_one_map = {}
@@ -435,7 +434,7 @@ def main() -> None:
         open_ssh=_open_ssh,
         open_sftp=_open_sftp,
         pull_one=pull_one,
-        pull_one_map=pull_one_map,   # ← 次セクションの C) に合わせ、execute 側で受ける
+        pull_one_map=pull_one_map,   # ← 次セクションの C) に合わせ, execute 側で受ける
         join_host_dir=True,
         remote_removers=None,
         do_cleanup_local=False,

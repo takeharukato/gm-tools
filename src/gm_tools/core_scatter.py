@@ -79,7 +79,6 @@ class ScatterOpts:
     sudo_extract: bool = False  # (ssh_user != user) and pack のとき True
     ssh_user: Optional[str] = None
     local_user: Optional[str] = None
-    # Step4 追加 ( 既存呼び出し互換性を壊さない既定あり )
     target_user: Optional[str] = None          # --user の解決結果
     selinux_mode: SelinuxMode = "auto"         # --selinux {auto,policy,ignore}  ( pack 経路のみ )
 
@@ -143,14 +142,14 @@ def write_members_file(
     """
     tar -T で参照するメンバーリストを生成・書き出す。
     ポリシー:
-      - 重複排除し、ASCII順に安定ソート
+      - 重複排除し, ASCII順に安定ソート
       - 各行はアーカイブ内部の相対パス ( 先頭'./'や'/'は除去 )
-      - 相対パスは大文字小文字を区別し、アーカイブ内部の名前と完全に一致しなければならない
+      - 相対パスは大文字小文字を区別し, アーカイブ内部の名前と完全に一致しなければならない
       - バックスラッシュはスラッシュに統一 ( 将来的なWindows対応のため )
       - 行区切りは LF('\n')。末尾にも LF('\n') を付与
       - CRLF/CR 混入は _sftp_write_text() 側で LF('\n') 正規化することを前提とする
 
-    normalize_paths=False の場合は、与えられた文字列をそのまま並べ替え・連結のみ行う。
+    normalize_paths=False の場合は, 与えられた文字列をそのまま並べ替え・連結のみ行う。
     """
     def _normalize_members_content(s: str) -> bytes:
         return s.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
@@ -194,10 +193,10 @@ def upload_pack_and_extract(
     selinux_mode: SelinuxMode = "auto",
 ) -> None:
     """
-    作成済み tar.gz をリモート一時領域へアップロードし、DEST/ 以下に展開する。
+    作成済み tar.gz をリモート一時領域へアップロードし, DEST/ 以下に展開する。
     レイアウト: DEST/<local_abs_without_leading_slash>
 
-    GNU tar 固有の --transform は使わず、
+    GNU tar 固有の --transform は使わず,
       1) DEST を mkdir -p
       2) tar -xzf payload.tar.gz -C DEST
      ( GNU tar / bsdtar 共通オプション )
@@ -230,7 +229,7 @@ def upload_pack_and_extract(
     if dry_run:
         return
 
-    # リモートで一時ディレクトリを作成して、そこに tar.gz を置く ( PATH注入のためrun_remote経由 )
+    # リモートで一時ディレクトリを作成して, そこに tar.gz を置く ( PATH注入のためrun_remote経由 )
     rc_mk, out_mk, _ = run_remote_cmd_capture(
         ssh, ["bash", "-lc", "mktemp -d /tmp/gm-scatter.XXXXXXXX"], timeout=PREFLIGHT_TEST_TIMEOUT)
     rtmp = (out_mk.strip() if rc_mk == 0 else "/tmp")
@@ -338,8 +337,8 @@ def upload_pack_and_extract(
     # NEW セット抽出
     if new_set:
         members_file_new = f"{rtmp}/members.new.txt"
-        # list_tar_members_local は相対パス ( アーカイブ内の名前 ) 、
-        # LF 終端 ( 最後も LF ) を約束し、内部で CR/LF を正規化して書き出す
+        # list_tar_members_local は相対パス ( アーカイブ内の名前 ) ,
+        # LF 終端 ( 最後も LF ) を約束し, 内部で CR/LF を正規化して書き出す
         write_members_file(sftp, members_file_new, new_set)
         try:
             extract_cmd_new: List[str] = build_tar_extract_cmd(
@@ -376,8 +375,8 @@ def upload_pack_and_extract(
                     except Exception as _ex:
                         report.add(host, TransferItem(host=host, remote_path=dst_abs_new, phase="transfer", status="failed", reason=f"E_CHOWN_NEW: {str(_ex)}"))
 
-    # EXIST: tmp に抽出して cat > 上書き ( 属性保持 ) 。SFTP とは違い、原則として所有権/モード/ACL/xattr は変化しない想定だが、
-    # “復元”を仕様で明示されたため、キャプチャ => 上書き => 復元を実施する。
+    # EXIST: tmp に抽出して cat > 上書き ( 属性保持 ) 。SFTP とは違い, 原則として所有権/モード/ACL/xattr は変化しない想定だが,
+    # “復元”を仕様で明示されたため, キャプチャ => 上書き => 復元を実施する。
     if exist_set:
         # まず EXIST のみを別 tmp へ抽出
         rc_mk2, out_mk2, _ = run_remote_cmd_capture(
@@ -385,8 +384,8 @@ def upload_pack_and_extract(
         rtmp_exist = (out_mk2.strip() if rc_mk2 == 0 else "/tmp")
         members_file_exist = f"{rtmp}/members.exist.txt"
 
-        # list_tar_members_local は相対パス ( アーカイブ内の名前 ) 、
-        # LF 終端 ( 最後も LF ) を約束し、内部で CR/LF を正規化して書き出す
+        # list_tar_members_local は相対パス ( アーカイブ内の名前 ) ,
+        # LF 終端 ( 最後も LF ) を約束し, 内部で CR/LF を正規化して書き出す
         write_members_file(sftp, members_file_exist, exist_set)
 
         extract_cmd_exist: List[str] = build_tar_extract_cmd(
@@ -451,7 +450,7 @@ def upload_pack_and_extract(
             dst_abs: str = os.path.join(dest_abs_root, rel)
 
             # 上書き ( sudo の要否に合わせる ) 。
-            # リダイレクトはシェルで解釈させる必要があるため、全体は生文字列で渡し、個々のパスを quote 済みにする
+            # リダイレクトはシェルで解釈させる必要があるため, 全体は生文字列で渡し, 個々のパスを quote 済みにする
             overwrite_cmd_str: str = f"cat {shlex.quote(src_tmp)} > {shlex.quote(dst_abs)}"
             overwrite_cmd: List[str] = (["sudo","-n"] if sudo_extract else []) + ["bash", "-lc", overwrite_cmd_str]
             rc_w, _o_w, err_w = run_remote_cmd_capture(ssh, overwrite_cmd, timeout=OVERWRITE_TIMEOUT)
@@ -495,7 +494,7 @@ def upload_pack_and_extract(
 
     # NEW ファイルと空ディレクトリの SELinux restorecon ( pack 経路のみ )
     #  - new_set が空でも empty_dirs があれば対象に含める
-    #  - ディレクトリも restorecon 対象に含めることで、/etc などのラベル要求にも対応
+    #  - ディレクトリも restorecon 対象に含めることで, /etc などのラベル要求にも対応
 
     if selinux_capable:
         paths_restorecon: List[str] = []
@@ -535,7 +534,7 @@ def upload_pack_and_extract(
     # 後始末
     run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -f {shlex.quote(remote_tar)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
 
-    # tmp は積極削除しなくてもよいが、痕跡を減らす
+    # tmp は積極削除しなくてもよいが, 痕跡を減らす
     if members_file_new is not None:
         run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -f {shlex.quote(members_file_new)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
     if members_file_exist is not None:
@@ -558,7 +557,7 @@ def sftp_put_one(
     dry_run: bool,
     sudo_mkdir: bool = False,
     *,
-    # Step4 追加 : EXIST 上書き時の復元に利用
+    # EXIST 上書き時の復元に利用
     enable_restore_meta: bool = True,
 ) -> None:
     """
@@ -567,7 +566,7 @@ def sftp_put_one(
     レイアウト:
         DEST/<local_abs_without_leading_slash>
     """
-    # 能力 ( SFTP 経路では毎回チェックしてもよいが、ここで 1 回 )
+    # 能力 ( SFTP 経路では毎回チェックしてもよいが, ここで 1 回 )
     acl_ok: bool = check_acl_tools_available(ssh)
     xattr_ok: bool = check_xattr_tools_available(ssh)
 
@@ -634,7 +633,7 @@ def sftp_put_one(
         for root, _dirs, files in os.walk(ap):
             # ここで必ず root_str を定義して以降で使用する
             root_str: str = os.path.abspath(root)
-            # root_str が ap 自身なら rel のまま、それ以外なら ap からの相対パスを連結
+            # root_str が ap 自身なら rel のまま, それ以外なら ap からの相対パスを連結
             sub_rel: str = os.path.join(rel, os.path.relpath(root_str, ap)) if root_str != ap else rel
             # ディレクトリとして扱う経路は末尾'/'を強制
             rr: str = _join_dir(dest_abs_root, sub_rel) if sub_rel else _as_dirpath(dest_abs_root)
@@ -713,7 +712,7 @@ def _sftp_put_with_exist_restore(
 ) -> None:
     """
     SFTP で 1 ファイルを put。
-    - 既存の場合は上書き前に owner/group/mode/ACL/xattr をキャプチャし、上書き後に復元 ( コマンドがある範囲 ) 。
+    - 既存の場合は上書き前に owner/group/mode/ACL/xattr をキャプチャし, 上書き後に復元 ( コマンドがある範囲 ) 。
     - 新規の場合はそのまま put ( SFTP 経路では SELinux は非対応・chown/chmod は行わない ) 。
     """
     # 既存判定
