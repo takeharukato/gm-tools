@@ -40,8 +40,9 @@ def _clamp_parallel(n: int) -> int:
 def execute(
     *,
     hosts: Sequence[str],
-    plan: Plan,
-    remote_root: str,
+    plan: Optional[Plan] = None,
+    plan_per_host: Optional[Dict[str, Plan]] = None,
+    remote_root: str = "",
     dest_root: _Path,
     parallel: int = DEFAULT_PARALLEL_HOSTS,
     verbose: bool = False,
@@ -51,6 +52,7 @@ def execute(
     open_ssh: _SSHFactory,
     open_sftp: _SFTPFactory,
     pull_one: _PullOne,
+    pull_one_map: Optional[Dict[str, _PullOne]] = None,
     # destination layout compatibility: if False, put items directly under dest_root
     join_host_dir: bool = True,
     # cleanup policy (delegated/controllable from CLI)
@@ -81,19 +83,23 @@ def execute(
     try:
         with _fut.ThreadPoolExecutor(max_workers=max_workers) as ex:
             for host in hosts:
-                aggr.start_host(host, total=len(plan))
+                _plan = plan_per_host[host] if plan_per_host is not None else plan
+                assert _plan is not None, "execute(): plan or plan_per_host must be provided"
+                aggr.start_host(host, total=len(_plan))
                 per_host_dest = (dest_root / host) if join_host_dir else dest_root
+                # host毎の pull_one を選択（--pack のときは1回で完了する host-bound pull_one を注入）
+                _po = pull_one_map.get(host, pull_one) if pull_one_map else pull_one
                 fut = ex.submit(
                     _run_host_gather,
                     host,
-                    plan,
+                    _plan,
                     remote_root=remote_root,
                     local_root=per_host_dest,
                     abort_event=abort_event,
-                    on_progress=_make_on_progress(host, len(plan)),
+                    on_progress=_make_on_progress(host, len(_plan)),
                     open_ssh=open_ssh,
                     open_sftp=open_sftp,
-                    pull_one=pull_one,
+                    pull_one=_po,
                 )
                 futures.append((host, fut))
 

@@ -136,7 +136,19 @@ def run_host_gather(
         abort_point(abort_event)
         trial += 1
 
-        remote_path: str = _join_remote(remote_root, entry.relpath)
+        # Remote path resolution (mixed-root support):
+        # 1) If entry has 'remote_abs', use it (exact original absolute path).
+        # 2) Else, join per-entry 'remote_root' (if any) with 'remote_rel' (if any) or fallback to relpath.
+        _remote_abs = getattr(entry, "remote_abs", "") if hasattr(entry, "remote_abs") else ""
+        if _remote_abs:
+            remote_path: str = _remote_abs  # type: ignore[assignment]
+        else:
+            _per_entry_root = getattr(entry, "remote_root", "") if hasattr(entry, "remote_root") else ""
+            _base_root = _per_entry_root if _per_entry_root else remote_root
+            _remote_rel = getattr(entry, "remote_rel", "") if hasattr(entry, "remote_rel") else ""
+            _rel_for_remote = _remote_rel if _remote_rel else entry.relpath
+            remote_path: str = _join_remote(_base_root, _rel_for_remote)
+
         local_path: Path = (local_root / entry.relpath)
 
         # Long I/O before: ensure directory locally if dir (or for file's parent)

@@ -35,14 +35,16 @@ from .core_cmd_flavor import run_remote_cmd_capture
 class PlanEntry:
     """
     A single planned item to transfer.
-    - path    : absolute local path (or canonical placeholder when remote-listed)
-    - relpath : relative path name used inside archives or remote roots
-    - is_dir  : True if the entry represents a directory
+    - path        : absolute local path (or canonical placeholder when remote-listed)
+    - relpath     : local-side relative path (under dest_root), also used as archive inner path
+    - is_dir      : True if the entry represents a directory
+    - remote_root : POSIX remote root to join with relpath when constructing remote path.
+                    Examples: "/", "<home_abs>", "C:/". Empty string keeps legacy behavior.
     """
     path: Path
     relpath: str
     is_dir: bool
-
+    remote_root: str = ""
 
 @dataclass
 class Plan:
