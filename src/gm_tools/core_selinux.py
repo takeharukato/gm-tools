@@ -3,11 +3,7 @@ from __future__ import annotations
 import shlex
 from typing import Iterable, Literal, List, Set
 
-try:
-    import paramiko  # type: ignore
-except Exception as e:
-    raise RuntimeError("Paramiko is required: pip install paramiko") from e
-
+from .core_ssh import SSHClientLike
 from .core_cmd_flavor import run_remote_cmd_capture
 
 SelinuxMode = Literal["auto", "policy", "ignore"]
@@ -24,7 +20,7 @@ _SELINUX_MOUNT_CHECK_CMD: str = "mount | grep -q selinuxfs"
 _RESTORECON_CHECK_CMD: str = "command -v restorecon >/dev/null 2>&1"
 _RESTORECON_FLAGS: str = "-RF"
 
-def detect_selinux_capable(ssh: "paramiko.SSHClient") -> bool:
+def detect_selinux_capable(ssh: SSHClientLike) -> bool:
     """
     リモートホストが SELinux ラベリングの復元を実施可能かを判定する。
     条件:
@@ -62,7 +58,7 @@ def detect_selinux_capable(ssh: "paramiko.SSHClient") -> bool:
 
 def restorecon_recursive_if_needed(
     *,
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     paths: Iterable[str],
     mode: SelinuxMode,
     selinux_capable: bool,

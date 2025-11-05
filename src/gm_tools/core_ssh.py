@@ -1,157 +1,235 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# cspell:ignore identitiesonly
+"""
+gm_tools.core_ssh
+=================
+
+SSH/SFTP connection and channel lifecycle helpers for gm-tools.
+
+Goals:
+- Centralize registration and idempotent cleanup of SSH/SFTP resources per host.
+- Provide simple abort checkpoints to be called "just before next trial" and
+  "before/after long I/O".
+- Avoid hard dependency on a specific SSH library; rely on structural typing.
+
+This module performs no side effects on import.
+"""
+
 from __future__ import annotations
 
-import os
-import socket
+import threading
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
-try:
-    import paramiko  # type: ignore
-except Exception as e:
-    raise RuntimeError("Paramiko is required: pip install paramiko") from e
+from typing import Dict, Protocol, runtime_checkable, Optional, Tuple, List, Any
 
 DEFAULT_SSH_PORT: int = 22
 DEFAULT_TIMEOUT: float = 30.0
-DEFAULT_SOCKET_TIMEOUT: float = 60.0
 
+# ---- Structural protocols ---------------------------------------------------
+
+@runtime_checkable
+class Closeable(Protocol):
+    def close(self) -> None: ...  # noqa: D401
+
+
+@runtime_checkable
+class ChannelLike(Closeable, Protocol):
+    # Subset used by wait loops in callers (paramiko-like)
+    def exit_status_ready(self) -> bool: ...  # noqa: D401
+    def recv_ready(self) -> bool: ...  # noqa: D401
+    def recv(self, nbytes: int) -> bytes: ...  # noqa: D401
+    def recv_stderr_ready(self) -> bool: ...  # noqa: D401
+    def recv_stderr(self, nbytes: int) -> bytes: ...  # noqa: D401
+
+# Paramiko SFTPFile and SFTPClient like protocols
+@runtime_checkable
+class SFTPAttributesLike(Protocol):
+    """Minimal subset of paramiko.SFTPAttributes used by our code."""
+    st_mode: int  # must exist; used for S_ISDIR/S_ISREG checks
+
+@runtime_checkable
+class SFTPFileLike(Protocol):
+    def write(self, data: bytes) -> int: ...
+    def read(self, size: int = ...) -> bytes: ...
+    def close(self) -> None: ...
+    def __enter__(self) -> "SFTPFileLike": ...
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None: ...
+
+@runtime_checkable
+class SFTPClientLike(Protocol):
+    def open(self, path: str, mode: str = ...) -> SFTPFileLike: ...
+    def put(self, localpath: str, remotepath: str) -> None: ...
+    def get(self, remotepath: str, localpath: str) -> None: ...
+    def listdir(self, path: str) -> List[str]: ...
+    def stat(self, path: str) -> SFTPAttributesLike: ...
+    def lstat(self, path: str) -> SFTPAttributesLike: ...
+    def close(self) -> None: ...
+
+@runtime_checkable
+class SSHClientLike(Protocol):
+    def exec_command(self, command: str, timeout: Optional[float] = ...) -> Tuple[Any, Any, Any]: ...
+    def open_sftp(self) -> SFTPClientLike: ...
+    def close(self) -> None: ...
+
+# ---- Registry ---------------------------------------------------------------
+
+class _PerHost:
+    __slots__ = ("conns", "sftps", "chans")
+
+    def __init__(self) -> None:
+        # Use lists to avoid hashability requirements (e.g., many Paramiko objects are unhashable).
+        self.conns: list[Closeable] = []
+        self.sftps: list[Closeable] = []
+        self.chans: list[Closeable] = []
+
+
+_lock: threading.Lock = threading.Lock()
+_registry: Dict[str, _PerHost] = {}  # host -> resources
+
+
+def _get_bucket(host: str) -> _PerHost:
+    with _lock:
+        bucket = _registry.get(host)
+        if bucket is None:
+            bucket = _PerHost()
+            _registry[host] = bucket
+        return bucket
+
+
+def register_connection(host: str, conn: SSHClientLike) -> None:
+    """Register an SSH client connection for later idempotent close."""
+    bucket = _get_bucket(host)
+    with _lock:
+        if conn not in bucket.conns:  # identity-based dedup
+            bucket.conns.append(conn)  # type: ignore[arg-type]
+
+
+def register_sftp(host: str, sftp: SFTPClientLike) -> None:
+    """Register an SFTP client for later idempotent close."""
+    bucket = _get_bucket(host)
+    with _lock:
+        if sftp not in bucket.sftps:
+            bucket.sftps.append(sftp)  # type: ignore[arg-type]
+
+
+def register_channel(host: str, chan: ChannelLike) -> None:
+    """Register a channel object for later idempotent close."""
+    bucket = _get_bucket(host)
+    with _lock:
+        if chan not in bucket.chans:
+            bucket.chans.append(chan)  # type: ignore[arg-type]
+
+
+def _safe_close(obj: Closeable) -> None:
+    try:
+        obj.close()
+    except Exception:
+        # Best-effort cleanup: never raise
+        pass
+
+
+def close_connections(host: str) -> None:
+    """
+    Close all registered channels, sftps and connections for a host (idempotent).
+    Safe to call multiple times, even concurrently.
+    """
+    with _lock:
+        bucket = _registry.get(host)
+    if bucket is None:
+        return
+
+    # Close in the order: channels -> sftps -> connections
+    # (channels depend on connections; sftps depend on the underlying connection)
+    for obj in list(bucket.chans):
+        _safe_close(obj)
+    for obj in list(bucket.sftps):
+        _safe_close(obj)
+    for obj in list(bucket.conns):
+        _safe_close(obj)
+
+    # Remove emptied bucket
+    with _lock:
+        _registry.pop(host, None)
+
+
+def close_all() -> None:
+    """Close resources for all hosts (idempotent)."""
+    with _lock:
+        hosts = list(_registry.keys())
+    for h in hosts:
+        close_connections(h)
+
+
+# ---- Abort checkpoints ------------------------------------------------------
+
+class CancelledError(RuntimeError):
+    """Raised when an abort has been requested and an operation should stop."""
+
+
+def abort_point(abort_event: threading.Event) -> None:
+    """
+    Cooperative cancellation checkpoint.
+
+    Call at: "next trial just before start", and before/after long I/O.
+    If the abort flag is set, raises CancelledError for callers to handle.
+    """
+    if abort_event.is_set():
+        raise CancelledError("operation aborted by user request")
 
 @dataclass
 class SSHConfig:
     host: str
-    port: int
-    ssh_user: str
-    key_filename: Optional[str]
-    password: Optional[str]
-    timeout: float
-    strict_host_key_checking: bool
+    port: int = DEFAULT_SSH_PORT
+    ssh_user: Optional[str] = None
+    key_filename: Optional[str] = None
+    password: Optional[str] = None
+    timeout: float = DEFAULT_TIMEOUT
+    strict_host_key_checking: bool = False
 
-
-def finalize_sockets(timeout: float = DEFAULT_SOCKET_TIMEOUT) -> None:
-    socket.setdefaulttimeout(timeout)
-
-
-# ---------------- ~/.ssh/config 取込み ----------------
-
-def _read_ssh_config_file() -> Optional[paramiko.SSHConfig]:
-    cfg_path: Path = Path.home() / ".ssh" / "config"
-    if not cfg_path.exists():
-        return None
-    with cfg_path.open("r", encoding="utf-8", errors="ignore") as fp:
-        return paramiko.SSHConfig.from_file(fp)
-
-
-def _expand_first_existing(paths: List[str]) -> Optional[str]:
-    for p in paths:
-        expanded: str = os.path.expanduser(p)
-        if os.path.exists(expanded):
-            return expanded
-    return None
-
-
-def _merge_with_ssh_config(cfg: SSHConfig) -> Dict[str, Any]:
+def ssh_open(cfg: SSHConfig, *, debug_print: bool = False) -> SSHClientLike:
     """
-    Merge SSHConfig with values from ~/.ssh/config (Host, HostName, Port, User,
-    IdentityFile, IdentitiesOnly, ProxyCommand). Caller may still override.
+    Step4 互換: Paramiko で接続を張る薄いヘルパ。
+    - 返り値は SSHClientLike として扱われる（register_connection で登録）
     """
-    connect: Dict[str, Any] = {
-        "hostname": cfg.host,
-        "port": cfg.port,
-        "username": cfg.ssh_user,
-        "key_filename": os.path.expanduser(cfg.key_filename) if cfg.key_filename else None,
-        "password": cfg.password,
-        "timeout": cfg.timeout,
-        "banner_timeout": cfg.timeout,
-        "auth_timeout": cfg.timeout,
-        "allow_agent": True,
-        "look_for_keys": True,
-    }
+    try:
+        import paramiko  # type: ignore
+    except Exception as e:
+        raise RuntimeError("Paramiko is required for ssh_open()") from e
 
-    ssh_cfg = _read_ssh_config_file()
-    if ssh_cfg is None:
-        return connect
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(
+        paramiko.AutoAddPolicy() if not cfg.strict_host_key_checking else paramiko.RejectPolicy()
+    )
+    client.connect(
+        cfg.host,
+        port=int(cfg.port),
+        username=cfg.ssh_user,
+        key_filename=cfg.key_filename,
+        password=cfg.password,
+        timeout=float(cfg.timeout),
+        look_for_keys=True,
+        allow_agent=True,
+    )
+    # 互換: 呼び出し側が明示 close しない前提だったため、登録して idempotent close させる
+    register_connection(cfg.host, client)  # type: ignore[arg-type]
+    return client  # type: ignore[return-value]
 
-    # Lookup by raw host; paramiko handles pattern matching inside.
-    host_cfg = ssh_cfg.lookup(cfg.host)
+def finalize_sockets() -> None:
+    """
+    Step4 互換: プロセス終了時のソケット整理。新実装では close_all() に委譲。
+    """
+    try:
+        close_all()
+    except Exception:
+        pass
 
-    # HostName / Port / User
-    hostname: Optional[str] = host_cfg.get("hostname")
-    if hostname:
-        connect["hostname"] = hostname
-    port_str: Optional[str] = host_cfg.get("port")
-    if port_str:
-        try:
-            connect["port"] = int(port_str)
-        except ValueError:
-            pass
-    user_cfg: Optional[str] = host_cfg.get("user")
-    if user_cfg:
-        connect["username"] = user_cfg
-
-    # IdentityFile(s)
-    identities_cfg_raw: Optional[List[str]] = host_cfg.get("identityfile")  # type: ignore
-    key_list: List[str] = []
-    if identities_cfg_raw:
-        for k in identities_cfg_raw:
-            exp: str = os.path.expanduser(k)
-            key_list.append(exp)
-    if cfg.key_filename:
-        key_list.insert(0, os.path.expanduser(cfg.key_filename))
-    # use first existing; when empty -> None (agent/known keys may still work)
-    connect["key_filename"] = _expand_first_existing(key_list) if key_list else None
-
-    # IdentitiesOnly
-    identities_only: Optional[str] = host_cfg.get("identitiesonly")
-    if identities_only and identities_only.lower() in ("yes", "true", "1"):
-        connect["allow_agent"] = False
-        connect["look_for_keys"] = False
-
-    # ProxyCommand
-    proxy_cmd: Optional[str] = host_cfg.get("proxycommand")
-    if proxy_cmd:
-        # shell=False internally; use ProxyCommand wrapper
-        connect["sock"] = paramiko.ProxyCommand(proxy_cmd)
-
-    return connect
-
-
-def ssh_open(cfg: SSHConfig, *, debug_print: bool = False) -> paramiko.SSHClient:
-    cli: paramiko.SSHClient = paramiko.SSHClient()
-    if cfg.strict_host_key_checking:
-        cli.load_system_host_keys()
-        cli.set_missing_host_key_policy(paramiko.RejectPolicy())
-    else:
-        cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-    connect_kwargs: Dict[str, Any] = _merge_with_ssh_config(cfg)
-
-    if debug_print:
-        print(
-            f"Connecting to {connect_kwargs.get('hostname')}:{connect_kwargs.get('port', DEFAULT_SSH_PORT)} "
-            f"as {connect_kwargs.get('username','')} key_list={connect_kwargs.get('key_filename')}"
-        )
-
-    cli.connect(**connect_kwargs)
-    return cli
-
-
-def run_cmd(ssh: paramiko.SSHClient, cmd: str, timeout: float) -> Tuple[int, bytes, bytes]:
-    _stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
-    out: bytes = stdout.read()
-    err: bytes = stderr.read()
-    rc: int = stdout.channel.recv_exit_status()
-    return rc, out, err
-
-
-# ---- CLI ヘルパ（共通SSHオプションの追加） ----
-
-def add_ssh_common_args(parser: Any) -> None:
-    parser.add_argument("-s", "--ssh-user", default=None, help="SSH login user. Default: same as --user.")
-    parser.add_argument("-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=f"SSH port. Default: {DEFAULT_SSH_PORT}.")
-    parser.add_argument("-K", "--key", default=None, help="SSH private key file.")
-    parser.add_argument("-W", "--password", default=None, help="SSH password (not recommended).")
-    parser.add_argument("-T", "--timeout", type=float, default=DEFAULT_TIMEOUT, help=f"SSH/command timeout seconds. Default: {DEFAULT_TIMEOUT}.")
-    parser.add_argument("-S", "--strict-host-key-checking", action="store_true", help="Enable strict host key checking.")
+__all__ = [
+    "SSHClientLike",
+    "SFTPClientLike",
+    "ChannelLike",
+    "register_connection",
+    "register_sftp",
+    "register_channel",
+    "close_connections",
+    "close_all",
+    "abort_point",
+    "CancelledError",
+]

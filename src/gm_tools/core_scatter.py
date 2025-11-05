@@ -12,11 +12,7 @@ import shlex
 from dataclasses import dataclass
 from typing import Iterable, List, Tuple, Optional, Set, Dict
 
-try:
-    import paramiko  # type: ignore
-except Exception as e:
-    raise RuntimeError("Paramiko is required: pip install paramiko") from e
-
+from .core_ssh import SSHClientLike, SFTPClientLike
 from .core_report import (
     TransferReport,
     TransferItem,
@@ -36,7 +32,6 @@ from .core_cmd_flavor import (
     split_exist_new_by_remote_presence,
 )
 
-# Step4 分離モジュール ( 新規 )
 from .core_selinux import (
     SelinuxMode,                  # Literal["auto","policy","ignore"]
     detect_selinux_capable,       # (ssh) -> bool
@@ -139,7 +134,7 @@ def local_pack_paths_to_tmp(paths: Iterable[str], follow_symlinks: bool) -> Tupl
 
 
 def write_members_file(
-    sftp: "paramiko.SFTPClient",
+    sftp: SFTPClientLike,
     remote_path: str,
     members: Iterable[str],
     *,
@@ -162,11 +157,8 @@ def write_members_file(
 
     def _sftp_write_text(path: str, content: str) -> None:
         data: bytes = _normalize_members_content(content)
-        f: "paramiko.SFTPFile" = sftp.file(path, mode="wb")
-        try:
-            f.write(data)
-        finally:
-            f.close()
+        with sftp.open(path, mode="wb") as f:
+            _ = f.write(data)
 
     canon: List[str] = []
     seen: Set[str] = set()
@@ -189,8 +181,8 @@ def write_members_file(
 
 
 def upload_pack_and_extract(
-    ssh: "paramiko.SSHClient",
-    sftp: "paramiko.SFTPClient",
+    ssh: SSHClientLike,
+    sftp: SFTPClientLike,
     tar_path: str,
     dest_abs_root: str,
     sudo_extract: bool,
@@ -557,8 +549,8 @@ def upload_pack_and_extract(
     run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -rf {shlex.quote(rtmp)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
 
 def sftp_put_one(
-    ssh: "paramiko.SSHClient",
-    sftp: "paramiko.SFTPClient",
+    ssh: SSHClientLike,
+    sftp: SFTPClientLike,
     local_abs: str,
     dest_abs_root: str,
     host: str,
@@ -708,8 +700,8 @@ def sftp_put_one(
 
 def _sftp_put_with_exist_restore(
     *,
-    ssh: "paramiko.SSHClient",
-    sftp: "paramiko.SFTPClient",
+    ssh: SSHClientLike,
+    sftp: SFTPClientLike,
     local_path: str,
     remote_path: str,
     host: str,

@@ -3,11 +3,7 @@ from __future__ import annotations
 
 import shlex
 
-try:
-    import paramiko  # type: ignore
-except Exception as e:
-    raise RuntimeError("Paramiko is required: pip install paramiko") from e
-
+from .core_ssh import SSHClientLike
 from .core_cmd_flavor import run_remote_cmd_capture
 from .core_path_handling import (
     HOME_DETECT_CMD_FMT,
@@ -15,7 +11,7 @@ from .core_path_handling import (
     HOME_FALLBACK_PREFIX,
 )
 
-def detect_remote_home(ssh: "paramiko.SSHClient", user: str, timeout: float) -> str:
+def detect_remote_home(ssh: SSHClientLike, user: str, timeout: float) -> str:
     """
     getent 優先でリモート user の HOME を取得。失敗時はフォールバック。
     - PATH 注入は run_remote_cmd_capture 側ポリシーに従う（bash -lc）。

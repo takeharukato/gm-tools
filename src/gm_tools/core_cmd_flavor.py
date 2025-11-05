@@ -3,12 +3,8 @@ from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass
-from typing import List, Literal, Optional, Set, Tuple
-
-try:
-    import paramiko  # type: ignore
-except Exception as e:
-    raise RuntimeError("Paramiko is required: pip install paramiko") from e
+from typing import List, Literal, Optional, Set, Tuple, Any
+from .core_ssh import SSHClientLike
 
 
 # NOTE:
@@ -40,13 +36,13 @@ class CmdFlavor:
     tar: TarFlavor
 
 
-def _exec_simple(ssh: "paramiko.SSHClient", cmd: str, timeout: Optional[float] = None) -> Tuple[int, str, str]:
+def _exec_simple(ssh: SSHClientLike, cmd: str, timeout: Optional[float] = None) -> Tuple[int, str, str]:
     """
     依存の少ない実行ヘルパ。stdout/err を全読みして (rc, out, err) を返す。
     """
-    _stdin: "paramiko.ChannelFile"
-    stdout: "paramiko.ChannelFile"
-    stderr: "paramiko.ChannelFile"
+    _stdin: Any
+    stdout: Any
+    stderr: Any
     _stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
 
     out_s: str = stdout.read().decode(errors="ignore")
@@ -63,7 +59,7 @@ def _exec_simple(ssh: "paramiko.SSHClient", cmd: str, timeout: Optional[float] =
     return rc, out_s, err_s
 
 
-def detect_tar_flavor_remote(ssh: "paramiko.SSHClient", *, timeout: float = 10.0) -> CmdFlavor:
+def detect_tar_flavor_remote(ssh: SSHClientLike, *, timeout: float = 10.0) -> CmdFlavor:
     """
     リモートで `tar --version` を実行して GNU / bsdtar / unknown を判定する。
     """
@@ -179,7 +175,7 @@ def _inject_path_for_bash_argv(cmd_argv: List[str]) -> List[str]:
 
 
 def run_remote_cmd_capture(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     cmd_argv: List[str],
     *,
     timeout: float = 60.0,
@@ -219,7 +215,7 @@ def parse_tar_t_list_to_relpaths(listing_text: str) -> List[str]:
 
 # === 統一リモート実行ラッパ（sudo 経路の一元化） =========================
 def exec_remote(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     cmd: str,
     *,
     use_sudo: bool = False,
@@ -232,9 +228,9 @@ def exec_remote(
     """
     full_cmd: str = f"sudo -n {cmd}" if use_sudo else cmd
 
-    _stdin: "paramiko.ChannelFile"
-    stdout: "paramiko.ChannelFile"
-    stderr: "paramiko.ChannelFile"
+    _stdin: Any
+    stdout: Any
+    stderr: Any
     _stdin, stdout, stderr = ssh.exec_command(full_cmd, timeout=timeout)
 
     out_s: str = stdout.read().decode(errors="ignore")
@@ -252,7 +248,7 @@ def exec_remote(
 
 
 def remote_path_exists(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     path: str,
     *,
     use_sudo: bool,
@@ -274,7 +270,7 @@ def remote_path_exists(
 
 
 def remote_mkdir_p(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     path: str,
     *,
     use_sudo: bool,
@@ -296,7 +292,7 @@ def remote_mkdir_p(
 
 
 def split_exist_new_by_remote_presence(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     dest_abs: str,
     rel_paths: List[str],
     *,

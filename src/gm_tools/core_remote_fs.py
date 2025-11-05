@@ -1,97 +1,172 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+gm_tools.core_remote_fs
+=======================
+
+Best-effort management of *remote* temporary files per host.
+
+Goals
+-----
+- Register remote temporary paths created during gather/scatter.
+- Provide idempotent cleanup APIs (safe to call multiple times).
+- Keep library-agnostic: callers supply *remover* callables that perform the
+  actual remote deletion (e.g., via SFTP/SSH).
+- Encourage the call pattern: "check abort -> create -> register -> I/O -> finally cleanup".
+
+This module performs no side effects on import.
+"""
+
 from __future__ import annotations
 
-import posixpath
-import stat
-from typing import Any, Iterator, Literal
+import threading
+from typing import Callable, Dict, Iterable, List, Set
+from .core_ssh import SFTPClientLike
 
-try:
-    import paramiko  # type: ignore
-except Exception as e:
-    raise RuntimeError("Paramiko is required: pip install paramiko") from e
+# ---- Types ------------------------------------------------------------------
 
-
-def _sftp_attr_mode(st: Any) -> int:
-    m_raw: Any = getattr(st, "st_mode", 0)
-    return int(m_raw) if m_raw is not None else 0
+# Remover receives a single remote absolute path and deletes it (best-effort).
+RemoteRemover = Callable[[str], None]
 
 
-def sftp_kind(sftp: "paramiko.SFTPClient", path: str) -> Literal["missing", "dir", "file", "symlink", "other"]:
-    try:
-        st: Any = sftp.lstat(path)
-    except IOError:
-        return "missing"
-    mode: int = _sftp_attr_mode(st)
-    if mode != 0:
-        if stat.S_ISLNK(mode):
-            return "symlink"
-        if stat.S_ISDIR(mode):
-            return "dir"
-        if stat.S_ISREG(mode):
-            return "file"
-        return "other"
-    try:
-        st2: Any = sftp.stat(path)
-        mode2: int = _sftp_attr_mode(st2)
-        if mode2 != 0:
-            if stat.S_ISDIR(mode2):
-                return "dir"
-            if stat.S_ISREG(mode2):
-                return "file"
-            return "other"
-    except Exception:
-        pass
-    return "other"
+# ---- Registry ----------------------------------------------------------------
+
+class _PerHost:
+    __slots__ = ("temps",)
+
+    def __init__(self) -> None:
+        # Set of remote absolute paths scheduled for deletion.
+        self.temps: Set[str] = set()
 
 
-def sftp_isdir(sftp: "paramiko.SFTPClient", path: str) -> bool:
-    return sftp_kind(sftp, path) == "dir"
-
-def sftp_isfile(sftp: "paramiko.SFTPClient", path: str) -> bool:
-    return sftp_kind(sftp, path) == "file"
-
-def sftp_islink(sftp: "paramiko.SFTPClient", path: str) -> bool:
-    return sftp_kind(sftp, path) == "symlink"
-
-def sftp_exists(sftp: "paramiko.SFTPClient", path: str) -> bool:
-    return sftp_kind(sftp, path) != "missing"
+_lock: threading.Lock = threading.Lock()
+_registry: Dict[str, _PerHost] = {}  # host -> _PerHost
 
 
-def remote_walk_files(sftp: "paramiko.SFTPClient", root: str) -> Iterator[str]:
+def _bucket(host: str) -> _PerHost:
+    with _lock:
+        b = _registry.get(host)
+        if b is None:
+            b = _PerHost()
+            _registry[host] = b
+        return b
+
+
+def register_remote_temp(host: str, path: str) -> None:
     """
-    Recursively walk remote 'root' and yield regular files (links whose targets are files included).
+    Register a remote temporary file/directory path for later cleanup.
+    - `path` must be a string (remote absolute path is recommended).
+    - Idempotent: registering the same path multiple times is fine.
     """
-    stack: list[str] = [posixpath.normpath(root)]
-    while stack:
-        cur: str = stack.pop()
+    b = _bucket(host)
+    with _lock:
+        b.temps.add(path)
+
+
+def register_remote_temps(host: str, paths: Iterable[str]) -> None:
+    """Register multiple remote temporary paths at once (idempotent)."""
+    b = _bucket(host)
+    with _lock:
+        for p in paths:
+            b.temps.add(p)
+
+
+def create_remote_temp(host: str, maker: Callable[[], str]) -> str:
+    """
+    Helper: create a single remote temp via `maker()` and register it.
+    - The `maker` callable should create the remote resource and return its path.
+    - The caller remains responsible for abort checkpoints around this call.
+    """
+    path: str = maker()
+    register_remote_temp(host, path)
+    return path
+
+
+def cleanup_remote_temp(host: str, remover: RemoteRemover) -> None:
+    """
+    Delete all registered remote temps for `host` using the given `remover`.
+    - Idempotent: paths are removed from the registry as we attempt deletion.
+    - Best-effort: exceptions from the remover are swallowed to allow progress.
+    """
+    with _lock:
+        b = _registry.get(host)
+        paths: List[str] = list(b.temps) if b is not None else []
+
+    if not paths:
+        return
+
+    failures: List[str] = []
+    for p in paths:
         try:
-            entries: list[Any] = sftp.listdir_attr(cur)
-        except IOError:
-            continue
-        for ent in entries:
-            name: str = ent.filename
-            if name in (".", ".."):
-                continue
-            ap: str = posixpath.normpath(f"{cur}/{name}")
-            mode: int = _sftp_attr_mode(ent)
-            if mode != 0 and stat.S_ISDIR(mode):
-                stack.append(ap)
-                continue
-            if mode != 0 and stat.S_ISREG(mode):
-                yield ap
-                continue
-            if mode != 0 and stat.S_ISLNK(mode):
-                try:
-                    st2: Any = sftp.stat(ap)
-                    if stat.S_ISREG(_sftp_attr_mode(st2)):
-                        yield ap
-                except Exception:
-                    pass
+            remover(p)
+        except Exception:
+            # Keep the failed path to try later
+            failures.append(p)
+
+    # Update registry with remaining failures
+    if b is not None:
+        with _lock:
+            if failures:
+                b.temps = set(failures)
+            else:
+                # All cleared -> remove bucket
+                _registry.pop(host, None)
 
 
-def sftp_put_one(sftp: "paramiko.SFTPClient", local_path: str, remote_path: str) -> None:
+def cleanup_all_remote_temps(host_to_remover: Dict[str, RemoteRemover]) -> None:
     """
-    Simple wrapper for a single file upload (PUT).
+    Delete registered remote temps for multiple hosts.
+    - host_to_remover: mapping from host -> remover callable
+    - Hosts without a remover are skipped (left for later cleanup).
     """
-    sftp.put(local_path, remote_path)
+    with _lock:
+        hosts = list(_registry.keys())
+    for host in hosts:
+        remover = host_to_remover.get(host)
+        if remover is not None:
+            cleanup_remote_temp(host, remover)
+
+
+def sftp_exists(sftp_client: SFTPClientLike, path: str) -> bool:
+    try:
+        sftp_client.stat(path)
+        return True
+    except Exception:
+        return False
+
+def sftp_isdir(sftp_client: SFTPClientLike, path: str) -> bool:
+    import stat
+    try:
+        st = sftp_client.stat(path)
+        return stat.S_ISDIR(st.st_mode)
+    except Exception:
+        return False
+
+def sftp_isfile(sftp_client: SFTPClientLike, path: str) -> bool:
+    import stat
+    try:
+        st = sftp_client.stat(path)
+        return stat.S_ISREG(st.st_mode)
+    except Exception:
+        return False
+
+def sftp_islink(sftp_client: SFTPClientLike, path: str) -> bool:
+    import stat
+    try:
+        st = sftp_client.lstat(path)
+        return stat.S_ISLNK(st.st_mode)
+    except Exception:
+        return False
+
+
+__all__ = [
+    "RemoteRemover",
+    "register_remote_temp",
+    "register_remote_temps",
+    "create_remote_temp",
+    "cleanup_remote_temp",
+    "cleanup_all_remote_temps",
+    "sftp_exists",
+    "sftp_isdir",
+    "sftp_isfile",
+    "sftp_islink",
+]

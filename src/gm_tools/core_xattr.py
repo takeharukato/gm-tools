@@ -4,11 +4,7 @@ from __future__ import annotations
 import shlex
 from typing import Optional, Tuple, List
 
-try:
-    import paramiko  # type: ignore
-except Exception as e:
-    raise RuntimeError("Paramiko is required: pip install paramiko") from e
-
+from .core_ssh import SSHClientLike
 from .core_cmd_flavor import run_remote_cmd_capture
 
 # === constants (no Final, to match project style) ===
@@ -22,7 +18,7 @@ XATTR_CMDS: Tuple[str, str] = ("getfattr", "setfattr")
 ACL_MKTEMP_TEMPLATE: str = "acl.XXXXXX"
 XATTR_MKTEMP_TEMPLATE: str = "xattr.XXXXXX"
 
-def check_acl_tools_available(ssh: "paramiko.SSHClient") -> bool:
+def check_acl_tools_available(ssh: SSHClientLike) -> bool:
     """
     リモートに ACL 操作用ツール (getfacl/setfacl) が存在するかを確認する。
     どちらか一方でも欠ける場合は False。
@@ -42,7 +38,7 @@ def check_acl_tools_available(ssh: "paramiko.SSHClient") -> bool:
     return True
 
 
-def check_xattr_tools_available(ssh: "paramiko.SSHClient") -> bool:
+def check_xattr_tools_available(ssh: SSHClientLike) -> bool:
     """
     リモートに xattr 操作用ツール (getfattr/setfattr) が存在するかを確認する。
     どちらか一方でも欠ける場合は False。
@@ -62,7 +58,7 @@ def check_xattr_tools_available(ssh: "paramiko.SSHClient") -> bool:
     return True
 
 
-def stat_owner_group_mode(ssh: "paramiko.SSHClient", path: str, *, use_sudo: bool) -> Tuple[str, str, int]:
+def stat_owner_group_mode(ssh: SSHClientLike, path: str, *, use_sudo: bool) -> Tuple[str, str, int]:
     """
     対象パスのオーナ、グループ、モード(8進数) を取得する。
     - stat(1) の -c '%U:%G:%a' を利用
@@ -101,7 +97,7 @@ def stat_owner_group_mode(ssh: "paramiko.SSHClient", path: str, *, use_sudo: boo
 
 
 def chown_chmod(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     path: str,
     *,
     owner: Optional[str],
@@ -158,7 +154,7 @@ def chown_chmod(
         )
 
 def capture_acl_dump(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     path: str,
     dump_dir: str,
     *,
@@ -202,7 +198,7 @@ def capture_acl_dump(
 
 
 def restore_acl_dump(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     dump_file: str,
     *,
     use_sudo: bool,
@@ -224,7 +220,7 @@ def restore_acl_dump(
     _rc, _o, _e = run_remote_cmd_capture(ssh, argv, timeout=RESTORE_TIMEOUT)
 
 def capture_xattr_dump(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     path: str,
     dump_dir: str,
     *,
@@ -268,7 +264,7 @@ def capture_xattr_dump(
 
 
 def restore_xattr_dump(
-    ssh: "paramiko.SSHClient",
+    ssh: SSHClientLike,
     dump_file: str,
     *,
     use_sudo: bool,
