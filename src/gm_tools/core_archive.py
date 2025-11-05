@@ -25,6 +25,7 @@ import shlex
 import shutil
 import tarfile
 import tempfile
+import logging
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Callable, Dict, Iterable, List, Optional, Set, Literal, Tuple, TypeAlias
@@ -37,6 +38,7 @@ from .core_cmd_flavor import run_remote_cmd_capture
 TarWriteMode: TypeAlias = Literal['w', 'w:gz', 'w:bz2', 'w:xz']
 TarReadMode: TypeAlias = Literal['r', 'r:gz', 'r:bz2', 'r:xz']
 
+_LOG = logging.getLogger(__name__)
 
 # ---- Local temp registry (per host) -----------------------------------------
 
@@ -375,8 +377,13 @@ def download_and_extract_tar(
         except Exception:
             pass
 
+    # verbose 時のみログ出力（QueueHandler/QueueListener配下で直列化され行崩れ防止）
     if verbose:
-        print(f"[pack] downloaded {remote_tar_gz} -> extracted {extracted} file(s) to {dest_root}")
+        _LOG.info(
+            "[pack] downloaded %s -> extracted %d file(s) to %s",
+            remote_tar_gz, extracted, dest_root,
+        )
+
     return extracted, extracted_paths
 
 

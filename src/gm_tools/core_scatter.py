@@ -9,6 +9,8 @@ import os
 import tarfile
 import tempfile
 import shlex
+import logging
+
 from dataclasses import dataclass
 from typing import Iterable, List, Tuple, Optional, Set, Dict
 
@@ -62,12 +64,11 @@ OVERWRITE_TIMEOUT: float = 120.0
 # デバッグフラグ
 _DEBUG: bool = str(os.environ.get("GM_SCATTER_DEBUG", "")).lower() in ("1", "true", "yes", "on")
 
+_LOG = logging.getLogger(__name__)
+
 def _dbg_log(msg: str) -> None:
     if _DEBUG:
-        try:
-            print(msg)
-        except Exception:
-            pass
+        _LOG.debug(msg)
 
 
 @dataclass
