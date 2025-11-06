@@ -76,3 +76,4 @@ dest/
 config.status
 configure
 Makefile
+src/tests_env.sh
