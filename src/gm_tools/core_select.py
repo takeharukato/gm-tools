@@ -44,7 +44,7 @@ _LOG = logging.getLogger(__name__)
 
 # ---- Data model --------------------------------------------------------------
 
-@dataclass(frozen=True)
+@dataclass
 class PlanEntry:
     """
     A single planned item to transfer.
@@ -58,6 +58,7 @@ class PlanEntry:
     relpath: str
     is_dir: bool
     remote_root: str = ""
+    remote_abs: str = ""
 
 @dataclass
 class Plan:
