@@ -166,6 +166,7 @@ def _make_pull_one_pack(
     use_sudo: bool,
     follow_symlinks: bool,
     host: str,
+    dest_host_root: Path
 ) -> Callable[[SFTPClientLike, str, Path, bool], None]:
     """
     初回呼出しで pack+download+extract を実施。以降 no-op。
@@ -189,11 +190,16 @@ def _make_pull_one_pack(
             ssh, pack_list, timeout=timeout, use_sudo=use_sudo, follow_symlinks=follow_symlinks
         )
         _LOG.info("[debug][pack][sender] host=%s remote_tar_gz=%s", host, remote_gz)
-        # _local は DEST/<HOST>/<first-relpath> を指すので, HOST 直下に展開させる
-        dest_host_root: Path = Path(_local).parents[1]
-        _LOG.info("[debug][pack][receiver] enter: remote=%s extract_base=%s subdir=%s",
-            remote_gz, str(dest_host_root), host)
-        extracted, _ = download_and_extract_tar(_sftp, remote_gz, str(dest_host_root), host)
+        # 常に DEST/<HOST> 直下に展開（_local から親を推測しない）
+        _LOG.info(
+            "[debug][pack][receiver] enter remote_tar_gz=%s extract_base=%s subdir=%s verbose=%s",
+            remote_gz, str(dest_host_root), "", False,
+        )
+
+        # 常に DEST/<HOST> 直下に展開（_local から親を推測しない）
+        # 第3引数hostはdownload_and_extract_tar内で2重にパスを作らないよう
+        # 空文字列を指定している。
+        extracted, _ = download_and_extract_tar(_sftp, remote_gz, str(dest_host_root), "")
         state["extracted"] = extracted  # type: ignore[assignment]
         _ = run_remote_cmd_capture(
             ssh, ["bash", "-lc", f"rm -f {shlex.quote(remote_gz)} || true"], timeout=timeout
@@ -340,6 +346,7 @@ def _build_plan_for_host(
         "home_abs": home_abs,
         "use_sudo": use_sudo,
         "pack_list": pack_list,
+        "dest_host_root": dest_host_root,
     }
     return Plan(entries=entries), meta
 
@@ -461,6 +468,7 @@ def main() -> None:
                 use_sudo=bool(m["use_sudo"]),
                 follow_symlinks=bool(args.follow_symlinks),
                 host=h,
+                dest_host_root=Path(m["dest_host_root"]),  # type: ignore[arg-type]
             )
 
     # 並行実行 : ロギング初期化・集計は run_parallel 側が担当
