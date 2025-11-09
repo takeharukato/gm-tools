@@ -31,12 +31,14 @@ from pathlib import Path
 
 from typing import Callable, Iterable, Iterator, List, Optional, Sequence, Tuple, Set
 
-from .core_remote_fs import sftp_exists, sftp_isdir, sftp_isfile
+from .core_remote_fs import sftp_exists, sftp_isdir, sftp_isfile, sftp_islink
 from .core_ssh import DEFAULT_TIMEOUT, SSHClientLike, SFTPClientLike
 from .core_cmd_flavor import run_remote_cmd_capture
-
-# ---- Regex for path meta detection -------------------------------------------
-_REGEX_META = re.compile(r"[.^$*+?\[\]{}()|\\]")
+from .core_path_handling import (
+    split_src_to_root_and_tail_regex,
+    is_abs_path,
+    normalize_src_abs
+)
 
 # ---- Logging setup -----------------------------------------------------------
 
@@ -107,7 +109,6 @@ def _make_exclude(globs: Optional[Sequence[str]]) -> Optional[Callable[[str], bo
         return False
 
     return _pred
-
 
 def _walk_including_dirs(root: Path, *, follow_symlinks: bool) -> Iterator[Tuple[Path, bool]]:
     """
@@ -210,53 +211,10 @@ def iter_with_seq(plan: Plan) -> Iterator[Tuple[int, PlanEntry]]:
 #   - (B) それ以外: SFTP で root を走査して tail_re を適用
 #   - ここでは「候補列挙」のみを担い, 存在/型の最終確認は呼び出し側に委譲
 #
-def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
-    """'~/' を remote HOME に展開。その他はそのまま返す ( フルパス前提 ) 。"""
-    if src.startswith("~/"):
-        if home_abs_for_tilde.endswith("/"):
-            return home_abs_for_tilde + src[2:]
-        return home_abs_for_tilde + "/" + src[2:]
-    return src
-
-def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
+def remote_walk_files(sftp_client: SFTPClientLike, root: str, *, include_symlinks: bool = False) -> Iterator[str]:
     """
-    与えられた絶対パス ( 正規表現メタを含む可能性あり ) を (root, tail_re) に分解する。
-    - ルール:
-      * メタ文字が無い場合: root=dirname(abs_path), tail_re='^basename$' ( 相対名への厳密一致 )
-      * メタ文字がある場合: 最初のメタ文字の直前の '/' までを root とし, 以降 ( 先頭'/'除去 ) を tail_re とする
-    - いずれの場合も root はディレクトリを指すことを意図
-    """
-    if not abs_path or abs_path == "/":
-        raise ValueError("invalid absolute path pattern")
-
-    m = _REGEX_META.search(abs_path)
-    if m is None:
-        # pure literal
-        root = os.path.dirname(abs_path) or "/"
-        base = os.path.basename(abs_path)
-        if not base:
-            # '/etc/' のような末尾スラッシュはディレクトリ意図なので, 全体一致ではなく '.*' にする
-            return (abs_path.rstrip("/") or "/", r".*")
-        # 相対名に対する厳密一致
-        return (root, "^" + re.escape(base) + "$")
-
-    # regex case: メタの直前にある最後の '/' を探す
-    slash_pos = abs_path.rfind("/", 0, m.start())
-    if slash_pos < 0:
-        # 先頭にメタ, あるいは '/' より前にメタが無い  =>  root は '/' に倒す
-        root = "/"
-        tail = abs_path.lstrip("/")
-    else:
-        root = abs_path[:slash_pos] or "/"
-        tail = abs_path[slash_pos + 1 :]
-    if not tail:
-        # root 直下全体
-        return (root, r".*")
-    return (root, tail)
-
-def remote_walk_files(sftp_client: SFTPClientLike, root: str) -> Iterator[str]:
-    """
-    SFTP で root 配下を再帰走査し, 通常ファイルの絶対パスを yield。
+    SFTP で root 配下を再帰走査し, 通常ファイル,
+    include_symlinks が真の場合は, シンボリックリンクの絶対パスを yield。
     ディレクトリ存在確認は呼び出し側で済ませている前提。
     """
     stack: List[str] = [root]
@@ -274,6 +232,8 @@ def remote_walk_files(sftp_client: SFTPClientLike, root: str) -> Iterator[str]:
                     stack.append(ap)
                 elif sftp_isfile(sftp_client, ap):
                     yield ap
+                elif include_symlinks and sftp_islink(sftp_client, ap):
+                    yield ap
                 else:
                     # symlink/デバイス等はここでは採用しない ( 呼び出し側で判断 )
                     pass
@@ -286,12 +246,14 @@ def _enumerate_via_sftp_walk(
     resolved_srcs: List[str],
     home_abs: str,
     verbose: bool,
+    *,
+    include_symlinks: bool,
 ) -> List[str]:
     candidates: Set[str] = set()
     for src in resolved_srcs:
         abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
         # 絶対パスでなければスキップ
-        is_abs = abs_norm.startswith("/") or re.match(r"^[A-Za-z]:/", abs_norm)
+        is_abs = is_abs_path(abs_norm)
         if not is_abs:
             _LOG.warning("skip non-absolute SRC: %s", src)
             continue
@@ -312,7 +274,7 @@ def _enumerate_via_sftp_walk(
             _LOG.warning("bad regex for %s: %s", src, e)
             continue
 
-        for ap in remote_walk_files(sftp_client, root):
+        for ap in remote_walk_files(sftp_client, root, include_symlinks=include_symlinks):
             # root からの相対
             rel = ap[len(root) :].lstrip("/\\")
             if rx.search(rel):
@@ -327,6 +289,8 @@ def _enumerate_via_remote_walk_with_sudo(
     resolved_srcs: List[str],
     home_abs: str,
     verbose: bool,
+    *,
+    include_symlinks: bool,
 ) -> List[str]:
     acc: Set[str] = set()
 
@@ -334,6 +298,7 @@ def _enumerate_via_remote_walk_with_sudo(
 import os, re, sys
 root = os.environ.get("GM_ROOT", "")
 pat  = os.environ.get("GM_PAT", ".*")
+want_links = os.environ.get("GM_INC_LINKS", "0") == "1"
 rx = re.compile(pat)
 for dp, _dirs, files in os.walk(root, followlinks=False):
     rel = os.path.relpath(dp, root)
@@ -343,11 +308,18 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
         if rx.search(rp):
             sys.stdout.write(os.path.join(root, rp) + "\n")
             sys.stdout.flush()
+        if want_links:
+            ap = os.path.join(dp, fn)
+            if os.path.islink(ap):
+                rp = fn if not rel else rel + "/" + fn
+                if rx.search(rp):
+                    sys.stdout.write(os.path.join(root, rp) + "\n")
+                    sys.stdout.flush()
 """.strip()
 
     for src in resolved_srcs:
         abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
-        is_abs = abs_norm.startswith("/") or re.match(r"^[A-Za-z]:/", abs_norm)
+        is_abs = is_abs_path(abs_norm)
         if not is_abs:
             _LOG.warning("skip non-absolute SRC: %s", src)
             continue
@@ -370,7 +342,7 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
         # sudo -n で試行
         cmd_sudo = (
             "sudo -n env "
-            f"GM_ROOT={shlex.quote(root)} GM_PAT={shlex.quote(pat)} "
+            f"GM_ROOT={shlex.quote(root)} GM_PAT={shlex.quote(pat)} GM_INC_LINKS={'1' if include_symlinks else '0'} "
             "python3 - <<'PY'\n" + py_script + "\nPY"
         )
         rc, out, err = run_remote_cmd_capture(ssh, ["bash", "-lc", cmd_sudo], timeout=DEFAULT_TIMEOUT)
@@ -379,7 +351,7 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
             # 非 sudo フォールバック
             cmd_nonsudo = (
                 "env "
-                f"GM_ROOT={shlex.quote(root)} GM_PAT={shlex.quote(pat)} "
+                f"GM_ROOT={shlex.quote(root)} GM_PAT={shlex.quote(pat)} GM_INC_LINKS={'1' if include_symlinks else '0'} "
                 "python3 - <<'PY'\n" + py_script + "\nPY"
             )
             rc2, out2, err2 = run_remote_cmd_capture(ssh, ["bash", "-lc", cmd_nonsudo], timeout=DEFAULT_TIMEOUT)
@@ -406,16 +378,27 @@ def enumerate_candidates_for_host(
     *,
     use_sudo: bool,
     pack_remote: bool,
+    follow_symlinks: bool,
     verbose: bool,
 ) -> List[str]:
     """
     候補列挙の統合 API
     - pack_remote and use_sudo のとき sudo リモート走査
     - それ以外は SFTP 走査
+    follow_symlinksの扱い:
+     - リンクディレクトリを辿らない
+     - follow_symlinksが偽, かつ, pack_remote偽ならリンクを候補に含めない
+     - follow_symlinksが偽, かつ, pack_remote真ならリンク自体を候補に含める
+     - follow_symlinksが真, かつ, pack_remote真ならリンク先の実体を候補に含める
     """
+    include_symlinks = bool(pack_remote and follow_symlinks)
     if pack_remote and use_sudo:
-        return _enumerate_via_remote_walk_with_sudo(ssh, resolved_srcs, home_abs, verbose)
-    return _enumerate_via_sftp_walk(sftp_client, resolved_srcs, home_abs, verbose)
+        return _enumerate_via_remote_walk_with_sudo(
+            ssh, resolved_srcs, home_abs, verbose, include_symlinks=include_symlinks
+        )
+    return _enumerate_via_sftp_walk(
+        sftp_client, resolved_srcs, home_abs, verbose, include_symlinks=include_symlinks
+    )
 
 def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
     """

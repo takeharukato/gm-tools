@@ -121,6 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not download.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logs.")
     parser.add_argument("--pack", action="store_true", help="Pack on remote (tar.gz) and download once.")
+    # --follow-symlinksは, ファイルへのシンボリックリンクをたどることを指示する
+    #  ディレクトリへのシンボリックリンクについては未対応
     parser.add_argument(
         "--follow-symlinks",
         action="store_true",
@@ -280,6 +282,7 @@ def _build_plan_for_host(
         home_abs=home_abs,
         use_sudo=use_sudo,
         pack_remote=pack_remote,
+        follow_symlinks=follow_symlinks,
         verbose=verbose,
     )
     _LOG.info("[debug][plan] host=%s enumerate_candidates: %d item(s)", host, len(candidates))
