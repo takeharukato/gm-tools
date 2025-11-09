@@ -3,11 +3,9 @@
 #
 # PYTHONPATH=. python3 -m pytest -q ../tests/test_path_handling.py
 #
-import re
+
 from gm_tools.core_path_handling import (
-    _sanitize_remote_abs_for_local,
-    split_src_to_root_and_tail_regex,
-    is_abs_path,
+    _sanitize_remote_abs_for_local, # type: ignore
 )
 def test_posix_simple_abs():
     assert _sanitize_remote_abs_for_local("/etc/hosts") == "etc/hosts"
