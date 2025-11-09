@@ -58,7 +58,7 @@ def _ssh_base_argv(port: int, strict: bool) -> List[str]:
     return argv
 
 
-def ssh_do(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str) -> subprocess.CompletedProcess:
+def ssh_do(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str) -> subprocess.CompletedProcess[str]:
     """
     外側シェルを挟まず、リモートでコマンド＋引数のみ実行。
     形 : ssh <opts> -- user@host <argv...>
@@ -69,7 +69,7 @@ def ssh_do(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str)
     return subprocess.run(argv, capture_output=True, text=True)
 
 
-def ssh_sudo(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str) -> subprocess.CompletedProcess:
+def ssh_sudo(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str) -> subprocess.CompletedProcess[str]:
     """
     sudo -n を付与して実行。
     形 : ssh <opts> -- user@host sudo -n <argv...>
@@ -80,7 +80,7 @@ def ssh_sudo(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: st
     return subprocess.run(argv, capture_output=True, text=True)
 
 
-def pipe_to_tee(ssh_user: str, host: str, port: int, strict: bool, path: str, *, content: str, sudo: bool) -> subprocess.CompletedProcess:
+def pipe_to_tee(ssh_user: str, host: str, port: int, strict: bool, path: str, *, content: str, sudo: bool) -> subprocess.CompletedProcess[str]:
     """
     標準入力で渡した content をリモートの tee に流し込む。
     形 : ssh <opts> -- user@host [sudo -n] tee -- <path>
@@ -890,10 +890,10 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> Dict[str, object]:
     r_no_exists = ssh_do(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "test", "-e", remote_no_l)
 
     # follow: 通常ファイルで内容 "Q\\n"
-    r_yes_is_file: subprocess.CompletedProcess = ssh_do(
+    r_yes_is_file: subprocess.CompletedProcess[str] = ssh_do(
         cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "test", "-f", remote_yes_l
     )
-    r_yes_cat: subprocess.CompletedProcess = ssh_do(
+    r_yes_cat: subprocess.CompletedProcess[str] = ssh_do(
         cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "cat", remote_yes_l
     )
 
@@ -952,7 +952,7 @@ def case_scatter_pack_extract_user(cfg: Config) -> Dict[str, object]:
 
     rel_from_root: str = os.path.abspath(local_src).lstrip("/")
     remote_file: str = os.path.join(dest_dir, rel_from_root, "u.txt")
-    r_stat_u: subprocess.CompletedProcess = ssh_do(
+    r_stat_u: subprocess.CompletedProcess[str] = ssh_do(
         cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "stat", "-c", "%U:%G", remote_file
     )
     owner: str = (r_stat_u.stdout or "").strip()
@@ -1004,7 +1004,7 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> Dict[str, object]:
 
     remote_r: str = os.path.join(dest_dir, abs_local_src, "r.txt")
     # ルート所有ディレクトリ配下の検証は sudo で実施
-    r_stat: subprocess.CompletedProcess = ssh_sudo(
+    r_stat: subprocess.CompletedProcess[str] = ssh_sudo(
         cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "stat", "-c", "%U:%G", remote_r
     )
     owner: str = (r_stat.stdout or "").strip()
@@ -1072,13 +1072,13 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> Dict[str, objec
     run: LocalRun = _run_local_argv(argv)
 
     # 3) 所有者確認（sudo で stat）
-    r_stat: subprocess.CompletedProcess = ssh_sudo(
+    r_stat: subprocess.CompletedProcess[str] = ssh_sudo(
         cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "stat", "-c", "%U:%G", remote_r
     )
     owner: str = (r_stat.stdout or "").strip()
 
     # （任意）内容確認 : 実装が上書きなら "R2\\n" になっている可能性
-    r_cat: subprocess.CompletedProcess = ssh_sudo(
+    r_cat: subprocess.CompletedProcess[str] = ssh_sudo(
         cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "cat", remote_r
     )
     content_after: str = (r_cat.stdout or "")
@@ -1181,7 +1181,6 @@ def case_gather_double_nesting_regression(cfg: Config) -> Dict[str, object]:
     user: str = cfg.target_user
 
     # リモート側: 収集元の準備
-    home: str = _get_remote_home(cfg, ubuntu, user)
     abs_root: str = "/tmp/gm_nest_src"  # 絶対パスで検証（local_path_for_download の期待どおりの配置になる）
     src_dir: str = abs_root.rstrip('/') + '/'
     file_a: str = os.path.join(src_dir, "a.txt")
@@ -1239,7 +1238,7 @@ def case_gather_double_nesting_regression(cfg: Config) -> Dict[str, object]:
 
     # 二重ネスト検出（prefix 走査）
     double_nest_found = False
-    for root, dirs, files in os.walk(out_dir):
+    for root, _dirs, _files in os.walk(out_dir):
         if (root + os.sep).startswith(bad_prefix):
             double_nest_found = True
             break
@@ -1275,6 +1274,154 @@ def case_gather_double_nesting_regression(cfg: Config) -> Dict[str, object]:
         },
     }
 
+def case_scatter_src_path_layout_semantics(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      scatter のレイアウト仕様を検証する回帰テスト。
+        - SRC が絶対パス指定の場合    : DEST/<local_abs_without_leading_slash>
+        - SRC が相対パス指定の場合    : DEST/<指定された相対パス>
+      を、それぞれ実ファイルの生成位置で確認する。
+
+    前提:
+      - scatter は --pack 経路で実行する。
+      - DEST はリモート絶対パス。ここでは /tmp/gm_scatter_layout_dest を使用する。
+      - 相対 SRC は「テスト実行時のカレントディレクトリ」からの相対とする。
+      - ディレクトリ意図は末尾 '/' を付与する。
+
+    検査:
+      [絶対]  DEST/<abs_without_leading_slash>/{a.txt, sub/b.txt} が通常ファイルで存在
+      [相対]  DEST/<relative_specified>/{a.txt, sub/b.txt} が通常ファイルで存在
+      いずれも rc=0 で終了すること。
+
+    追加採取:
+      リモート DEST 配下の find / tree -a のスナップショットを details に格納
+    """
+    name = "scatter_src_path_layout_semantics"
+    ubuntu: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    # ---------- ローカル側（送付元）の準備 ----------
+    # 絶対 SRC（cfg.local_root 配下に作成）
+    abs_src_dir = os.path.join(cfg.local_root, "sc_layout_abs_src")
+    abs_src_dir = abs_src_dir.rstrip(os.sep) + os.sep
+    os.makedirs(os.path.join(abs_src_dir, "sub"), exist_ok=True)
+    with open(os.path.join(abs_src_dir, "a.txt"), "w", encoding="utf-8") as wf:
+        wf.write("A\n")
+    with open(os.path.join(abs_src_dir, "sub", "b.txt"), "w", encoding="utf-8") as wf:
+        wf.write("B\n")
+
+    # 相対 SRC（テストの CWD 直下に作成）
+    #   相対パスとして渡すため、CWD にディレクトリを置き、argv には相対文字列を渡す
+    rel_src_basename = "sc_layout_rel_src"
+    cwd = os.getcwd()
+    rel_src_dir_abs = os.path.join(cwd, rel_src_basename)
+    rel_src_dir_rel = rel_src_basename + os.sep  # argv へはこの相対パスを渡す
+    os.makedirs(os.path.join(rel_src_dir_abs, "sub"), exist_ok=True)
+    with open(os.path.join(rel_src_dir_abs, "a.txt"), "w", encoding="utf-8") as wf:
+        wf.write("A\n")
+    with open(os.path.join(rel_src_dir_abs, "sub", "b.txt"), "w", encoding="utf-8") as wf:
+        wf.write("B\n")
+
+    # ---------- リモート側（展開先）の準備 ----------
+    dest_abs = "/tmp/gm_scatter_layout_dest"
+    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
+    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
+    _ = ssh_sudo(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict,
+                 "chown", "-R", "--", f"{user}:{user}", dest_abs)
+
+    hosts_path = _write_temp_hosts([ubuntu])
+
+    # ---------- 実行（1）: 絶対 SRC ----------
+    argv_abs: List[str] = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", abs_src_dir, dest_abs]
+    )
+    run_abs = _run_local_argv(argv_abs)
+
+    # 期待パス（絶対）
+    abs_without_leading = abs_src_dir.lstrip(os.sep)  # 末尾 '/' 付きのまま
+    exp_abs_a = os.path.join(dest_abs, abs_without_leading, "a.txt")
+    exp_abs_b = os.path.join(dest_abs, abs_without_leading, "sub", "b.txt")
+
+    # ---------- 実行（2）: 相対 SRC ----------
+    argv_rel: List[str] = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", rel_src_dir_rel, dest_abs]
+    )
+    run_rel = _run_local_argv(argv_rel)
+
+    # 期待パス（相対）
+    # 相対は「指定された相対パス」そのものを DEST 直下にぶら下げる
+    exp_rel_a = os.path.join(dest_abs, rel_src_basename, "a.txt")
+    exp_rel_b = os.path.join(dest_abs, rel_src_basename, "sub", "b.txt")
+
+    # ---------- リモート側のスナップショット ----------
+    def _snapshot_remote(base: str) -> Dict[str, str]:
+        snap: Dict[str, str] = {}
+        # find
+        cmd_find = f'find {shlex.quote(base)} -maxdepth 8 -printf "%y %p -> %l\\n"'
+        p1 = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict,
+                    "bash", "-lc", cmd_find)
+        snap["find"] = p1.stdout if hasattr(p1, "stdout") else str(p1)
+        # tree（無ければ許容）
+        cmd_tree = f'tree -a {shlex.quote(base)}'
+        p2 = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict,
+                    "bash", "-lc", cmd_tree)
+        out_tree = getattr(p2, "stdout", "") or ""
+        if ("not found" in out_tree) or (out_tree.strip() == ""):
+            out_tree = "(tree not available or failed)"
+        snap["tree"] = out_tree
+        return snap
+
+    snap_dest = _snapshot_remote(dest_abs)
+
+    # ---------- 検証 ----------
+    # 絶対: DEST/<abs_without_leading_slash> に出力されていること
+    def _remote_is_file(path_abs: str) -> bool:
+        cmd = f'test -f {shlex.quote(path_abs)} && echo OK || echo NG'
+        r = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict,
+                   "bash", "-lc", cmd)
+        out = getattr(r, "stdout", "") or ""
+        return "OK" in out
+
+    abs_ok = _remote_is_file(exp_abs_a) and _remote_is_file(exp_abs_b)
+
+    # 相対: DEST/<指定相対> に出力されていること
+    rel_ok = _remote_is_file(exp_rel_a) and _remote_is_file(exp_rel_b)
+
+    rc_ok = (run_abs.rc == 0) and (run_rel.rc == 0)
+    passed = rc_ok and abs_ok and rel_ok
+
+    reason = "" if passed else (
+        f"rc_abs={run_abs.rc}, rc_rel={run_rel.rc}, "
+        f"abs_ok={abs_ok}, rel_ok={rel_ok}, "
+        f"exp_abs_a={exp_abs_a}, exp_abs_b={exp_abs_b}, "
+        f"exp_rel_a={exp_rel_a}, exp_rel_b={exp_rel_b}"
+    )
+
+    return {
+        "name": name,
+        "passed": passed,
+        "skipped": False,
+        "reason": reason,
+        "details": {
+            "argv_abs": " ".join(shlex.quote(a) for a in argv_abs),
+            "argv_rel": " ".join(shlex.quote(a) for a in argv_rel),
+            "rc_abs": run_abs.rc,
+            "rc_rel": run_rel.rc,
+            "exp_abs_a": exp_abs_a,
+            "exp_abs_b": exp_abs_b,
+            "exp_rel_a": exp_rel_a,
+            "exp_rel_b": exp_rel_b,
+            "snapshot_dest_find": snap_dest.get("find", ""),
+            "snapshot_dest_tree": snap_dest.get("tree", ""),
+        },
+    }
+
 # =========================
 # Main
 # =========================
@@ -1307,6 +1454,7 @@ def main() -> None:
     results.append(case_scatter_pack_extract_sudo(cfg))
     results.append(case_scatter_pack_extract_sudo_existing_root(cfg))
     results.append(case_gather_double_nesting_regression(cfg))
+    results.append(case_scatter_src_path_layout_semantics(cfg))
 
     print("STEP4 SUMMARY")
     print(json.dumps({"results": results}, indent=2, ensure_ascii=False))

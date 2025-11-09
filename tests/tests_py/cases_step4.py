@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import List, Tuple
-from .types import Config
 
 def gather_src_variants(user_home_rel: str) -> List[Tuple[str, str]]:
     # (label, src)

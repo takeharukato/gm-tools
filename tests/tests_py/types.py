@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 @dataclass
 class CommandResult:
@@ -36,4 +36,4 @@ class CaseResult:
     passed: bool
     skipped: bool = False
     reason: str = ""
-    details: Dict[str,str] = field(default_factory=dict)
+    details: Dict[str,str] = field(default_factory=dict) # type: ignore
