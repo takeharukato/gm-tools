@@ -346,9 +346,17 @@ def download_and_extract_tar(
       - extracted_count は「通常ファイル + ハードリンク」をカウント
       - extracted_paths は tar 内パス ( 相対 ) 一覧
     """
+
+    tmp_path = None
+
     os.makedirs(extract_base, exist_ok=True)
     dest_root = os.path.join(extract_base, subdir)
     os.makedirs(dest_root, exist_ok=True)
+
+    # [debug] 受信側：関数進入の観測
+    if verbose:
+        _LOG.info("[debug][pack][receiver] enter remote_tar_gz=%s extract_base=%s subdir=%s verbose=%s",
+                remote_tar_gz, extract_base, subdir, verbose)
 
     with tempfile.NamedTemporaryFile(prefix="gm_dl_", suffix=".tar.gz", delete=False) as tmpf:
         tmp_path = tmpf.name
@@ -360,6 +368,21 @@ def download_and_extract_tar(
         except Exception:
             pass
         raise
+
+    #
+    # tarの中身を確認する
+    #
+    if verbose:
+        try:
+            with tarfile.open(tmp_path, "r:gz") as tfobj:
+                members = tfobj.getmembers()
+                _LOG.info("archive peek (%d entries):", len(members))
+                for m in members:
+                    kind = "file" if m.isfile() else "symlink" if m.issym() \
+                        else "hardlink" if m.islnk() else "other"
+                    _LOG.info("  [%s] %s -> %s", kind, m.name, (m.linkname or ""))
+        except Exception as e:
+            _LOG.warning("archive peek via tarfile failed: %s", e)
 
     extracted = 0
     extracted_paths: List[str] = []

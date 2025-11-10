@@ -148,7 +148,7 @@ def _make_pull_one_sftp() -> Callable[[SFTPClientLike, str, Path, bool], None]:
     def _pull_one(sftp: SFTPClientLike, remote_path: str, local_path: Path, is_dir: bool) -> None:
         lp: Path = Path(local_path)
 
-        _LOG.info("[debug][sftp] get: remote=%s -> local=%s (is_dir=%s)", remote_path, str(lp), is_dir)
+        _LOG.debug("[debug][sftp] get: remote=%s -> local=%s (is_dir=%s)", remote_path, str(lp), is_dir)
 
         if is_dir:
             return
@@ -178,12 +178,12 @@ def _make_pull_one_pack(
 
     def _pull_one(_sftp: SFTPClientLike, _remote: str, _local: Path, _is_dir: bool) -> None:
 
-        _LOG.info(
+        _LOG.debug(
             "[debug][pack][sender] host=%s start: follow_symlinks=%s use_sudo=%s timeout=%s pack_items=%d",
             host, follow_symlinks, use_sudo, timeout, len(pack_list),
         )
         for line in pack_list:
-            _LOG.info("[debug][pack][sender][pack]   %s", line)
+            _LOG.debug("[debug][pack][sender][pack]   %s", line)
 
         if state["ran"]:
             return
@@ -191,9 +191,9 @@ def _make_pull_one_pack(
         remote_gz: str = remote_pack_paths(
             ssh, pack_list, timeout=timeout, use_sudo=use_sudo, follow_symlinks=follow_symlinks
         )
-        _LOG.info("[debug][pack][sender] host=%s remote_tar_gz=%s", host, remote_gz)
+        _LOG.debug("[debug][pack][sender] host=%s remote_tar_gz=%s", host, remote_gz)
         # 常に DEST/<HOST> 直下に展開（_local から親を推測しない）
-        _LOG.info(
+        _LOG.debug(
             "[debug][pack][receiver] enter remote_tar_gz=%s extract_base=%s subdir=%s verbose=%s",
             remote_gz, str(dest_host_root), "", False,
         )
@@ -206,7 +206,7 @@ def _make_pull_one_pack(
         _ = run_remote_cmd_capture(
             ssh, ["bash", "-lc", f"rm -f {shlex.quote(remote_gz)} || true"], timeout=timeout
         )
-        _LOG.info("[debug][pack][cleanup] host=%s removed %s; extracted_count=%s",
+        _LOG.debug("[debug][pack][cleanup] host=%s removed %s; extracted_count=%s",
                     host, remote_gz, state["extracted"])
     return _pull_one
 
@@ -285,24 +285,24 @@ def _build_plan_for_host(
         follow_symlinks=follow_symlinks,
         verbose=verbose,
     )
-    _LOG.info("[debug][plan] host=%s enumerate_candidates: %d item(s)", host, len(candidates))
+    _LOG.debug("[debug][plan] host=%s enumerate_candidates: %d item(s)", host, len(candidates))
     # ファイルのみに絞る ( symlink は pack+follow 指定時のみ pack_list に含める )
     files_only: List[str] = []
     symlinks: List[str] = []
     for rp in candidates:
         try:
             if not sftp_exists(sftp, rp):
-                _LOG.info("[debug][plan] host=%s skip_file=%s", host, rp)
+                _LOG.debug("[debug][plan] host=%s skip_file=%s", host, rp)
                 continue
             if sftp_isdir(sftp, rp):
-                _LOG.info("[debug][plan] host=%s skip_dir=%s", host, rp)
+                _LOG.debug("[debug][plan] host=%s skip_dir=%s", host, rp)
                 continue
             if sftp_islink(sftp, rp):
-                _LOG.info("[debug][plan] host=%s add_symlink=%s", host, rp)
+                _LOG.debug("[debug][plan] host=%s add_symlink=%s", host, rp)
                 symlinks.append(rp)
                 continue
             if sftp_isfile(sftp, rp):
-                _LOG.info("[debug][plan] host=%s add_file=%s", host, rp)
+                _LOG.debug("[debug][plan] host=%s add_file=%s", host, rp)
                 files_only.append(rp)
         except Exception:
             # 事前検査エラーは対象外扱い ( 進捗は run_host_gather 側でERROR加算 )
@@ -316,7 +316,7 @@ def _build_plan_for_host(
     targets: List[str] = list(files_only)
     pack_list: List[str] = list(files_only) + (symlinks if (pack_remote and follow_symlinks) else [])
 
-    _LOG.info(
+    _LOG.debug(
         "[debug][plan] host=%s pack_remote=%s follow_symlinks=%s files=%d symlinks=%d pack_list=%d",
         host, pack_remote, follow_symlinks, len(files_only), len(symlinks), len(pack_list),
     )
@@ -339,7 +339,7 @@ def _build_plan_for_host(
         setattr(pe, "remote_abs", rp)       # type: ignore[attr-defined]
         setattr(pe, "remote_rel", inner)    # type: ignore[attr-defined]
         entries.append(pe)
-        _LOG.info(
+        _LOG.debug(
             "[debug][plan] host=%s plan_entry: remote_abs=%s remote_root=%s remote_rel=%s -> local_abs=%s rel=%s",
             host, rp, remote_root, inner, abs_local, rel_local
         )
