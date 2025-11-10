@@ -8,7 +8,7 @@ import sys
 import threading
 from argparse import BooleanOptionalAction, Namespace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Final
+from typing import Dict, List, Optional, Tuple, Final, Sequence
 
 from .core_common import parse_hosts_file
 from .core_report import NullTransferReport
@@ -24,6 +24,11 @@ from .core_path_handling import (
     is_local_abs,  # type: ignore[unused-ignore] 使わないが将来の整合のため保持
     is_windows_abs,
     tilde_username,
+    # 相対/絶対 SRC の正規化とレイアウト算出に利用
+    ScatterSrcToken,
+    ScatterResolvedToken,
+    resolve_token_for_scatter,
+    normalize_rel_for_dest,
 )
 from .core_push import PushOne
 from .core_remote_path import detect_remote_home
@@ -49,8 +54,12 @@ from .scatter_parallel import execute as run_parallel
 _DESC: str = (
     "gm-scatter: upload local files to remote DEST.\n"
     "Usage: gm-scatter [SRC ...] DEST\n"
-    "Remote layout: DEST/<local_abs_without_leading_slash>"
+    "Remote layout: DEST/<rel>/...  where rel =\n"
+    "  - for absolute SRC: <local_abs_without_leading_slash>\n"
+    "  - for relative SRC: the original relative path"
 )
+ERR_TILDE_USERNAME: Final[str] = "tilde with username is not supported"
+ERR_BARE_TILDE: Final[str] = "bare tilde is not allowed"
 
 # Null Object: 読み捨て用のレポートシンク
 # None は使わず常に TransferReport を渡す
@@ -64,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     # 位置引数: SRC ... DEST
     parser.add_argument("src", nargs="+", help="Local SRC paths (abs or rel)")
-    parser.add_argument("dest", help="Remote DEST absolute root (e.g., /dest)")
+    parser.add_argument("dest", help="Remote DEST ( supports /abs, ~/, and relative-from-remote-home )")
 
     # SSH
     parser.add_argument(
@@ -128,8 +137,9 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
     仕様:
       - '/' で始まれば絶対
       - 'X:\\'/'X:/' ( Windows ) で始まれば絶対
-      - '~' / '~/' は remote_home に展開
-      - '~user' は非対応 ( エラーメッセージを返す )
+      - '~/' は remote_home に展開
+      - 素の '~' は非対応（エラーメッセージを返す）
+      - '~user' は非対応（エラーメッセージを返す）
       - 上記以外は remote_home からの相対
     戻り値: (dest_abs, error_or_None)
     """
@@ -142,8 +152,12 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
         return d, None
     u: Optional[str] = tilde_username(d)
     if u is not None:
-        return "", f"tilde with username is not supported: ~{u}"
-    if d == "~" or d.startswith("~/"):
+        # "~user/..." は非対応
+        return "", ERR_TILDE_USERNAME
+    if d == "~":
+        # 素の "~" は非対応
+        return "", ERR_BARE_TILDE
+    if d.startswith("~/"):
         tail: str = d[1:].lstrip("/\\")
         return (remote_home if not tail else f"{remote_home}/{tail}"), None
     # 相対
@@ -172,7 +186,7 @@ def _build_plan_for_host(
     Plan + Meta per host ( Paramiko 直接依存なし, DI 用に接続を構築して meta に格納 ) 。
     - SRC 正規表現混在の解決 ( ローカル )
     - DEST の絶対解決 ( ~ 展開 )
-    - 配置規則: DEST/<local_abs_without_leading_slash>
+    - 配置規則: DEST/<rel>/...（絶対 SRC は先頭スラッシュを除去、相対 SRC は指定相対を保持）
     """
     cfg: SSHConfig = SSHConfig(
         host=host,
@@ -189,32 +203,56 @@ def _build_plan_for_host(
     remote_home: str = detect_remote_home(ssh, target_user, float(timeout))
     dest_abs_root, dest_err = _resolve_remote_dest(dest_remote_raw, remote_home)
     if dest_err is not None:
-        raise SystemExit(f"[{host}] Error: {dest_err}")
+        # 仕様に合わせて厳密な文言・終了コードで終了
+        print(dest_err, file=sys.stderr)
+        raise SystemExit(EXIT_ERR_ARGS)
 
     # sudo-extract ( 三値 None=auto ) : auto は (--pack かつ ssh_user != target_user) で True
     auto_sudo: bool = bool(pack) and (ssh_user != target_user)
     sudo_extract: bool = auto_sudo if (sudo_extract_flag is None) else bool(sudo_extract_flag)
 
-    # SRC '~user' 不許可・'~' 展開・絶対化
+    # SRC '~user' 不許可
     for s in srcs_raw:
         u: Optional[str] = tilde_username(s)
         if u is not None:
-            raise SystemExit(f"[{host}] Error: tilde with username is not supported in SRC: ~{u}")
-    src_expanded: List[str] = [os.path.expanduser(s) for s in srcs_raw]
-    src_abs: List[str] = [s if (s.startswith("/") or is_windows_abs(s)) else os.path.abspath(s) for s in src_expanded]
+            print(ERR_TILDE_USERNAME, file=sys.stderr)
+            raise SystemExit(EXIT_ERR_ARGS)
 
-    # 候補列挙 ( 重複排除・順序安定 )
-    cands: List[str] = list(enumerate_candidates_local(src_abs))
+    # SRC を scatter 規約で解決（~/ は実行ユーザ HOME 展開、相対は cwd 起点）
+    resolved_tokens: List[ScatterResolvedToken] = []
+    for s in srcs_raw:
+        tok: ScatterSrcToken = ScatterSrcToken(raw=str(s))
+        res: ScatterResolvedToken = resolve_token_for_scatter(tok, cwd=os.getcwd())
+        resolved_tokens.append(res)
 
-    # Plan を構築：relpath は「ローカル絶対の先頭セパレータ除去」
+    # 候補列挙とリモート配置 rel の算出
+    #  - 絶対 SRC: rel_root は <local_abs_without_leading_slash>
+    #  - 相対 SRC: rel_root は <指定された相対パス>（正規化済）
     entries: List[PlanEntry] = []
-    for p in cands:
-        st_is_dir: bool = os.path.isdir(p)
-        # 非 pack 経路ではディレクトリはスキップ
-        if (not pack) and st_is_dir:
-            continue
-        rel_local: str = p.replace("\\", "/").lstrip("/")
-        entries.append(PlanEntry(path=Path(p), relpath=rel_local, is_dir=st_is_dir))
+    remote_rel_map: Dict[str, str] = {}
+    for res in resolved_tokens:
+        # pack ルートが候補列挙に出ない実装に備えて、先にマップだけは保証しておく
+        remote_rel_map[os.path.abspath(res.abs_root)] = res.rel_root
+        cand_list: List[str] = list(enumerate_candidates_local([res.abs_root]))
+        for p in cand_list:
+            st_is_dir: bool = os.path.isdir(p)
+            if (not pack) and st_is_dir:
+                continue
+            # inner_rel: abs_root からの相対。ルート自身は追加なし（=空）。
+            try:
+                inner_rel_raw: str = os.path.relpath(p, start=res.abs_root)
+            except ValueError:
+                inner_rel_raw = ""
+            if inner_rel_raw in (".", "\\", ""):
+                inner_rel_raw = ""
+
+            inner_rel: str = normalize_rel_for_dest(inner_rel_raw)
+            remote_rel: str = res.rel_root if not inner_rel else normalize_rel_for_dest(f"{res.rel_root}/{inner_rel}")
+            # ルックアップの安定化のため絶対パスキーで登録
+            key_abs: str = os.path.abspath(p)
+            remote_rel_map[key_abs] = remote_rel
+            entries.append(PlanEntry(path=Path(p), relpath=remote_rel, is_dir=st_is_dir))
+
     plan: Plan = Plan(entries=entries)
 
     meta: Dict[str, object] = {
@@ -229,6 +267,8 @@ def _build_plan_for_host(
         "selinux_mode": selinux_mode,
         "timeout": float(timeout),
         "verbose": bool(verbose),
+        # ローカル絶対パス -> リモート相対の対応
+        "remote_rel_map": remote_rel_map,
     }
     return plan, meta
 
@@ -241,6 +281,7 @@ def _make_push_one_sftp(
     ssh_user: str,
     target_user: str,
     host: str,
+    remote_rel_map: Dict[str, str],
 ) -> PushOne:
     """
     非 pack 経路：PlanEntry 毎の逐次 PUT。
@@ -250,6 +291,9 @@ def _make_push_one_sftp(
         if is_dir:
             return
         _local_path_str: str = str(local_path)
+        # ルックアップは絶対パスで
+        _key_abs: str = os.path.abspath(_local_path_str)
+        _remote_rel: Optional[str] = remote_rel_map.get(_key_abs)
         sftp_put_one(
             ssh,
             sftp,
@@ -259,6 +303,7 @@ def _make_push_one_sftp(
             _NULL_REPORT,    # Null Object (読み捨て)
             False,           # dry_run
             sudo_mkdir=(ssh_user != target_user),
+            remote_rel=_remote_rel,
         )
 
     return _push_one
@@ -274,8 +319,9 @@ def _make_push_one_pack(
     follow_symlinks: bool,
     target_user: str,
     selinux_mode: SelinuxMode,
-    timeout: float,
+    _timeout: float, # 現状 _timeout は未使用。将来のリトライ/監視に利用する想定で受け取っている。
     host: str,
+    remote_rel_map: Dict[str, str],
 ) -> PushOne:
     """
     pack 経路：最初の 1 回だけ local pack  =>  upload  =>  remote extract。
@@ -287,11 +333,17 @@ def _make_push_one_pack(
             return
         state["ran"] = True
         src_list: List[str] = [str(p) for p in pack_srcs]
+        # アーカイブ名はリモート相対配置に一致させる（DEST 直下に再現）
+        arc_list: List[str] = [
+            remote_rel_map.get(os.path.abspath(p), p.replace("\\", "/").lstrip("/"))
+            for p in src_list
+        ]
         # アンパック代入に直接の型注釈は不可なため, いったんタプルに受けてから展開する。
         # local_pack_paths_to_tmp の戻り値は Tuple[str, List[str]]
         tar_tuple: Tuple[str, List[str]] = local_pack_paths_to_tmp(
             src_list,
             follow_symlinks=follow_symlinks,
+            arcnames=arc_list,
         )
         tar_path: str
         _src_manifest: List[str]
@@ -313,6 +365,16 @@ def _make_push_one_pack(
 
 
 def main() -> None:
+    # --pack の場合は SRC の末尾に必ず '/' を付与してディレクトリ意図を明確化
+    def _normalize_pack_srcs(srcs: Sequence[str]) -> List[str]:
+        out: List[str] = []
+        for s in srcs:
+            v: str = str(s)
+            if not (v.endswith("/") or v.endswith(os.sep)):
+                v = v + "/"
+            out.append(v)
+        return out
+
     parser: argparse.ArgumentParser = build_parser()
     args: Namespace = parser.parse_args()
 
@@ -331,6 +393,10 @@ def main() -> None:
     target_user: str = str(args.user)
     selinux_mode: SelinuxMode = str(args.selinux) if hasattr(args, "selinux") else "auto"  # type: ignore[assignment]
 
+    srcs_input: List[str] = list(args.src)
+    if bool(args.pack):
+        srcs_input = _normalize_pack_srcs(srcs_input)
+
     plan_per_host: Dict[str, Plan] = {}
     meta_per_host: Dict[str, Dict[str, object]] = {}
 
@@ -340,7 +406,7 @@ def main() -> None:
         plan, meta = _build_plan_for_host(
             host=host,
             dest_remote_raw=str(args.dest),
-            srcs_raw=list(args.src),
+            srcs_raw=srcs_input,
             ssh_user=ssh_user,
             target_user=target_user,
             port=int(args.port),
@@ -362,7 +428,8 @@ def main() -> None:
         init_logging(verbose=bool(args.verbose))
         aggr: HostLogAggregator = HostLogAggregator(op="scatter")
         for host in hosts:
-            total: int = len(plan_per_host.get(host) or [])
+            plan_opt: Optional[Plan] = plan_per_host.get(host)
+            total: int = len(plan_opt.entries) if plan_opt is not None else 0
             aggr.start_host(host, total=total)
             aggr.done_host(host, warnings=0, errors=0)
         aggr.summary()
@@ -381,6 +448,16 @@ def main() -> None:
         return list(meta_per_host.values())[0]["sftp"]  # type: ignore[index, return-value]
 
     # push_one をホスト毎に割当
+    def _dedup_roots_for_pack(paths: List[Path]) -> List[Path]:
+        # 親ディレクトリがある場合は子を除外して最小集合にする
+        abss: List[str] = sorted({os.path.abspath(str(p)) for p in paths},
+                      key=lambda s: (s.count(os.sep), len(s)))
+        roots: List[str] = []
+        for p in abss:
+            if not any(p != r and p.startswith(r + os.sep) for r in roots):
+                roots.append(p)
+        return [Path(p) for p in roots]
+
     push_one_map: Dict[str, PushOne] = {}
     for host, meta in meta_per_host.items():
 
@@ -399,17 +476,19 @@ def main() -> None:
 
 
         if bool(meta["pack"]):  # type: ignore[index]
+            pack_srcs: List[Path] = _dedup_roots_for_pack([e.path for e in plan_per_host[host].entries])
             push_one_map[host] = _make_push_one_pack(
                 ssh=meta["ssh"],  # type: ignore[arg-type]
                 sftp=meta["sftp"],  # type: ignore[arg-type]
-                pack_srcs=[e.path for e in plan_per_host[host].entries],
+                pack_srcs=pack_srcs,
                 dest_abs_root=str(meta["dest_abs_root"]),
                 sudo_extract=bool(meta["sudo_extract"]),
                 follow_symlinks=bool(meta["follow_symlinks"]),
                 target_user=str(meta["target_user"]),
                 selinux_mode=meta["selinux_mode"],  # type: ignore[arg-type]
-                timeout=timeout_f,
+                _timeout=timeout_f,
                 host=host,
+                remote_rel_map=meta["remote_rel_map"],  # type: ignore[arg-type]
             )
         else:
             push_one_map[host] = _make_push_one_sftp(
@@ -419,6 +498,7 @@ def main() -> None:
                 ssh_user=str(meta["ssh_user"]),
                 target_user=str(meta["target_user"]),
                 host=host,
+                remote_rel_map=meta["remote_rel_map"],  # type: ignore[arg-type]
             )
 
     # 並行実行: DEST/<local_abs_without_leading_slash> へ配置 ( Step4 のレイアウト規則を厳守 )
@@ -440,7 +520,6 @@ def main() -> None:
         do_cleanup_remote=False,
     )
     sys.exit(exit_code)
-
 
 if __name__ == "__main__":
     finalize_sockets()

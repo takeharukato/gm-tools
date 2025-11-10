@@ -2,13 +2,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import os
 import re
+import os
 from pathlib import Path
+import pathlib
 from typing import Optional
+from dataclasses import dataclass
 
 # === Constants (shared) ===
-TILDE_USER_RE: re.Pattern[str] = re.compile(r"^~([^/\\]+)(?:$|[\\/])")
+TILDE_USER_RE: re.Pattern[str] = re.compile(r"^~([A-Za-z0-9._-]+)(?:$|[\\/])")
 HOME_DETECT_CMD_FMT: str = "getent passwd {user} | cut -d: -f6"
 HOME_FALLBACK_ROOT: str = "/root"
 HOME_FALLBACK_PREFIX: str = "/home"
@@ -28,9 +30,26 @@ WINDOWS_RESERVED_DEVICES = {
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 }
 
-CORE_PATH_HANDLING_REGEX_META_CHARS = r'.^$*+?{}[]\|()'
-CORE_PATH_HANDLING_REGEX_META_SET = set(CORE_PATH_HANDLING_REGEX_META_CHARS)  # 逆スラッシュ自体は「エスケープ」を示すので除外
+CORE_PATH_HANDLING_REGEX_META_CHARS = r'^$*+?{}[]\|()'  # '.' を除外
+CORE_PATH_HANDLING_REGEX_META_SET = set(CORE_PATH_HANDLING_REGEX_META_CHARS)
 CORE_PATH_HANDLING_REGEX_META_COMPILED = re.compile(rf"[{re.escape(CORE_PATH_HANDLING_REGEX_META_CHARS)}]")
+
+# ============================================================
+# Constants (即値の一元化・再利用)
+# ============================================================
+SEP_POSIX: str = "/"
+SEP_WIN: str = "\\"
+UNC_PREFIX: str = r"\\"
+
+# scatter/gather 共通で使える正規表現（命名は衝突しないように接頭辞を付与）
+RE_TILDE_SELF: "re.Pattern[str]" = re.compile(r"^~(?:[/\\]|$)")
+RE_REL_LEADING_DOT: "re.Pattern[str]" = re.compile(r"^(?:\./)+")
+RE_MULTI_SLASH: "re.Pattern[str]" = re.compile(r"/+")
+
+# tar / path
+TAR_MODE_W_GZ: str = "w:gz"
+TAR_MODE_R_GZ: str = "r:gz"
+DEST_PATH_SEP: str = "/"
 
 def _sanitize_remote_abs_for_local(remote_abs_path: str) -> str:
     """
@@ -80,8 +99,18 @@ def _sanitize_remote_abs_for_local(remote_abs_path: str) -> str:
 
     for comp in parts_raw:
         if comp == "":
-            # 中間の '//' → '_'
+            # 中間の '//' → '_' を保持（UNC など空セグメントの情報保存）
             out_parts.append("_")
+            continue
+        if comp == ".":
+            # no-op
+            continue
+        if comp == "..":
+            # 絶対パス基準なのでルートより上は不可。
+            # 先頭の UNC 空セグメント('_')は「ポップ対象にしない」ことでルート超えを防ぐ。
+            if out_parts and out_parts[-1] != "_":
+                out_parts.pop()
+            # それ以外（ポップできない＝ルート超え要求）は無視して落とす
             continue
 
         # 禁止記号を '_' に
@@ -212,3 +241,139 @@ def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
         # root 直下全体
         return (root, r".*")
     return (root, tail)
+
+# ============================================================
+# Dataclasses for scatter use
+# ============================================================
+@dataclass(frozen=True)
+class ScatterSrcToken:
+    raw: str
+
+@dataclass(frozen=True)
+class ScatterResolvedToken:
+    abs_root: str     # 列挙に使う絶対パス（ローカル）
+    rel_root: str     # DEST 配下のレイアウト根（正規化済）
+    is_absolute: bool
+
+# ============================================================
+# Primitive checks / expand
+# ============================================================
+def is_unix_abs(p: str) -> bool:
+    return p.startswith(SEP_POSIX)
+
+def is_unc(p: str) -> bool:
+    return p.startswith(UNC_PREFIX)
+
+def is_tilde_user_form(p: str) -> bool:
+    # ~user または ~user/ を検出
+    return bool(TILDE_USER_RE.match(p))
+
+def is_tilde_self_form(p: str) -> bool:
+    return bool(RE_TILDE_SELF.match(p))
+
+def scatter_expand_tilde_for_exec_user(raw: str) -> str:
+    """
+    scatter における ~/ 展開は『コマンド実行ユーザの HOME』で行う。
+     ~user/ は仕様上受理しない。~（単独）も HOME に展開する
+    """
+    s: str = raw
+    if is_tilde_user_form(s):
+        raise ValueError(f"~user/ form is not accepted in scatter: {s!r}")
+    if is_tilde_self_form(s):
+        expanded: str = os.path.expanduser(s)
+        return expanded
+    return s
+
+# ============================================================
+# DEST レイアウト用の正規化（SRC 実解決には適用しない）
+# ============================================================
+def normalize_rel_for_dest(rel: str) -> str:
+    """
+    DEST 配下で用いる相対パス表記の正規化。
+      - '\\' を '/' に統一
+      - 先頭 './' を折り畳み、'//' を 1 本化
+      - 先頭の '/' を除去（絶対化の禁止）
+      - スタック方式で '..' を評価し、CWD 外への脱出のみ拒否
+    """
+    r: str = rel.replace(SEP_WIN, SEP_POSIX)
+    r = RE_REL_LEADING_DOT.sub("", r)
+    r = RE_MULTI_SLASH.sub("/", r)
+    r = r.lstrip(SEP_POSIX)
+
+    # スタックで '..' を評価（ベースより上に出るとエラー）
+    parts = [p for p in r.split(SEP_POSIX) if p not in ("", ".")]
+    stack: list[str] = []
+    for p in parts:
+        if p == "..":
+            if not stack:
+                raise ValueError(f"dangerous relative path: {rel}")
+            stack.pop()
+        else:
+            stack.append(p)
+    return SEP_POSIX.join(stack)
+
+
+def dest_rel_from_abs(abs_path: str) -> str:
+    """
+    絶対パスから DEST 用 relpath を生成。
+      - UNIX / : 先頭 '/' を除去
+      - Windows ドライブ: 'C:\\x\\y' -> 'C/x/y'
+      - UNC '\\\\srv\\share\\p' -> 'srv/share/p'
+    """
+    p_raw: str = abs_path
+    # Windows drive
+    if is_windows_abs(p_raw):
+        # drive + tail を POSIX 風にする
+        drive: str = p_raw[0].upper()
+        tail_raw: str = p_raw[2:]  # 'C:' の次から
+        rel: str = f"{drive}/{tail_raw}".replace(SEP_WIN, SEP_POSIX)
+        rel = RE_MULTI_SLASH.sub("/", rel)
+        rel = rel.lstrip("/")
+        return rel
+    # UNC
+    if is_unc(p_raw):
+        rel2: str = p_raw.lstrip(SEP_WIN).replace(SEP_WIN, SEP_POSIX)
+        rel2 = RE_MULTI_SLASH.sub("/", rel2)
+        rel2 = rel2.lstrip("/")
+        return rel2
+    # UNIX absolute
+    p_posix: str = p_raw.replace(SEP_WIN, SEP_POSIX)
+    p_posix = RE_MULTI_SLASH.sub("/", p_posix)
+    if p_posix.startswith(SEP_POSIX):
+        return p_posix.lstrip(SEP_POSIX)
+    return p_posix
+
+# ============================================================
+# Relative safety (.. による CWD 超え禁止)
+# ============================================================
+def validate_relative_token_safe(raw_rel: str, cwd: Optional[str] = None) -> None:
+    base: str = cwd or os.getcwd()
+    base_path: pathlib.Path = pathlib.Path(base)
+    target_path: pathlib.Path = (base_path / raw_rel).resolve()
+    try:
+        _ = target_path.relative_to(base_path)
+    except Exception as _e:
+        raise ValueError(f"Relative SRC escapes above CWD: {raw_rel!r}")
+
+# ============================================================
+# トークン解決（scatter 用）
+# ============================================================
+def resolve_token_for_scatter(token: ScatterSrcToken, cwd: Optional[str] = None) -> ScatterResolvedToken:
+    raw: str = token.raw
+    raw2: str = scatter_expand_tilde_for_exec_user(raw)
+    # 絶対判定は展開後（raw2）に対して行う
+    is_abs: bool = (is_unix_abs(raw2) or is_windows_abs(raw2) or is_unc(raw2))
+
+    abs_root: str
+    rel_root: str
+
+    if is_abs:
+        abs_root = os.path.abspath(raw2)
+        rel_root = dest_rel_from_abs(abs_root)
+        rel_root = normalize_rel_for_dest(rel_root)
+    else:
+        validate_relative_token_safe(raw2, cwd=cwd)
+        abs_root = os.path.abspath(os.path.join(cwd or os.getcwd(), raw2))
+        rel_root = normalize_rel_for_dest(raw2)
+
+    return ScatterResolvedToken(abs_root=abs_root, rel_root=rel_root, is_absolute=is_abs)
