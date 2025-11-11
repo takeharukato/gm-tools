@@ -322,11 +322,14 @@ def _build_plan_for_host(
 
     targets: List[str] = list(files_only)
     pack_list: List[str] = list(files_only) + (symlinks if pack_remote else [])
-
-    _LOG.debug(
-        "[debug][plan] host=%s pack_remote=%s follow_symlinks=%s files=%d symlinks=%d pack_list=%d",
-        host, pack_remote, follow_symlinks, len(files_only), len(symlinks), len(pack_list),
-    )
+    if verbose:
+        _LOG.debug(
+            "[debug][plan] host=%s pack_remote=%s follow_symlinks=%s files=%d symlinks=%d pack_list=%d",
+            host, pack_remote, follow_symlinks, len(files_only), len(symlinks), len(pack_list),
+        )
+        _LOG.debug("[debug][plan] sample files: %s", ", ".join(map(str, files_only[:3])))
+        _LOG.debug("[debug][plan] sample symlinks: %s", ", ".join(map(str, symlinks[:3])))
+        _LOG.debug("[debug][plan] sample pack_list: %s", ", ".join(map(str, pack_list[:5])))
 
     for rp in (targets if not pack_remote else pack_list):
         remote_root: str

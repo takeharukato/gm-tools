@@ -231,9 +231,9 @@ def remote_walk_files(sftp_client: SFTPClientLike, root: str, *, include_symlink
             try:
                 if sftp_isdir(sftp_client, ap):
                     stack.append(ap)
-                elif sftp_isfile(sftp_client, ap):
-                    yield ap
                 elif include_symlinks and sftp_islink(sftp_client, ap):
+                    yield ap
+                elif sftp_isfile(sftp_client, ap):
                     yield ap
                 else:
                     # symlink/デバイス等はここでは採用しない ( 呼び出し側で判断 )
