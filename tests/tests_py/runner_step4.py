@@ -3,7 +3,8 @@
 # Step4 smoke/regression runner（自己完結版）
 # - ssh呼び出し順序は「ssh <opts> -- user@host <argv...>」で統一
 # - 「~」展開は使わず getent passwd で得た絶対パスを使用
-# - gather の SRC 相対解釈（-u のホーム相対）、scatter の DEST は絶対パス必須の前提で dry-run 検証
+# - gather の SRC 相対解釈（-u のホーム相対）
+# - scatter の DEST は「絶対パス推奨」。相対はリモート HOME 基準に解決（dry-run も受理）
 # - Ubuntu 側の SELinux=auto は「対応していなければ成功扱いでスキップ」
 # - Alma 側は getenforce の結果を報告
 from __future__ import annotations
@@ -200,6 +201,22 @@ class LocalRun:
     stdout: str
     stderr: str
 
+def _as_posix_rel(path_abs: str) -> str:
+    """
+    絶対パスをリモート展開用の相対表記へ正規化する:
+      - OS 区切りを '/' に統一
+      - 先頭の '/' はすべて除去
+      - 末尾のスラッシュ有無は入力を尊重（存在すれば保持）
+        例:
+          '/tmp/a/b/'        -> 'tmp/a/b/'
+          'C:\\work\\x\\y'   -> 'C/work/x/y'
+    """
+    s = path_abs.replace("\\", "/")
+    had_trailing = s.endswith("/")
+    s = s.lstrip("/")
+    if had_trailing and not s.endswith("/"):
+        s += "/"
+    return s
 
 def _run_local_argv(argv: List[str], *, input_text: Optional[str] = None) -> LocalRun:
     if os.environ.get("VERBOSE", "0") == "1":
@@ -501,23 +518,26 @@ def case_gather_src_abs_tilde_ok(cfg: Config) -> Dict[str, object]:
 
 
 # ---------------------------------------------------------------------------
-# 3) gather の SRC が相対パスだとエラー（仕様通り）
+# 3) gather の SRC が 相対パスの場合、-u のホーム相対として解釈される
 # ---------------------------------------------------------------------------
 
-def case_gather_src_rel_error(cfg: Config) -> Dict[str, object]:
+def case_gather_src_rel_home_ok(cfg: Config) -> Dict[str, object]:
     """
-    gather の SRC が相対パスの場合、実装はエラーではなく「スキップ」し rc=0 を返す。
-    スキップ痕跡（"skip non-absolute SRC"）が出力に含まれていれば成功。
+    仕様: 相対SRCは -u のリモートHOME基準で受理される（HOME逸脱不可）。
+    dry-runで rc==0 を確認する。
     """
-    name: str = "gather_src_rel_error"
+    name: str = "gather_src_rel_home_ok"
     ubuntu: str = cfg.host_ubuntu
     user: str = cfg.target_user
 
+    # HOME配下に素材: <HOME>/gm_step4_rel_home/src/{r.txt}
+    _prepare_remote_sample_tree(cfg, ubuntu, user, "gm_step4_rel_home")
+
     hosts_path: str = _write_temp_hosts([ubuntu])
-    local_out: str = os.path.join(cfg.local_root, "g_rel_err")
+    local_out: str = os.path.join(cfg.local_root, "g_rel_ok")
     _clear_dir(local_out, ensure_under=cfg.local_root)
 
-    rel_src: str = "relative/src"
+    rel_src: str = "gm_step4_rel_home/src"
     argv: List[str] = (
         cfg.gm_gather_cmd
         + ["-H", hosts_path, "-u", user, "-n"]
@@ -525,21 +545,16 @@ def case_gather_src_rel_error(cfg: Config) -> Dict[str, object]:
         + ["--follow-symlinks", "--", rel_src, local_out]
     )
     run: LocalRun = _run_local_argv(argv)
-
-    msg: str = (run.stderr or "") + (run.stdout or "")
-    skipped_marker: bool = ("skip non-absolute SRC" in msg)
-
-    passed: bool = (run.rc == 0 and skipped_marker)
-    reason: str = "" if passed else f"rc={run.rc}, marker_present={skipped_marker}"
+    passed: bool = (run.rc == 0)
+    reason: str = "" if passed else f"rc={run.rc}"
 
     return {
         "name": name,
         "passed": passed,
         "skipped": False,
         "reason": reason,
-        "details": {"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
+        "details": {"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr, "argv": " ".join(argv)},
     }
-
 
 # ---------------------------------------------------------------------------
 # 4) gather の SRC が ~user/...（他人のホーム相対）はエラー
@@ -621,8 +636,10 @@ def case_scatter_dest_abs_required(cfg: Config) -> Dict[str, object]:
 
 def case_scatter_dest_abs_variants(cfg: Config) -> Dict[str, object]:
     """
-    scatter の DEST は /abs, ~/..., C:\\... いずれも受理され rc=0 を返す実装に整合。
-    3 変種とも rc==0 を確認する。
+    DEST は以下 3 変種をいずれも受理し rc==0 となることを確認する。
+        - /abs（UNIX 絶対）
+        - ~/...（tilde; 実際の解決は実装依存）
+        - C:\\...（Windows 風、Linux では単なるファイル名として扱われ得る）
     """
     name: str = "scatter_dest_abs_variants"
     alma: str = cfg.host_alma
@@ -709,8 +726,8 @@ def case_gather_follow_symlinks_files(cfg: Config) -> Dict[str, object]:
     home: str = _get_remote_home(cfg, ubuntu, user)
     abs_root: str = os.path.join(home, "gm_step4_follow_src")
     src_dir: str = os.path.join(abs_root, "src")
-     # ディレクトリ意図は末尾 '/' を必ず付ける
-     # (split_src_to_root_and_tail_regexの仕様)
+    # ディレクトリ意図は末尾 '/' を必ず付ける
+    # (split_src_to_root_and_tail_regex の仕様)
     src_dir = src_dir.rstrip('/') + '/'
     file_path: str = os.path.join(src_dir, "f.txt")
     link_path: str = os.path.join(src_dir, "l.txt")
@@ -853,7 +870,7 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> Dict[str, object]:
         os.unlink(link_local)
     os.symlink("f.txt", link_local)
 
-    abs_local_src: str = os.path.abspath(local_src).lstrip("/")
+    abs_local_src: str = _as_posix_rel(os.path.abspath(local_src))
 
     # リモートDEST（2セット）
     dest_no: str = os.path.join(cfg.remote_dest_root, "s_follow_no")
@@ -950,7 +967,7 @@ def case_scatter_pack_extract_user(cfg: Config) -> Dict[str, object]:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    rel_from_root: str = os.path.abspath(local_src).lstrip("/")
+    rel_from_root: str = _as_posix_rel(os.path.abspath(local_src))
     remote_file: str = os.path.join(dest_dir, rel_from_root, "u.txt")
     r_stat_u: subprocess.CompletedProcess[str] = ssh_do(
         cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "stat", "-c", "%U:%G", remote_file
@@ -982,7 +999,7 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> Dict[str, object]:
     _clear_dir(local_src, ensure_under=cfg.local_root)
     with open(os.path.join(local_src, "r.txt"), "w", encoding="utf-8") as f:
         _ = f.write("R\n")
-    abs_local_src: str = os.path.abspath(local_src).lstrip("/")
+    abs_local_src: str = _as_posix_rel(os.path.abspath(local_src))
 
     # リモートDEST（root所有・0700 のまま）
     dest_dir: str = os.path.join(cfg.remote_dest_root, "s_pack_sudo_dest")
@@ -1044,7 +1061,7 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> Dict[str, objec
     _clear_dir(local_src, ensure_under=cfg.local_root)
     with open(os.path.join(local_src, "r.txt"), "w", encoding="utf-8") as f:
         _ = f.write("R2\n")
-    abs_local_src: str = os.path.abspath(local_src).lstrip("/")
+    abs_local_src: str = _as_posix_rel(os.path.abspath(local_src))
 
     # リモートDEST（root:root・0700）
     dest_dir: str = os.path.join(cfg.remote_dest_root, "s_pack_sudo_exist_dest")
@@ -1225,11 +1242,11 @@ def case_gather_double_nesting_regression(cfg: Config) -> Dict[str, object]:
     snap = _snapshot(out_dir)
 
     # 期待パス
-    exp_a = os.path.join(out_dir, "localhost", "tmp", "gm_nest_src", "a.txt")
-    exp_b = os.path.join(out_dir, "localhost", "tmp", "gm_nest_src", "b", "b.txt")
-
+    host_label = cfg.host_ubuntu
+    exp_a = os.path.join(out_dir, host_label, "tmp", "gm_nest_src", "a.txt")
+    exp_b = os.path.join(out_dir, host_label, "tmp", "gm_nest_src", "b", "b.txt")
     # 禁止（回帰）パス: 二重ネスト
-    bad_prefix = os.path.join(out_dir, "localhost", "localhost") + os.sep
+    bad_prefix = os.path.join(out_dir, host_label, host_label) + os.sep
 
     # 検証
     rc_ok = (run.rc == 0)
@@ -1248,7 +1265,7 @@ def case_gather_double_nesting_regression(cfg: Config) -> Dict[str, object]:
         top_entries = [d for d in os.listdir(out_dir) if os.path.isdir(os.path.join(out_dir, d))]
     except FileNotFoundError:
         top_entries = []
-    top_ok = (top_entries == ["localhost"]) or (sorted(top_entries) == ["localhost"])
+    top_ok = (top_entries == [host_label]) or (sorted(top_entries) == [host_label])
 
     passed = rc_ok and a_ok and b_ok and (not double_nest_found) and top_ok
 
@@ -1341,7 +1358,7 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> Dict[str, object]:
     run_abs = _run_local_argv(argv_abs)
 
     # 期待パス（絶対）
-    abs_without_leading = abs_src_dir.lstrip(os.sep)  # 末尾 '/' 付きのまま
+    abs_without_leading = _as_posix_rel(abs_src_dir)  # 末尾 '/' 付きのまま
     exp_abs_a = os.path.join(dest_abs, abs_without_leading, "a.txt")
     exp_abs_b = os.path.join(dest_abs, abs_without_leading, "sub", "b.txt")
 
@@ -1423,6 +1440,330 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> Dict[str, object]:
     }
 
 # =========================
+# 追加テスト（関数のみ）
+# =========================
+
+def case_scatter_dest_relative_to_remote_home(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      scatter の DEST が「相対」のとき、ターゲットユーザの remote_home 配下に
+      解決されることを検証（--pack）。
+    期待:
+      DEST="gm_rel_dest" とすると、展開先が
+        <remote_home>/gm_rel_dest/<abs_without_leading_slash>/a.txt
+      に配置される。
+    """
+    name = "scatter_dest_relative_to_remote_home"
+    host = cfg.host_ubuntu
+    user = cfg.target_user
+
+    # ローカル SRC（絶対ディレクトリ意図）
+    abs_src = os.path.join(cfg.local_root, "sc_relhome_abs_src")
+    abs_src = abs_src.rstrip(os.sep) + os.sep
+    os.makedirs(abs_src, exist_ok=True)
+    with open(os.path.join(abs_src, "a.txt"), "w", encoding="utf-8") as wf:
+        wf.write("A\n")
+
+    # DEST は「相対」指定
+    dest_rel = "gm_rel_dest"
+
+    # 実行
+    hosts_path = _write_temp_hosts([host])
+    argv = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", abs_src, dest_rel]
+    )
+    run = _run_local_argv(argv)
+
+    # 期待パス: <home>/gm_rel_dest/<abs_without_leading>/a.txt
+    home = _get_remote_home(cfg, host, user)
+    abs_without = abs_src.lstrip(os.sep)
+    exp = os.path.join(home, "gm_rel_dest", abs_without, "a.txt")
+
+    r_isfile = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
+                      "test", "-f", exp)
+    r_cat = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
+                   "cat", exp)
+
+    passed = (run.rc == 0 and r_isfile.returncode == 0 and (r_cat.stdout or "").strip() == "A")
+    reason = "" if passed else f"rc={run.rc}, isfile_rc={r_isfile.returncode}, exp={exp!r}, content={r_cat.stdout!r}"
+    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
+            "details": {"rc": run.rc, "exp": exp, "argv": " ".join(shlex.quote(a) for a in argv)}}
+
+# 呼び出し例:
+# results.append(case_scatter_dest_relative_to_remote_home(cfg))
+
+
+def case_scatter_dest_tilde_username_rejected(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      scatter の DEST に ~user 形式が来た場合にエラー（rc!=0）になることを検証（dry-run）。
+    期待:
+      rc!=0 かつ エラーメッセージに "tilde with username is not supported" を含む。
+    """
+    name = "scatter_dest_tilde_username_rejected"
+    host = cfg.host_alma
+    user = cfg.target_user
+
+    # ローカル SRC
+    src_dir = os.path.join(cfg.local_root, "sc_tilde_user_src")
+    _clear_dir(src_dir, ensure_under=cfg.local_root)
+    with open(os.path.join(src_dir, "x.txt"), "w", encoding="utf-8") as wf:
+        wf.write("X\n")
+
+    # ~root/… を使う（ターゲットユーザが root の場合は nobody に退避）
+    other = "root" if user != "root" else "nobody"
+    dest_bad = f"~{other}/somewhere"
+
+    hosts_path = _write_temp_hosts([host])
+    argv = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "-n"]  # dry-run
+        + (["-v"] if cfg.verbose else [])
+        + ["--", src_dir, dest_bad]
+    )
+    run = _run_local_argv(argv)
+    out_all = (run.stderr or "") + (run.stdout or "")
+    marker = "tilde with username is not supported" in out_all
+
+    passed = (run.rc != 0 and marker)
+    reason = "" if passed else f"rc={run.rc}, marker={marker}, stderr+stdout={out_all!r}"
+    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
+            "details": {"rc": run.rc, "stderr_stdout": out_all, "argv": " ".join(shlex.quote(a) for a in argv)}}
+
+# 呼び出し例:
+# results.append(case_scatter_dest_tilde_username_rejected(cfg))
+
+
+def case_scatter_nonpack_file_only_layout(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      非 pack（SFTP逐次PUT）のレイアウトと挙動を検証。
+        - ファイル SRC は転送される。
+        - ディレクトリ SRC はスキップされる（実装で continue）。
+        - 絶対ファイル SRC: DEST/<abs_without_leading>/…
+        - 相対ファイル SRC: DEST/<指定相対>/…
+    """
+    name = "scatter_nonpack_file_only_layout"
+    host = cfg.host_ubuntu
+    user = cfg.target_user
+
+    # ローカル素材
+    abs_dir = os.path.join(cfg.local_root, "nonpack_abs_dir")
+    rel_dir = "nonpack_rel_dir"  # CWD 相対
+    ign_dir = os.path.join(cfg.local_root, "nonpack_ignored_dir")
+
+    _clear_dir(abs_dir, ensure_under=cfg.local_root)
+    _clear_dir(ign_dir, ensure_under=cfg.local_root)
+    os.makedirs(rel_dir, exist_ok=True)
+
+    abs_file = os.path.join(abs_dir, "a.txt")
+    rel_file = os.path.join(rel_dir, "b.txt")
+    ign_file = os.path.join(ign_dir, "c.txt")
+
+    with open(abs_file, "w", encoding="utf-8") as wf: wf.write("A\n")
+    with open(rel_file, "w", encoding="utf-8") as wf: wf.write("B\n")
+    with open(ign_file, "w", encoding="utf-8") as wf: wf.write("C\n")
+
+    dest_abs = "/tmp/gm_scatter_nonpack_dest"
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
+    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
+                 "chown", "-R", "--", f"{user}:{user}", dest_abs)
+
+    hosts_path = _write_temp_hosts([host])
+    argv = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user]     # 非 pack（--pack 付けない）
+        + (["-v"] if cfg.verbose else [])
+        + ["--", abs_file, rel_file, ign_dir, dest_abs]
+    )
+    run = _run_local_argv(argv)
+
+    # 期待パス
+    exp_abs = os.path.join(dest_abs, os.path.abspath(abs_file).lstrip(os.sep))
+    exp_rel = os.path.join(dest_abs, rel_file)  # rel_file は相対のまま
+    exp_ign = os.path.join(dest_abs, os.path.abspath(ign_dir).lstrip(os.sep))  # ディレクトリは作らない想定
+
+    r_abs = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_abs)
+    r_rel = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_rel)
+    r_ign = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-e", exp_ign)
+
+    passed = (run.rc == 0 and r_abs.returncode == 0 and r_rel.returncode == 0 and r_ign.returncode != 0)
+    reason = "" if passed else f"rc={run.rc}, abs={r_abs.returncode}, rel={r_rel.returncode}, ign_exists_rc={r_ign.returncode}"
+    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
+            "details": {"rc": run.rc, "exp_abs": exp_abs, "exp_rel": exp_rel, "exp_ign": exp_ign,
+                        "argv": " ".join(shlex.quote(a) for a in argv)}}
+
+# 呼び出し例:
+# results.append(case_scatter_nonpack_file_only_layout(cfg))
+
+
+def case_scatter_mixed_sources_two_hosts(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      複数ホスト一括 scatter（--pack）の回帰。
+      hosts ファイルに Ubuntu/Alma を同時に渡し、両方で所定パスに展開されること。
+    """
+    name = "scatter_mixed_sources_two_hosts"
+
+    # ローカル SRC 2本
+    src_a = os.path.join(cfg.local_root, "mix_src_a"); src_a = src_a.rstrip(os.sep) + os.sep
+    src_b = os.path.join(cfg.local_root, "mix_src_b"); src_b = src_b.rstrip(os.sep) + os.sep
+    os.makedirs(src_a, exist_ok=True); os.makedirs(src_b, exist_ok=True)
+    with open(os.path.join(src_a, "a.txt"), "w", encoding="utf-8") as wf: wf.write("A\n")
+    with open(os.path.join(src_b, "b.txt"), "w", encoding="utf-8") as wf: wf.write("B\n")
+
+    # 2ホスト同時
+    hosts_path = _write_temp_hosts([cfg.host_ubuntu, cfg.host_alma])
+    dest_abs = "/tmp/gm_scatter_mixed_hosts"
+    # 事前掃除（両方）
+    for h in [cfg.host_ubuntu, cfg.host_alma]:
+        _ = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
+        _ = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
+        _ = ssh_sudo(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict,
+                     "chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", dest_abs)
+
+    argv = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", cfg.target_user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", src_a, src_b, dest_abs]
+    )
+    run = _run_local_argv(argv)
+
+    def _ok_on(h: str) -> Tuple[bool, str]:
+        a_path = os.path.join(dest_abs, src_a.lstrip(os.sep), "a.txt")
+        b_path = os.path.join(dest_abs, src_b.lstrip(os.sep), "b.txt")
+        r1 = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "test", "-f", a_path)
+        r2 = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "test", "-f", b_path)
+        ok = (r1.returncode == 0 and r2.returncode == 0)
+        return ok, f"{h}: a_rc={r1.returncode}, b_rc={r2.returncode}, a={a_path}, b={b_path}"
+
+    ok_u, rep_u = _ok_on(cfg.host_ubuntu)
+    ok_a, rep_a = _ok_on(cfg.host_alma)
+
+    passed = (run.rc == 0 and ok_u and ok_a)
+    reason = "" if passed else f"rc={run.rc}; {rep_u}; {rep_a}"
+    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
+            "details": {"rc": run.rc, "rep_ubuntu": rep_u, "rep_alma": rep_a,
+                        "argv": " ".join(shlex.quote(a) for a in argv)}}
+
+# 呼び出し例:
+# results.append(case_scatter_mixed_sources_two_hosts(cfg))
+
+
+def case_scatter_pack_dedup_roots(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      --pack 時の _dedup_roots_for_pack による重複ルート除去を検証。
+      親ディレクトリとその子を同時指定しても、展開結果に二重ネストが生じないこと。
+    期待:
+      DEST/.../dup_root/sub/n.txt が「1個だけ」存在（dup_root/sub/sub/... のような重複は生じない）。
+    """
+    name = "scatter_pack_dedup_roots"
+    host = cfg.host_ubuntu
+    user = cfg.target_user
+
+    dup_root = os.path.join(cfg.local_root, "dup_root"); dup_root = dup_root.rstrip(os.sep) + os.sep
+    dup_sub  = os.path.join(dup_root, "sub"); os.makedirs(dup_sub, exist_ok=True)
+    with open(os.path.join(dup_sub, "n.txt"), "w", encoding="utf-8") as wf: wf.write("N\n")
+
+    dest_abs = "/tmp/gm_scatter_dedup_dest"
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
+    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
+                 "chown", "-R", "--", f"{user}:{user}", dest_abs)
+
+    hosts_path = _write_temp_hosts([host])
+    argv = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", dup_root, os.path.join(dup_root, "sub"), dest_abs]
+    )
+    run = _run_local_argv(argv)
+
+    # n.txt は DEST/<dup_root_without_leading>/sub/n.txt の1箇所のみ
+    base = os.path.join(dest_abs, dup_root.lstrip(os.sep))
+    exp = os.path.join(base, "sub", "n.txt")
+
+    # ヒット数を数える
+    cmd = f'find {shlex.quote(dest_abs)} -type f -name n.txt | wc -l'
+    r = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd)
+    try:
+        cnt = int((r.stdout or "0").strip())
+    except Exception:
+        cnt = -1
+
+    r_isfile = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp)
+    passed = (run.rc == 0 and r_isfile.returncode == 0 and cnt == 1)
+    reason = "" if passed else f"rc={run.rc}, isfile_rc={r_isfile.returncode}, cnt={cnt}, exp={exp}"
+    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
+            "details": {"rc": run.rc, "count_n_txt": cnt, "exp": exp, "argv": " ".join(shlex.quote(a) for a in argv)}}
+
+# 呼び出し例:
+# results.append(case_scatter_pack_dedup_roots(cfg))
+
+
+def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      非 pack で、同名 basename のファイル（絶対/相対が混在）を同一 DEST に送っても
+      リモートで別パスに正しく配置され衝突しないことを検証。
+    期待:
+      - 絶対 SRC: DEST/<abs_without_leading>/x.txt が存在
+      - 相対 SRC: DEST/<given_relative>/x.txt が存在
+    """
+    name = "scatter_nonpack_same_basename_collision_free"
+    host = cfg.host_ubuntu
+    user = cfg.target_user
+
+    # 素材: A/x.txt（絶対）, B/x.txt（相対）
+    dir_abs = os.path.join(cfg.local_root, "nf_abs"); _clear_dir(dir_abs, ensure_under=cfg.local_root)
+    dir_rel = "nf_rel"; os.makedirs(dir_rel, exist_ok=True)
+
+    f_abs = os.path.join(dir_abs, "x.txt")
+    f_rel = os.path.join(dir_rel, "x.txt")
+    with open(f_abs, "w", encoding="utf-8") as wf: wf.write("ABS\n")
+    with open(f_rel, "w", encoding="utf-8") as wf: wf.write("REL\n")
+
+    dest_abs = "/tmp/gm_scatter_nonpack_collision"
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
+    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
+                 "chown", "-R", "--", f"{user}:{user}", dest_abs)
+
+    hosts_path = _write_temp_hosts([host])
+    argv = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user]     # 非 pack
+        + (["-v"] if cfg.verbose else [])
+        + ["--", f_abs, f_rel, dest_abs]
+    )
+    run = _run_local_argv(argv)
+
+    exp_abs = os.path.join(dest_abs, os.path.abspath(f_abs).lstrip(os.sep))
+    exp_rel = os.path.join(dest_abs, f_rel)
+
+    r1 = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_abs)
+    r2 = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_rel)
+    c1 = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "cat", exp_abs)
+    c2 = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "cat", exp_rel)
+
+    passed = (run.rc == 0 and r1.returncode == 0 and r2.returncode == 0
+              and (c1.stdout or "").strip() == "ABS" and (c2.stdout or "").strip() == "REL")
+    reason = "" if passed else f"rc={run.rc}, r1={r1.returncode}, r2={r2.returncode}, c1={c1.stdout!r}, c2={c2.stdout!r}"
+    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
+            "details": {"rc": run.rc, "exp_abs": exp_abs, "exp_rel": exp_rel,
+                        "argv": " ".join(shlex.quote(a) for a in argv)}}
+
+# 呼び出し例:
+# results.append(case_scatter_nonpack_same_basename_collision_free(cfg))
+
+# =========================
 # Main
 # =========================
 
@@ -1444,7 +1785,7 @@ def main() -> None:
     results.append(case_selinux_policy_ignore_on_ubuntu(cfg))
     results.append(case_gather_src_abs_slash_ok(cfg))
     results.append(case_gather_src_abs_tilde_ok(cfg))
-    results.append(case_gather_src_rel_error(cfg))
+    results.append(case_gather_src_rel_home_ok(cfg))
     results.append(case_gather_src_tilde_user_error(cfg))
     results.append(case_scatter_dest_abs_required(cfg))
     results.append(case_scatter_dest_abs_variants(cfg))
@@ -1455,6 +1796,12 @@ def main() -> None:
     results.append(case_scatter_pack_extract_sudo_existing_root(cfg))
     results.append(case_gather_double_nesting_regression(cfg))
     results.append(case_scatter_src_path_layout_semantics(cfg))
+    results.append(case_scatter_dest_relative_to_remote_home(cfg))
+    results.append(case_scatter_dest_tilde_username_rejected(cfg))
+    results.append(case_scatter_nonpack_file_only_layout(cfg))
+    results.append(case_scatter_mixed_sources_two_hosts(cfg))
+    results.append(case_scatter_pack_dedup_roots(cfg))
+    results.append(case_scatter_nonpack_same_basename_collision_free(cfg))
 
     print("STEP4 SUMMARY")
     print(json.dumps({"results": results}, indent=2, ensure_ascii=False))
