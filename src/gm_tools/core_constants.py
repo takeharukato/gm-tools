@@ -48,6 +48,13 @@ DEFAULT_HOSTS_FILE: str = "hostfile"
 DEFAULT_PARALLEL_HOSTS: int = 4
 
 # ---------------------------------------------------------------------------
+# Regex patterns
+# ---------------------------------------------------------------------------
+
+# Regex pattern for sanitizing hostnames for filesystem use.
+RE_SAFE_HOST_PTN: str = r"[^A-Za-z0-9._-]"
+
+# ---------------------------------------------------------------------------
 # Internationalization (i18n)
 # ---------------------------------------------------------------------------
 
@@ -90,6 +97,7 @@ __all__ = [
     "EXIT_ERR_ARGS",
     "DEFAULT_PARALLEL_HOSTS",
     "DEFAULT_HOSTS_FILE",
+    "RE_SAFE_HOST_PTN",
     "LOG_DOMAIN",
     "LOCALE_DIR",
     "KEYS_PREFIX",

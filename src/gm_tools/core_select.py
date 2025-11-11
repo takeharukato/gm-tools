@@ -61,6 +61,7 @@ class PlanEntry:
     is_dir: bool
     remote_root: str = ""
     remote_abs: str = ""
+    remote_rel: str = ""
 
 @dataclass
 class Plan:
@@ -251,12 +252,17 @@ def _enumerate_via_sftp_walk(
 ) -> List[str]:
     candidates: Set[str] = set()
     for src in resolved_srcs:
-        abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
-        # 絶対パスでなければスキップ
+        try:
+            abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
+        except ValueError as e:
+            _LOG.warning("reject SRC outside HOME (relative not confined): %s (%s)", src, e)
+            continue
+        # ここまでで相対はHOME基準に絶対化済
         is_abs = is_abs_path(abs_norm)
         if not is_abs:
-            _LOG.warning("skip non-absolute SRC: %s", src)
+            _LOG.warning("skip non-absolute SRC after normalization (unexpected): %s", src)
             continue
+
         try:
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
         except ValueError as e:
@@ -318,10 +324,14 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
 """.strip()
 
     for src in resolved_srcs:
-        abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
+        try:
+            abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
+        except ValueError as e:
+            _LOG.warning("reject SRC outside HOME (relative not confined): %s (%s)", src, e)
+            continue
         is_abs = is_abs_path(abs_norm)
         if not is_abs:
-            _LOG.warning("skip non-absolute SRC: %s", src)
+            _LOG.warning("skip non-absolute SRC after normalization (unexpected): %s", src)
             continue
 
         try:
@@ -386,12 +396,12 @@ def enumerate_candidates_for_host(
     - pack_remote and use_sudo のとき sudo リモート走査
     - それ以外は SFTP 走査
     follow_symlinksの扱い:
-     - リンクディレクトリを辿らない
+     - ディレクトリシンボリックリンクは辿らない (扱わない)
      - follow_symlinksが偽, かつ, pack_remote偽ならリンクを候補に含めない
      - follow_symlinksが偽, かつ, pack_remote真ならリンク自体を候補に含める
      - follow_symlinksが真, かつ, pack_remote真ならリンク先の実体を候補に含める
     """
-    include_symlinks = bool(pack_remote and follow_symlinks)
+    include_symlinks = bool(pack_remote)
     if pack_remote and use_sudo:
         return _enumerate_via_remote_walk_with_sudo(
             ssh, resolved_srcs, home_abs, verbose, include_symlinks=include_symlinks

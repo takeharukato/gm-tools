@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import re
 import os
 import sys
 import shlex
@@ -54,6 +55,7 @@ from .core_constants import (
     EXIT_ERR_ARGS,
     EXIT_ERR_NO_HOSTS,
     EXIT_ERR_TILDE_USER,
+    RE_SAFE_HOST_PTN
 )
 from .core_logging import init_logging, shutdown_logging, HostLogAggregator
 from .core_constants import DEFAULT_HOSTS_FILE
@@ -65,9 +67,14 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
             "Usage: gm-gather [SRC ...] DEST\n"
-            "  - SRC: absolute path starting with '/', 'X:/' (Windows), or '~/'.\n"
-            "         The portion after the root is treated as a regex path.\n"
-            "         e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/bar\\.txt'.\n"
+            "  - SRC:\n"
+            "      * '/...': absolute on remote (UNIX)\n"
+            "      * 'X:/...': absolute on remote (Windows)\n"
+            "      * '~/...': expanded by -u user's HOME on remote\n"
+            "      * RELATIVE: treated as '-u' user's HOME-relative,\n"
+            "                  HOME escape via '..' is rejected.\n"
+            "    The portion after the root is treated as a regex path.\n"
+            "    e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/.*', 'var/log/.*'.\n"
             "  - DEST: local directory where files are stored as DEST/<HOST>/..."
         ),
         formatter_class=argparse.RawTextHelpFormatter,
@@ -77,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "src",
         nargs="+",
-        help="One or more SRC absolute path patterns (root '/', 'X:/', or '~/').",
+        help="One or more SRC path patterns. Absolute ('/','X:/','~/') or HOME-relative.",
     )
     parser.add_argument("dest", help="Local destination directory.")
 
@@ -199,17 +206,16 @@ def _make_pull_one_pack(
         )
 
         # 常に DEST/<HOST> 直下に展開（_local から親を推測しない）
-        # 第3引数hostはdownload_and_extract_tar内で2重にパスを作らないよう
+        # 第4引数subdirはdownload_and_extract_tar内で2重にパスを作らないよう
         # 空文字列を指定している。
         extracted, _ = download_and_extract_tar(_sftp, remote_gz, str(dest_host_root), "")
         state["extracted"] = extracted  # type: ignore[assignment]
-        _ = run_remote_cmd_capture(
-            ssh, ["bash", "-lc", f"rm -f {shlex.quote(remote_gz)} || true"], timeout=timeout
-        )
+        # sudo で作成された一時ファイルも確実に削除する
+        cmd_rm = "sudo -n rm -f {f} || rm -f {f} || true".format(f=shlex.quote(remote_gz))
+        _ = run_remote_cmd_capture(ssh, ["bash", "-lc", cmd_rm], timeout=timeout)
         _LOG.debug("[debug][pack][cleanup] host=%s removed %s; extracted_count=%s",
                     host, remote_gz, state["extracted"])
     return _pull_one
-
 
 # ---- plan builder per host ---------------------------------------------------
 
@@ -310,11 +316,12 @@ def _build_plan_for_host(
 
     # Plan 構築：relpath はローカル相対 ( DEST/<HOST>/relpath )
     entries: List[PlanEntry] = []
-    dest_host_root: str = os.path.join(dest_local, host)
+    safe_host = re.sub(RE_SAFE_HOST_PTN, "_", host).lstrip(".") or "_"
+    dest_host_root: str = os.path.join(dest_local, safe_host)
     os.makedirs(dest_host_root, exist_ok=True)
 
     targets: List[str] = list(files_only)
-    pack_list: List[str] = list(files_only) + (symlinks if (pack_remote and follow_symlinks) else [])
+    pack_list: List[str] = list(files_only) + (symlinks if pack_remote else [])
 
     _LOG.debug(
         "[debug][plan] host=%s pack_remote=%s follow_symlinks=%s files=%d symlinks=%d pack_list=%d",
@@ -325,7 +332,7 @@ def _build_plan_for_host(
         remote_root: str
         inner: str
         remote_root, inner = _split_remote_root_for_abs(rp, home_abs=home_abs)
-        abs_local: str = local_path_for_download(dest_local, host, rp)
+        abs_local: str = local_path_for_download(dest_local, safe_host, rp)
         rel_local: str = os.path.relpath(abs_local, start=dest_host_root)
 
         pe = PlanEntry(
@@ -336,8 +343,8 @@ def _build_plan_for_host(
         )
         # 並行処理仕様を保ちつつ, 混在ルートでも確実に元の絶対パスへ到達できるように付帯情報を持たせる
         # - core_pull は remote_abs を最優先, 次点で remote_root + remote_rel を使用
-        setattr(pe, "remote_abs", rp)       # type: ignore[attr-defined]
-        setattr(pe, "remote_rel", inner)    # type: ignore[attr-defined]
+        pe.remote_abs = rp
+        pe.remote_rel = inner
         entries.append(pe)
         _LOG.debug(
             "[debug][plan] host=%s plan_entry: remote_abs=%s remote_root=%s remote_rel=%s -> local_abs=%s rel=%s",
@@ -496,5 +503,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    finalize_sockets()
-    main()
+    # 開始前の finalize ではなく、終了時に必ず後片付けを行う
+    try:
+        main()
+    finally:
+        try:
+            finalize_sockets()
+        except Exception:
+            pass

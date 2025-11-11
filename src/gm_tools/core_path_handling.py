@@ -190,17 +190,46 @@ def local_path_for_download(dest_dir: str, host: str, remote_abs_path: str) -> s
 # --------------------------------------------------------------------
 def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
     """
-    - '~/...' をホームディレクトリに展開
-    - 'C:\\...' を 'C:/...' に正規化
-    - それ以外はそのまま返す
+    リモートSRCトークンを「絶対パスパターン」に正規化する。
+      - '~/...'        : <home_abs_for_tilde>/... に展開
+      - '/...'         : そのまま（UNIX絶対）
+      - 'X:\\...'等    : 'X:/...' に正規化（Windows絶対）
+      - 上記以外（相対）: <home_abs_for_tilde>/<rel> に連結し、HOME逸脱（'..'）を禁止
+    安全化:
+      - 区切りは '\\'→'/' に統一
+      - 先頭 './' を折り畳み、'//' を1本化
+      - 相対トークン中の path セグメントに '..' が含まれる場合は ValueError
+        （HOME逸脱の恐れがあるため）
+    備考:
+      - 正規表現メタは tail 側で評価されるため、root 部は HOME配下に固定される。
     """
-    if src.startswith('~/'):
-        return home_abs_for_tilde.rstrip('/') + '/' + src[2:]
-    if re.match(r'^[A-Za-z]:[\\/]', src):
-        drive = src[:2]          # 'C:'
-        rest = src[2:].replace('\\', '/')
-        return drive + rest      # 'C:/...'
-    return src
+    s = src
+    # 1) tilde-self
+    if s.startswith('~/'):
+        return home_abs_for_tilde.rstrip('/') + '/' + s[2:]
+    # 2) Windows drive abs
+    if re.match(r'^[A-Za-z]:[\\/]', s):
+        drive = s[:2]                # 'C:'
+        rest = s[2:].replace('\\', '/')
+        return drive + rest          # 'C:/...'
+    # 3) UNIX abs
+    if s.startswith('/'):
+        return s
+    # 4) relative : anchor to home_abs_for_tilde
+    rel = s.replace('\\', '/')
+    # collapse leading './' and multi slashes
+    rel = RE_REL_LEADING_DOT.sub("", rel)
+    rel = RE_MULTI_SLASH.sub("/", rel).lstrip("/")
+    # split and check '..'
+    parts = [p for p in rel.split('/') if p not in ("", ".")]
+    for p in parts:
+        if p == "..":
+            raise ValueError(f"Relative SRC escapes HOME: {src!r}")
+    rel_clean = "/".join(parts)
+    if not rel_clean:
+        # 相対指定が '.' 等で空になったときは HOME そのもの
+        return home_abs_for_tilde.rstrip('/') or '/'
+    return home_abs_for_tilde.rstrip('/') + '/' + rel_clean
 
 def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
     """
@@ -216,11 +245,35 @@ def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
     if not abs_path or abs_path == "/":
         raise ValueError("invalid absolute path pattern")
 
+    # --- Special-case: Windows drive absolute path 'C:/...' --------------
+    # OS 非依存で一貫して 'C:/' をルート扱いする。os.path 依存の dirname/basename を避ける。
+    if re.match(r'^[A-Za-z]:/', abs_path):
+        drive_root = abs_path[:3]  # 'C:/'
+        tail_full = abs_path[3:]
+        if not tail_full:
+            # 'C:/' 意図: 直下すべて
+            return (drive_root, r".*")
+        m_drive = CORE_PATH_HANDLING_REGEX_META_COMPILED.search(tail_full)
+        if m_drive is None:
+            # リテラル一致
+            return (drive_root, "^" + re.escape(tail_full) + "$")
+        # 正規表現を tail にそのまま保持
+        return (drive_root, tail_full)
+
+
     m = CORE_PATH_HANDLING_REGEX_META_COMPILED.search(abs_path)
     if m is None:
         # pure literal
-        root = os.path.dirname(abs_path) or "/"
-        base = os.path.basename(abs_path)
+
+        # OS 非依存化のため、最後の '/' で分割（posix ルールに固定）
+        slash_pos = abs_path.rfind("/")
+        if slash_pos < 0:
+            root = "/"
+            base = abs_path
+        else:
+            root = abs_path[:slash_pos] or "/"
+            base = abs_path[slash_pos + 1 :]
+
         if not base:
             # '/etc/' や 'C:/' のようなディレクトリ意図は root を保持し、配下すべてを意味する
             root_keep = abs_path if re.match(r'^[A-Za-z]:/$', abs_path) else (abs_path.rstrip("/") or "/")
@@ -362,12 +415,15 @@ def resolve_token_for_scatter(token: ScatterSrcToken, cwd: Optional[str] = None)
     raw: str = token.raw
     raw2: str = scatter_expand_tilde_for_exec_user(raw)
     # 絶対判定は展開後（raw2）に対して行う
-    is_abs: bool = (is_unix_abs(raw2) or is_windows_abs(raw2) or is_unc(raw2))
+    win_abs = is_windows_abs(raw2) or is_unc(raw2)
+    is_abs: bool = (is_unix_abs(raw2) or win_abs)
 
     abs_root: str
     rel_root: str
 
     if is_abs:
+        if win_abs and os.name != "nt":
+            raise ValueError(f"Windows-absolute path not supported on non-Windows host: {raw2!r}")
         abs_root = os.path.abspath(raw2)
         rel_root = dest_rel_from_abs(abs_root)
         rel_root = normalize_rel_for_dest(rel_root)

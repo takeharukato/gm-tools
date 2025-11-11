@@ -19,6 +19,7 @@ from __future__ import annotations
 
 
 import threading
+import re
 import os
 import random
 import shlex
@@ -32,6 +33,12 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Literal, Tuple
 
 from .core_ssh import CancelledError, SSHClientLike, SFTPClientLike  # for consistent cancellation semantics
 from .core_cmd_flavor import run_remote_cmd_capture
+# ローカル展開名を core_path_handling の規則と整合させるために再利用
+from .core_path_handling import (
+    WINDOWS_FORBIDDEN_RE,
+    WINDOWS_RESERVED_DEVICES,
+    WINDOWS_TRAILING_STRIP,
+)
 
 # ---- Typing helpers for tarfile modes ---------------------------------------
 
@@ -300,7 +307,8 @@ def remote_pack_paths(
             raise RuntimeError(f"gzip failed: {(err_g or '(no stderr)').strip()}")
     except Exception:
         # 失敗時の掃除 ( ベストエフォート )
-        _ = run_remote_cmd_capture(ssh, ["bash", "-lc", f"rm -f {shlex.quote(tarf)} {q_lst} || true"], timeout=timeout)
+        _ = run_remote_cmd_capture(
+            ssh, ["bash", "-lc", f"rm -f {shlex.quote(tarf)} {shlex.quote(tgz)} {q_lst} || true"], timeout=timeout)
         raise
     finally:
         # 4) リスト削除
@@ -343,8 +351,8 @@ def download_and_extract_tar(
     """
     リモート .tar.gz をローカルに保存し, extract_base/subdir に安全展開。
     戻り値: (extracted_count, extracted_paths)
-      - extracted_count は「通常ファイル + ハードリンク」をカウント
-      - extracted_paths は tar 内パス ( 相対 ) 一覧
+      - extracted_count は「通常ファイルのみ」をカウント（symlink / hardlink は抽出しない）
+      - extracted_paths は tar 内の相対パス（正規化後）一覧
     """
 
     tmp_path = None
@@ -369,31 +377,109 @@ def download_and_extract_tar(
             pass
         raise
 
-    #
-    # tarの中身を確認する
-    #
-    if verbose:
-        try:
-            with tarfile.open(tmp_path, "r:gz") as tfobj:
-                members = tfobj.getmembers()
-                _LOG.info("archive peek (%d entries):", len(members))
-                for m in members:
-                    kind = "file" if m.isfile() else "symlink" if m.issym() \
-                        else "hardlink" if m.islnk() else "other"
-                    _LOG.info("  [%s] %s -> %s", kind, m.name, (m.linkname or ""))
-        except Exception as e:
-            _LOG.warning("archive peek via tarfile failed: %s", e)
+    # ---- Helpers for hardened extraction -----------------------------------
+    def _normalize_archive_relpath_for_local(name: str) -> str:
+        """
+        アーカイブ内の相対パスをローカル安全名へ正規化。
+          - '\\'→'/'、先頭'/'除去
+          - 'X:/...' → 'X_/...'
+          - 連続'//'・'.' の整理
+          - Windows 禁止記号置換、末尾スペース/ドット除去、予約デバイス名回避
+          - 空要素/UNC 由来の空セグメントは '_' として保持
+        """
+        p = name.replace("\\", "/")
+        p = p.lstrip("/")
+        # 'X:/' → 'X_/'（最初の 1 か所だけ）
+        if re.match(r'^[A-Za-z]:/', p):
+            p = p.replace(":/", "_/", 1)
+        # 末尾の '/' は抽出名としては無視
+        had_trailing = p.endswith("/")
+        parts_raw = p.split("/")
+        if had_trailing:
+            while parts_raw and parts_raw[-1] == "":
+                parts_raw.pop()
+        out: List[str] = []
+        for comp in parts_raw:
+            if comp == "":
+                out.append("_")
+                continue
+            if comp == ".":
+                continue
+            if comp == "..":
+                # _safe_members 側で排除済みのはずだが、念のため拒否
+                continue
+            comp = WINDOWS_FORBIDDEN_RE.sub("_", comp)
+            comp = comp.rstrip(WINDOWS_TRAILING_STRIP)
+            base = comp.split(".", 1)[0].upper()
+            if base in WINDOWS_RESERVED_DEVICES:
+                comp = "_" + (comp or "_")
+            out.append(comp or "_")
+        if not out:
+            out.append("_")
+        return "/".join(out)
+
+    def _parent_chain_has_symlink(base_dir: str, relpath: str) -> bool:
+        """
+        親ディレクトリ連鎖に symlink が混ざっていないかを lstat で確認する。
+        """
+        base_abs = os.path.abspath(base_dir)
+        cur = base_abs
+        for part in PurePosixPath(relpath).parts:
+            cur = os.path.abspath(os.path.join(cur, part))
+            parent = os.path.dirname(cur)
+            try:
+                _st = os.lstat(parent)
+            except FileNotFoundError:
+                # これから mkdir する場合はここでは判断しない
+                continue
+            if os.path.islink(parent):
+                return True
+        return False
 
     extracted = 0
     extracted_paths: List[str] = []
     try:
         with tarfile.open(str(tmp_path), mode="r:gz") as tf:
-            members = list(_safe_members(dest_root, tf.getmembers()))
-            for m in members:
-                tf.extract(m, dest_root)  # 安全化済みメンバーのみ
-                if m.isfile() or m.islnk():       # ハードリンクも1件として数える
-                    extracted += 1
-                    extracted_paths.append(str(PurePosixPath(m.name)))
+            members_all = tf.getmembers()
+            members = list(_safe_members(dest_root, members_all))
+
+            # 1) 先にディレクトリを作成（正規化名で）
+            dirs = [m for m in members if m.isdir()]
+            for d in dirs:
+                norm_dir = _normalize_archive_relpath_for_local(d.name)
+                if _parent_chain_has_symlink(dest_root, norm_dir):
+                    _LOG.warning("skip extracting directory due to symlinked parent: %s", norm_dir)
+                    continue
+                target_dir = os.path.join(dest_root, norm_dir)
+                os.makedirs(target_dir, exist_ok=True)
+
+            # 2) 通常ファイルのみ抽出（symlink/hardlink は抽出しない）
+            files = [m for m in members if m.isfile()]
+            for m in files:
+                norm_rel = _normalize_archive_relpath_for_local(m.name)
+                if _parent_chain_has_symlink(dest_root, norm_rel):
+                    _LOG.warning("skip extracting file due to symlinked parent: %s", norm_rel)
+                    continue
+                abs_out = os.path.join(dest_root, norm_rel)
+                os.makedirs(os.path.dirname(abs_out), exist_ok=True)
+                # 書き出し
+                fobj = tf.extractfile(m)
+                if fobj is None:
+                    # 読み取り不能（デバイス等）はスキップ
+                    continue
+                with open(abs_out, "wb") as w:
+                    shutil.copyfileobj(fobj, w)
+                # パーミッション・時刻（可能な範囲で）を反映
+                try:
+                    os.chmod(abs_out, m.mode & 0o777)
+                except Exception:
+                    pass
+                try:
+                    os.utime(abs_out, (m.mtime, m.mtime))
+                except Exception:
+                    pass
+                extracted += 1
+                extracted_paths.append(norm_rel)
     finally:
         try:
             os.remove(tmp_path)
