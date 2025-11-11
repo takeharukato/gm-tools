@@ -212,21 +212,29 @@ def local_pack_paths_to_tmp(
             if (not follow_symlinks) and os.path.islink(ap):
                 continue
             if alist is not None:
-                arcname: str = alist[idx]
+                # arcnames 指定時：'' を正当な値として許容（src='/' を意味）
+                arc_in: str = alist[idx]
+                arc_norm: str = _normalize_remote_rel_file(arc_in)
+                arcname: str = arc_norm  # '' 可
             else:
+                # arcnames 未指定時のみ従来ロジック
+                arc_tmp: str
                 if os.path.isabs(ap):
-                    arcname = dest_rel_from_abs(ap)   # 絶対はコロン無し "C/path" 等に統一
+                    arc_tmp = dest_rel_from_abs(ap)   # 絶対は '//' 除去・先頭 '/' 除去済み
                 else:
-                    arcname = p_item.replace("\\", "/")
+                    arc_tmp = p_item.replace("\\", "/")
+                arc_norm2: str = _normalize_remote_rel_file(arc_tmp)
+                if not arc_norm2:
+                    # 未指定系でのみ basename フォールバックを適用（'/' などを 'etc' 等にしない）
+                    arc_norm2 = os.path.basename(ap).replace("\\", "/")
+                arcname: str = arc_norm2
 
-            # tar 側へ渡す arcname を相対“ファイル”として安全正規化
-            arcname = _normalize_remote_rel_file(arcname)
-            if not arcname:
-                # 空に潰れたらローカル basename にフォールバック
-                arcname = os.path.basename(ap).replace("\\", "/")
-
+            # ここで arcname == '' の場合、tarfile はトップのディレクトリエントリ '' と
+            # その直下（例: 'etc', 'var', ...）を格納する。
+            # 抽出側は相対名で扱うため問題なし（'' エントリはディレクトリであり isfile() では弾かれる）。
             tf.add(ap, arcname=arcname, recursive=True, filter=_filter)
             added.append(arcname)
+
     return tar_path, added
 
 def write_members_file(

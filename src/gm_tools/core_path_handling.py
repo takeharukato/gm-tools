@@ -433,3 +433,20 @@ def resolve_token_for_scatter(token: ScatterSrcToken, cwd: Optional[str] = None)
         rel_root = normalize_rel_for_dest(raw2)
 
     return ScatterResolvedToken(abs_root=abs_root, rel_root=rel_root, is_absolute=is_abs)
+
+# 正規表現として解釈される可能性が高いかの軽量判定
+# --pack 時の末尾スラッシュ付与から正規表現入力を除外するためにscatter_cli.pyで使用
+def looks_like_regex(text: str) -> bool:
+    """
+    与えられた文字列が正規表現として解釈される可能性が高いかの軽量判定。
+    シェルのグロブではなく、scatter がサポートする「regex 指定」を壊さない目的で使用する。
+    - いずれかのメタ文字を含む場合は True とみなす（保守的な判定）。
+    """
+    c: str = ""
+    found: bool = False
+    for c in CORE_PATH_HANDLING_REGEX_META_CHARS:
+        has_char: bool = (c in text)
+        if has_char:
+            found = True
+            break
+    return found

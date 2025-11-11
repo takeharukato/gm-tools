@@ -29,6 +29,7 @@ from .core_path_handling import (
     ScatterResolvedToken,
     resolve_token_for_scatter,
     normalize_rel_for_dest,
+    looks_like_regex,
 )
 from .core_push import PushOne
 from .core_remote_path import detect_remote_home
@@ -272,7 +273,6 @@ def _build_plan_for_host(
     }
     return plan, meta
 
-
 def _make_push_one_sftp(
     *,
     ssh: SSHClientLike,
@@ -334,10 +334,16 @@ def _make_push_one_pack(
         state["ran"] = True
         src_list: List[str] = [str(p) for p in pack_srcs]
         # アーカイブ名はリモート相対配置に一致させる（DEST 直下に再現）
-        arc_list: List[str] = [
-            remote_rel_map.get(os.path.abspath(p), p.replace("\\", "/").lstrip("/"))
-            for p in src_list
-        ]
+        # フォールバックは許容しない：remote_rel_map に存在しないキーは例外
+        src_list_abs: List[str] = [os.path.abspath(p) for p in src_list]
+        abs_to_rel: Dict[str, str] = remote_rel_map
+        missing: List[str] = [a for a in src_list_abs if a not in abs_to_rel]
+        if missing:
+            miss_join: str = ", ".join(missing)
+            raise ValueError(f"E_ARCNAME_KEY: missing remote_rel for pack roots: {miss_join}")
+        # ここで '' が含まれていてよい（src='/' の正規表現／リテラル入力に対応）
+        arc_list: List[str] = [abs_to_rel[a] for a in src_list_abs]
+
         # アンパック代入に直接の型注釈は不可なため, いったんタプルに受けてから展開する。
         # local_pack_paths_to_tmp の戻り値は Tuple[str, List[str]]
         tar_tuple: Tuple[str, List[str]] = local_pack_paths_to_tmp(
@@ -365,15 +371,21 @@ def _make_push_one_pack(
 
 
 def main() -> None:
+
     # --pack の場合は SRC の末尾に必ず '/' を付与してディレクトリ意図を明確化
     def _normalize_pack_srcs(srcs: Sequence[str]) -> List[str]:
-        out: List[str] = []
-        for s in srcs:
-            v: str = str(s)
-            if not (v.endswith("/") or v.endswith(os.sep)):
-                v = v + "/"
-            out.append(v)
-        return out
+         out: List[str] = []
+         s_in: str = ""
+         v: str = ""
+         is_rx: bool = False
+         for s_in in srcs:
+             v = str(s_in)
+             # 正規表現入力を壊さない：regex と判定された場合は末尾スラッシュを付与しない
+             is_rx = looks_like_regex(v)
+             if (not is_rx) and (not (v.endswith("/") or v.endswith(os.sep))):
+                 v = v + "/"
+             out.append(v)
+         return out
 
     parser: argparse.ArgumentParser = build_parser()
     args: Namespace = parser.parse_args()
