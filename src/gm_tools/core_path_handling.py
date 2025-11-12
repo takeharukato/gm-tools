@@ -204,7 +204,7 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
       - 正規表現メタは tail 側で評価されるため, root 部は HOME配下に固定される。
     """
     s = src
-    # 1) tilde-self
+    # 1) tilde-self（tail を壊さない：そのまま連結）
     if s.startswith('~/'):
         return home_abs_for_tilde.rstrip('/') + '/' + s[2:]
     # 2) Windows drive abs
@@ -212,24 +212,36 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
         drive = s[:2]                # 'C:'
         rest = s[2:].replace('\\', '/')
         return drive + rest          # 'C:/...'
-    # 3) UNIX abs
+    # 3) UNIX abs（そのまま返す：tail の regex を保存）
     if s.startswith('/'):
         return s
+
     # 4) relative : anchor to home_abs_for_tilde
-    rel = s.replace('\\', '/')
-    # collapse leading './' and multi slashes
-    rel = RE_REL_LEADING_DOT.sub("", rel)
-    rel = RE_MULTI_SLASH.sub("/", rel).lstrip("/")
-    # split and check '..'
-    parts = [p for p in rel.split('/') if p not in ("", ".")]
-    for p in parts:
-        if p == "..":
+    #    正規表現 tail を壊さないため、最初のメタ以降は **無改変**で保持し、
+    #    メタ以前（パス部）のみを正規化する。
+    m = CORE_PATH_HANDLING_REGEX_META_COMPILED.search(s)
+    cut = m.start() if m else len(s)
+    head_rel_raw = s[:cut]          # パス部（相対）
+    tail_rel_raw = s[cut:]          # 正規表現部（無改変）
+
+    # パス部の正規化：'./' 折り畳み、'//' 1 本化、'\'
+    head_rel = head_rel_raw.replace('\\', '/')
+    head_rel = RE_REL_LEADING_DOT.sub("", head_rel)
+    head_rel = RE_MULTI_SLASH.sub("/", head_rel).lstrip("/")
+
+    # '..' による HOME 脱出を禁止
+    parts = [p for p in head_rel.split('/') if p not in ("", ".")]
+    for pseg in parts:
+        if pseg == "..":
             raise ValueError(f"Relative SRC escapes HOME: {src!r}")
-    rel_clean = "/".join(parts)
-    if not rel_clean:
-        # 相対指定が '.' 等で空になったときは HOME そのもの
-        return home_abs_for_tilde.rstrip('/') or '/'
-    return home_abs_for_tilde.rstrip('/') + '/' + rel_clean
+    head_clean = "/".join(parts)
+
+    # 連結（head が空なら HOME 直下に tail をぶら下げる）
+    base = (home_abs_for_tilde.rstrip('/') or '/')
+    if head_clean:
+        return base + '/' + head_clean + tail_rel_raw
+    else:
+        return base + tail_rel_raw
 
 def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
     """
