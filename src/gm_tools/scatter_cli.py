@@ -8,7 +8,7 @@ import sys
 import threading
 from argparse import BooleanOptionalAction, Namespace
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Final, Sequence
+from typing import Dict, List, Optional, Tuple, Final, Sequence, Set
 
 from .core_common import parse_hosts_file
 from .core_report import NullTransferReport
@@ -255,6 +255,7 @@ def _build_plan_for_host(
             entries.append(PlanEntry(path=Path(p), relpath=remote_rel, is_dir=st_is_dir))
 
     plan: Plan = Plan(entries=entries)
+    pack_roots_abs: List[str] = [os.path.abspath(res.abs_root) for res in resolved_tokens]
 
     meta: Dict[str, object] = {
         "ssh": ssh,
@@ -270,6 +271,8 @@ def _build_plan_for_host(
         "verbose": bool(verbose),
         # ローカル絶対パス -> リモート相対の対応
         "remote_rel_map": remote_rel_map,
+        # pack ルート（解決済みトークンの abs_root のみ）
+        "pack_roots_abs": pack_roots_abs,
     }
     return plan, meta
 
@@ -485,15 +488,91 @@ def main() -> None:
         return list(meta_per_host.values())[0]["sftp"]  # type: ignore[index, return-value]
 
     # push_one をホスト毎に割当
-    def _dedup_roots_for_pack(paths: List[Path]) -> List[Path]:
-        # 親ディレクトリがある場合は子を除外して最小集合にする
-        abss: List[str] = sorted({os.path.abspath(str(p)) for p in paths},
-                      key=lambda s: (s.count(os.sep), len(s)))
-        roots: List[str] = []
-        for p in abss:
-            if not any(p != r and p.startswith(r + os.sep) for r in roots):
-                roots.append(p)
-        return [Path(p) for p in roots]
+    def _dedup_roots_for_pack_abs(abs_paths: List[str]) -> List[str]:
+        """
+        pack 対象の『ルート候補（abs のみ）』から**実体ベース**の最小集合を作る。
+        - ルート候補は os.path.realpath()（Windows では大小無視のため casefold() も併用）で正規化した
+        canon_abs を基準に親子判定を行う。
+        - 親が採択された場合は子は除外する（最小集合化）。
+        - 途中でより上位の親が現れた場合は、既存の子を外して親に置換する（順序に依らず最小集合）。
+        """
+
+        def _canon(p_in: str) -> str:
+            p0: str = os.path.abspath(p_in)
+            rp: str = os.path.realpath(p0)
+            canon: str = rp.casefold() if os.name == "nt" else rp
+            return canon
+
+        # 入力の正規化（重複除去）: 同一 orig_abs の重複をまず除く
+        uniq_abs: Set[str] = {os.path.abspath(p) for p in abs_paths}
+        # (orig_abs, canon_abs) のペアに
+        pairs: List[Tuple[str, str]] = [(p, _canon(p)) for p in uniq_abs]
+
+        # 同一実体（canon_abs が同じ）は 1 つに代表させる（代表は安定に選ぶ）
+        # 代表選択: (canon_abs に対する orig_abs の最短長, lex 小) を優先
+        best_for_canon: Dict[str, str] = {}
+        for orig_abs, canon_abs in pairs:
+            prev: Optional[str] = best_for_canon.get(canon_abs)  # type: ignore[assignment]
+            if prev is None:
+                best_for_canon[canon_abs] = orig_abs
+            else:
+                prev_len: int = len(prev)
+                cur_len: int = len(orig_abs)
+                if (cur_len < prev_len) or (cur_len == prev_len and orig_abs < prev):
+                    best_for_canon[canon_abs] = orig_abs
+
+        # 採用候補を (canon 深さ, canon 長さ, canon 文字列, 代表 orig_abs) で安定ソート
+        sorted_candidates: List[Tuple[int, int, str, str]] = []
+        for canon_abs, rep_orig in best_for_canon.items():
+            depth: int = canon_abs.count(os.sep)
+            length: int = len(canon_abs)
+            key_tuple: Tuple[int, int, str, str] = (depth, length, canon_abs, rep_orig)
+            sorted_candidates.append(key_tuple)
+        sorted_candidates.sort()
+
+        # 最小集合化：親優先。親が見つかったら子を落とす／既存の子も取り除いて親に置換。
+        kept: List[Tuple[str, str]] = []  # [(orig_abs, canon_abs)]
+        for _depth, _length, canon_abs, rep_orig in sorted_candidates:
+            # 既存 kept の「親／子」関係を判定
+            is_child_of_existing: bool = False
+            _parent_index_to_remove: List[int] = []  # 常に空（親置換は子置換の逆）だが型の明示を徹底
+            _i: int
+            pair: Tuple[str, str]
+            for _i, pair in enumerate(kept):
+                _kept_orig, kept_canon = pair
+                # すでに親がある => 今回は子なのでスキップ
+                common1: str = ""
+                try:
+                    common1 = os.path.commonpath([canon_abs, kept_canon])
+                except ValueError:
+                    common1 = ""
+                if common1 == kept_canon and canon_abs != kept_canon:
+                    is_child_of_existing = True
+                    break
+            if is_child_of_existing:
+                continue
+
+            # 既存 kept に「今回が親で、既存が子」のものがあれば、それらを外す
+            new_kept: List[Tuple[str, str]] = []
+            for pair in kept:
+                _kept_orig2: str
+                kept_canon2: str
+                _kept_orig2, kept_canon2 = pair
+                common2: str = ""
+                try:
+                    common2 = os.path.commonpath([canon_abs, kept_canon2])
+                except ValueError:
+                    common2 = ""
+                if common2 == canon_abs and canon_abs != kept_canon2:
+                    # 既存は子 => 捨てる（親で置換する）
+                    continue
+                new_kept.append(pair)
+            kept = new_kept
+            kept.append((rep_orig, canon_abs))
+
+        # 出力は「元の絶対パス」の集合（ソートは入力非依存になるが安定）
+        result: List[str] = [orig for (orig, _c) in kept]
+        return result
 
     push_one_map: Dict[str, PushOne] = {}
     for host, meta in meta_per_host.items():
@@ -512,7 +591,10 @@ def main() -> None:
             timeout_f = DEFAULT_TIMEOUT
 
         if bool(meta["pack"]):  # type: ignore[index]
-            pack_srcs: List[Path] = _dedup_roots_for_pack([e.path for e in plan_per_host[host].entries])
+            # 入力は「解決済みトークンの abs_root 群」のみ（entries は使わない）
+            pack_roots_abs_list: List[str] = list(meta.get("pack_roots_abs", []))  # type: ignore[list-item]
+            dedup_abs: List[str] = _dedup_roots_for_pack_abs(pack_roots_abs_list)
+            pack_srcs: List[Path] = [Path(p) for p in dedup_abs]
             push_one_map[host] = _make_push_one_pack(
                 ssh=meta["ssh"],  # type: ignore[arg-type]
                 sftp=meta["sftp"],  # type: ignore[arg-type]

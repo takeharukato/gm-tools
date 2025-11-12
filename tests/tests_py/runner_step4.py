@@ -20,6 +20,41 @@ import pathlib
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, IO
 
+
+def _safe_rmtree_abs(path_abs: str, *, ensure_under: Optional[str] = None) -> None:
+    """
+    安全な rmtree:
+      - 実体がディレクトリであること（シンボリックリンクは拒否）
+      - ensure_under が指定されていれば、その配下に限定
+    """
+    p: str = os.path.abspath(path_abs)
+    if ensure_under is not None:
+        base: str = os.path.abspath(ensure_under)
+        if not (p == base or p.startswith(base + os.sep)):
+            return  # 外側は触らない
+    if not os.path.exists(p):
+        return
+    if os.path.islink(p):
+        # 誤爆防止のためシンボリックリンクは削除しない
+        return
+    if os.path.isdir(p):
+        shutil.rmtree(p, ignore_errors=True)
+
+def cleanup_local_temps(cfg: Config) -> None:
+    """
+    テストで作成するローカル一時ディレクトリを削除する。
+      - cfg.local_root (= _tmp_test_local/)
+      - カレント配下の相対ソース用一時: nf_rel/, nonpack_rel_dir/, sc_layout_rel_src/
+    """
+    cwd: str = os.getcwd()
+    # _tmp_test_local は cwd 配下に作る運用なので、念のため ensure_under=cwd を指定
+    _safe_rmtree_abs(cfg.local_root, ensure_under=cwd)
+    rel_dirs = ["nf_rel", "nonpack_rel_dir", "sc_layout_rel_src"]
+    for d in rel_dirs:
+        abs_path: str = os.path.join(cwd, d)
+        _safe_rmtree_abs(abs_path, ensure_under=cwd)
+
+
 def snapshot_scatter_dest_verbose(cfg: Config, host: str, dest_abs: str,
                                   expected_paths: Optional[List[str]] = None) -> Dict[str, str]:
     """
@@ -1781,8 +1816,6 @@ def case_scatter_mixed_sources_two_hosts(cfg: Config) -> Dict[str, object]:
             "details": {"rc": run.rc, "rep_ubuntu": ok_u[1], "rep_alma": ok_a[1],
                         "argv": " ".join(shlex.quote(a) for a in argv)}}
 
-
-
 def case_scatter_pack_dedup_roots(cfg: Config) -> Dict[str, object]:
     """
     目的:
@@ -1803,20 +1836,22 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> Dict[str, object]:
     with open(os.path.join(dup_sub, "n.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("N\n")
 
-    dest_abs: str = "/tmp/gm_scatter_dedup_dest"
+    # テストごとに一意な DEST を使い、前回残骸や並列実行の干渉を排除
+    dest_abs: str = f"/tmp/gm_scatter_dedup_dest_{os.getpid()}_{int.from_bytes(os.urandom(2),'big')}"
     _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
     _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
     _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
                  "chown", "-R", "--", f"{user}:{user}", dest_abs)
 
     hosts_path: str = _write_temp_hosts([host])
-    # ホスト行数を記録（将来マルチホスト時の個数相関を可視化）
+    # ホスト行数（診断用）
     _hosts_cnt: int = 0
     try:
         with open(hosts_path, "r", encoding="utf-8") as hf:
             _hosts_cnt = sum(1 for _ in hf if _.strip())
     except Exception:
         _hosts_cnt = -1
+
     argv: List[str] = (
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack"]
@@ -1825,47 +1860,64 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> Dict[str, object]:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    base: str = os.path.join(dest_abs, dup_root.lstrip(os.sep))
+    # OS 非依存の相対化（先頭スラッシュ除去 + 区切り '/' 化）で一貫性を確保
+    dup_root_rel: str = _as_posix_rel(os.path.abspath(dup_root))
+    base: str = os.path.join(dest_abs, dup_root_rel)
     exp: str = os.path.join(base, "sub", "n.txt")
 
-    # どこに何個あるか内訳も採取
-    cmd: str = f'find {shlex.quote(dest_abs)} -type f -name n.txt | wc -l'
-    r: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd)
+    # 期待パス(exp)の存在を確認したうえで、「exp 以外の n.txt が無い」ことを確認
+    q_dest = shlex.quote(dest_abs)
+    q_exp  = shlex.quote(exp)
 
-    cnt: int
-    try:
-        cnt = int((r.stdout or "0").strip())
-    except Exception:
-        cnt = -1
+    cmd_total  = f'LC_ALL=C find {q_dest} -type f -name n.txt -printf "%p\\n" | wc -l'
+    cmd_others = f'LC_ALL=C find {q_dest} -type f -name n.txt ! -path {q_exp} -printf "%p\\n" | wc -l'
+    cmd_list   = f'LC_ALL=C find {q_dest} -type f -name n.txt -printf "%p\\n" | sort'
 
-    breakdown_cmd: str = (
-        f"find {shlex.quote(dest_abs)} -type f -name n.txt -printf '%h\\n' | sort | uniq -c"
-    )
-    r_br: subprocess.CompletedProcess[str] = ssh_do(
-        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", breakdown_cmd
-    )
+    r_total  = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd_total)
+    r_others = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd_others)
+    r_list   = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd_list)
 
-    # DEST全体のスナップショットも採取（HOMEではなくDEST固定）
+    def _to_int(s: str) -> int:
+        try:
+            return int((s or "0").strip())
+        except Exception:
+            return -1
+
+    cnt_total: int = _to_int(r_total.stdout)
+    cnt_others: int = _to_int(r_others.stdout)
+
+    # DEST全体のスナップショット（HOMEではなくDEST固定）
     snap_dest: Dict[str, str] = _remote_script_snapshot(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, dest_abs)
 
-    r_isfile: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp)
-    passed: bool = (run.rc == 0 and r_isfile.returncode == 0 and cnt == 1)
-    reason: str = "" if passed else (
-        f"rc={run.rc}, isfile_rc={r_isfile.returncode}, cnt={cnt}, exp={exp}"
+    r_isfile: subprocess.CompletedProcess[str] = ssh_do(
+        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp
     )
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
-            "details": {
-                "rc": run.rc,
-                "hosts_count": _hosts_cnt,
-                "count_n_txt": cnt,
-                "count_breakdown": r_br.stdout or "",
-                "exp": exp,
-                "argv": " ".join(shlex.quote(a) for a in argv),
-                "snapshot_dest_stdout": snap_dest.get("stdout", ""),
-                "snapshot_dest_stderr": snap_dest.get("stderr", ""),
-                "snapshot_dest_rc": snap_dest.get("rc", ""),
-            }}
 
+    # 合否: 実行成功 + 期待ファイルが存在 + 期待以外の n.txt が 0 件
+    passed: bool = (run.rc == 0 and r_isfile.returncode == 0 and cnt_others == 0)
+    reason: str = "" if passed else (
+        f"rc={run.rc}, isfile_rc={r_isfile.returncode}, "
+        f"total_n_txt={cnt_total}, others_except_exp={cnt_others}, exp={exp}"
+    )
+
+    return {
+        "name": name,
+        "passed": passed,
+        "skipped": False,
+        "reason": reason,
+        "details": {
+            "rc": run.rc,
+            "hosts_count": _hosts_cnt,
+            "count_total_n_txt": cnt_total,
+            "count_others_except_exp": cnt_others,
+            "list_all_n_txt": r_list.stdout or "",
+            "exp": exp,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+            "snapshot_dest_stdout": snap_dest.get("stdout", ""),
+            "snapshot_dest_stderr": snap_dest.get("stderr", ""),
+            "snapshot_dest_rc": snap_dest.get("rc", ""),
+        },
+    }
 
 
 def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> Dict[str, object]:
@@ -1933,38 +1985,40 @@ def main() -> None:
     _ = print_env(cfg)
 
     results: List[Dict[str, object]] = []
+    try:
+        _ = _preflight(cfg)
 
-    _ = _preflight(cfg)
+        results.append(case_path_semantics(cfg))
 
-    results.append(case_path_semantics(cfg))
+        results.append(case_selinux_auto_ubuntu_skip(cfg))
+        results.append(case_selinux_mode_alma(cfg))
+        results.append(case_selinux_policy_ignore_on_ubuntu(cfg))
+        results.append(case_gather_src_abs_slash_ok(cfg))
+        results.append(case_gather_src_abs_tilde_ok(cfg))
+        results.append(case_gather_src_rel_home_ok(cfg))
+        results.append(case_gather_src_tilde_user_error(cfg))
+        results.append(case_scatter_dest_relative_ok_to_home(cfg))
+        results.append(case_scatter_dest_abs_variants(cfg))
+        results.append(case_gather_follow_symlinks_files(cfg))
+        results.append(case_scatter_follow_symlinks_files(cfg))
+        results.append(case_scatter_pack_extract_user(cfg))
+        results.append(case_scatter_pack_extract_sudo(cfg))
+        results.append(case_scatter_pack_extract_sudo_existing_root(cfg))
+        results.append(case_gather_double_nesting_regression(cfg))
+        results.append(case_scatter_src_path_layout_semantics(cfg))
+        results.append(case_scatter_dest_relative_to_remote_home(cfg))
+        results.append(case_scatter_dest_tilde_username_rejected(cfg))
+        results.append(case_scatter_nonpack_file_only_layout(cfg))
+        results.append(case_scatter_mixed_sources_two_hosts(cfg))
+        results.append(case_scatter_pack_dedup_roots(cfg))
+        results.append(case_scatter_nonpack_same_basename_collision_free(cfg))
 
-    results.append(case_selinux_auto_ubuntu_skip(cfg))
-    results.append(case_selinux_mode_alma(cfg))
-    results.append(case_selinux_policy_ignore_on_ubuntu(cfg))
-    results.append(case_gather_src_abs_slash_ok(cfg))
-    results.append(case_gather_src_abs_tilde_ok(cfg))
-    results.append(case_gather_src_rel_home_ok(cfg))
-    results.append(case_gather_src_tilde_user_error(cfg))
-    results.append(case_scatter_dest_relative_ok_to_home(cfg))
-    results.append(case_scatter_dest_abs_variants(cfg))
-    results.append(case_gather_follow_symlinks_files(cfg))
-    results.append(case_scatter_follow_symlinks_files(cfg))
-    results.append(case_scatter_pack_extract_user(cfg))
-    results.append(case_scatter_pack_extract_sudo(cfg))
-    results.append(case_scatter_pack_extract_sudo_existing_root(cfg))
-    results.append(case_gather_double_nesting_regression(cfg))
-    results.append(case_scatter_src_path_layout_semantics(cfg))
-    results.append(case_scatter_dest_relative_to_remote_home(cfg))
-    results.append(case_scatter_dest_tilde_username_rejected(cfg))
-    results.append(case_scatter_nonpack_file_only_layout(cfg))
-    results.append(case_scatter_mixed_sources_two_hosts(cfg))
-    results.append(case_scatter_pack_dedup_roots(cfg))
-    results.append(case_scatter_nonpack_same_basename_collision_free(cfg))
-
-    print("STEP4 SUMMARY")
-    summary: str = json.dumps({"results": results}, indent=2, ensure_ascii=False)
-    print(summary)
-
+        print("STEP4 SUMMARY")
+        summary: str = json.dumps({"results": results}, indent=2, ensure_ascii=False)
+        print(summary)
+    finally:
+        # 例外の有無に関わらずローカル一時ディレクトリを掃除
+        cleanup_local_temps(cfg)
 
 if __name__ == "__main__":
     main()

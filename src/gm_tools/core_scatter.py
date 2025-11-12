@@ -134,6 +134,7 @@ def _norm_noslash(path: str) -> str:
     s: str = path
     return s if s == "/" else s.rstrip("/")
 
+
 def local_pack_paths_to_tmp(
     paths: Iterable[str],
     follow_symlinks: bool,
@@ -160,26 +161,71 @@ def local_pack_paths_to_tmp(
     in_paths: List[str] = list(paths)
     in_arcnames: Optional[List[str]] = list(arcnames) if arcnames is not None else None
     abs_paths: List[str] = [os.path.abspath(p) for p in in_paths]
+
+    # 実体（realpath）ベースで親子判定・重複除去を行う。
+    # Windows では casefold() で大小無視を担保。
+    def _canon(p_in: str) -> str:
+        p0: str = os.path.abspath(p_in)
+        rp: str = os.path.realpath(p0)
+        canon: str = rp.casefold() if os.name == "nt" else rp
+        return canon
+
+    # (index, orig_abs, canon_abs)
+    triples: List[Tuple[int, str, str]] = []
+    idx_i: int
+    ap: str
+    for idx_i, ap in enumerate(abs_paths):
+        canon_abs: str = _canon(ap)
+        triples.append((idx_i, ap, canon_abs))
+
+    # canon_abs 基準で (深さ, 長さ, canon_abs, idx) で安定ソート
+    triples_sorted: List[Tuple[int, str, str]] = sorted(
+        triples,
+        key=lambda t: (t[2].count(os.sep), len(t[2]), t[2], t[0])
+    )
+
     kept_idx: List[int] = []
-    kept_roots: List[str] = []
-    i: int
-    ap0: str
-    for i, ap0 in enumerate(abs_paths):
-        apn: str = os.path.normpath(ap0)
-        skip: bool = False
-        root: str
-        for root in kept_roots:
+    kept_canons: List[str] = []
+
+    t: Tuple[int, str, str]
+    for t in triples_sorted:
+        i: int = t[0]
+        _orig_abs: str = t[1]
+        canon_abs_i: str = t[2]
+        # 既存 kept_canons の親に含まれていればスキップ（子）
+        is_child: bool = False
+        kc: str
+        for kc in kept_canons:
+            common: str = ""
             try:
-                common: str = os.path.commonpath([apn, root])
+                common = os.path.commonpath([canon_abs_i, kc])
             except ValueError:
                 common = ""
-            if common == root:
-                skip = True
+            if common == kc and canon_abs_i != kc:
+                is_child = True
                 break
-        if skip:
+        if is_child:
             continue
+        # 逆に今回が親なら、既存の子を外す
+        new_kept_idx: List[int] = []
+        new_kept_canons: List[str] = []
+        j: int
+        kc2: str
+        for j, kc2 in enumerate(kept_canons):
+            common2: str = ""
+            try:
+                common2 = os.path.commonpath([canon_abs_i, kc2])
+            except ValueError:
+                common2 = ""
+            if common2 == canon_abs_i and canon_abs_i != kc2:
+                # 既存は子 → 捨てる
+                continue
+            new_kept_idx.append(kept_idx[j])
+            new_kept_canons.append(kc2)
+        kept_idx = new_kept_idx
+        kept_canons = new_kept_canons
         kept_idx.append(i)
-        kept_roots.append(apn)
+        kept_canons.append(canon_abs_i)
     plist: List[str] = [in_paths[i] for i in kept_idx]
     alist: Optional[List[str]] = [in_arcnames[i] for i in kept_idx] if in_arcnames is not None else None
 
