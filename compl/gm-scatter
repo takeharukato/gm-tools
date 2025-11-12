@@ -137,7 +137,7 @@ _gm_scatter()
     fi
 
     # positional arguments:
-    # gm-scatter は 0..N の src と最後に dest（必須）だが、補完段階では判別困難。
+    # gm-scatter は 0..N の src と最後に dest ( 必須 ) だが, 補完段階では判別困難。
     # ここでは src/dest の双方に有用なファイル名補完を提供する。
     compopt -o filenames
     COMPREPLY=( $(compgen -f -- "$cur") )

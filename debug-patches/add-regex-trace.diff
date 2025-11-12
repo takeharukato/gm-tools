@@ -1,0 +1,507 @@
+diff --git a/src/gm_tools/core_path_handling.py b/src/gm_tools/core_path_handling.py
+index 7009375..4747040 100644
+--- a/src/gm_tools/core_path_handling.py
++++ b/src/gm_tools/core_path_handling.py
+@@ -9,6 +9,11 @@
+ from typing import Optional
+ from dataclasses import dataclass
+ 
++import logging
++from typing import Optional
++
++_LOG = logging.getLogger(__name__)
++
+ # === Constants (shared) ===
+ TILDE_USER_RE: re.Pattern[str] = re.compile(r"^~([A-Za-z0-9._-]+)(?:$|[\\/])")
+ HOME_DETECT_CMD_FMT: str = "getent passwd {user} | cut -d: -f6"
+@@ -252,12 +257,15 @@ def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
+         tail_full = abs_path[3:]
+         if not tail_full:
+             # 'C:/' 意図: 直下すべて
++            _LOG.debug("path: split result input=%r root=%r tail_re=%r", abs_path, drive_root, r".*")
+             return (drive_root, r".*")
+         m_drive = CORE_PATH_HANDLING_REGEX_META_COMPILED.search(tail_full)
+         if m_drive is None:
+             # リテラル一致
++            _LOG.debug("path: split result input=%r root=%r tail_re=%r", abs_path, drive_root, "^" + re.escape(tail_full) + "$")
+             return (drive_root, "^" + re.escape(tail_full) + "$")
+         # 正規表現を tail にそのまま保持
++        _LOG.debug("path: split result input=%r root=%r tail_re=%r", abs_path, drive_root, tail_full)
+         return (drive_root, tail_full)
+ 
+ 
+@@ -334,7 +342,15 @@ def scatter_expand_tilde_for_exec_user(raw: str) -> str:
+         raise ValueError(f"~user/ form is not accepted in scatter: {s!r}")
+     if is_tilde_self_form(s):
+         expanded: str = os.path.expanduser(s)
++        try:
++            _LOG.debug("path: expand_exec_user in=%r out=%r", s, expanded)
++        except Exception:
++            pass
+         return expanded
++    try:
++        _LOG.debug("path: no expanded: expand_exec_user in=%r out=%r", s, s)
++    except Exception:
++        pass
+     return s
+ 
+ # ============================================================
+@@ -363,6 +379,10 @@ def normalize_rel_for_dest(rel: str) -> str:
+             stack.pop()
+         else:
+             stack.append(p)
++    try:
++        _LOG.debug("path: normalize_rel_for_dest in=%r out=%r", rel, SEP_POSIX.join(stack))
++    except Exception:
++        pass
+     return SEP_POSIX.join(stack)
+ 
+ 
+@@ -432,6 +452,14 @@ def resolve_token_for_scatter(token: ScatterSrcToken, cwd: Optional[str] = None)
+         abs_root = os.path.abspath(os.path.join(cwd or os.getcwd(), raw2))
+         rel_root = normalize_rel_for_dest(raw2)
+ 
++    try:
++        _LOG.debug(
++            "path: resolve_scatter raw=%r -> abs_root=%r rel_root=%r cwd=%r is_abs=%s",
++            token.raw, abs_root, rel_root, cwd, is_abs
++        )
++    except Exception:
++        pass
++
+     return ScatterResolvedToken(abs_root=abs_root, rel_root=rel_root, is_absolute=is_abs)
+ 
+ # 正規表現として解釈される可能性が高いかの軽量判定
+@@ -449,4 +477,8 @@ def looks_like_regex(text: str) -> bool:
+         if has_char:
+             found = True
+             break
++    try:
++        _LOG.debug("path: looks_like_regex s=%r -> %s", text, found)
++    except Exception:
++        pass
+     return found
+diff --git a/src/gm_tools/core_scatter.py b/src/gm_tools/core_scatter.py
+index ac07cf5..0acca19 100644
+--- a/src/gm_tools/core_scatter.py
++++ b/src/gm_tools/core_scatter.py
+@@ -156,6 +156,11 @@ def _filter(ti: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
+             return None
+         return ti_in
+ 
++    # 入口ログ
++    _in_paths_preview: List[str] = [str(p) for p in paths]
++    _in_arcnames_preview: Optional[List[str]] = ([str(a) for a in arcnames] if arcnames is not None else None)
++    _dbg_log(f"[pack] enter follow_symlinks={bool(follow_symlinks)} paths={_in_paths_preview} arcnames={_in_arcnames_preview}")
++
+     tmpdir: str = tempfile.mkdtemp(prefix="gm_scatter_pack_")
+     tar_path: str = os.path.join(tmpdir, "payload.tar.gz")
+     in_paths: List[str] = list(paths)
+@@ -228,6 +233,7 @@ def _canon(p_in: str) -> str:
+         kept_canons.append(canon_abs_i)
+     plist: List[str] = [in_paths[i] for i in kept_idx]
+     alist: Optional[List[str]] = [in_arcnames[i] for i in kept_idx] if in_arcnames is not None else None
++    _dbg_log(f"[pack] dedup roots kept={plist} arcnames={alist if alist is not None else 'N/A'}")
+ 
+     # arcnames 正規化と重複排除（与えられている場合）
+     if alist is not None:
+@@ -247,6 +253,7 @@ def _canon(p_in: str) -> str:
+         else:
+             # 全て重複で消えた場合は, 両者とも空に揃える
+             plist, alist = [], []
++        _dbg_log(f"[pack] arcnames normalized dedup: paths={plist} arcnames={alist}")
+ 
+     added: List[str] = []
+ 
+@@ -275,12 +282,15 @@ def _canon(p_in: str) -> str:
+                     arc_norm2 = os.path.basename(ap).replace("\\", "/")
+                 arcname: str = arc_norm2
+ 
++            _dbg_log(f"[pack] add ap={ap} -> arcname={arcname!r}")
++
+             # ここで arcname == '' の場合, tarfile はトップのディレクトリエントリ '' と
+             # その直下（例: 'etc', 'var', ...）を格納する。
+             # 抽出側は相対名で扱うため問題なし（'' エントリはディレクトリであり isfile() では弾かれる）。
+             tf.add(ap, arcname=arcname, recursive=True, filter=_filter)
+             added.append(arcname)
+ 
++    _dbg_log(f"[pack] built tar={tar_path} entries={len(added)}")
+     return tar_path, added
+ 
+ def write_members_file(
+@@ -370,6 +380,7 @@ def upload_pack_and_extract(
+     selinux_capable: bool = detect_selinux_capable(ssh)
+     acl_ok: bool = check_acl_tools_available(ssh)
+     xattr_ok: bool = check_xattr_tools_available(ssh)
++    _dbg_log(f"[upload] enter host={host} dest={dest_abs_root} sudo_extract={bool(sudo_extract)} selinux_capable={bool(selinux_capable)} acl={bool(acl_ok)} xattr={bool(xattr_ok)} dry_run={bool(dry_run)}")
+ 
+     # target_user の primary group
+     if sudo_extract and target_user:
+@@ -394,6 +405,7 @@ def upload_pack_and_extract(
+     rtmp_created = (rc_mk == 0)
+     _uid = getattr(os, "getuid", lambda: 0)()
+     remote_tar: str = f"{rtmp}/payload.{os.getpid()}.{_uid}.tar.gz"
++    _dbg_log(f"[upload] tmpdir={rtmp} created={bool(rtmp_created)} remotetar={remote_tar}")
+ 
+     # 一時物の一括掃除（存在しなくてもエラーにしない）
+     def _cleanup_all() -> None:
+@@ -427,14 +439,14 @@ def _cleanup_all() -> None:
+                 ),
+             )
+             return
+-
++        _dbg_log(f"[upload] put tar ok -> {remote_tar}")
+         # 2) DEST を作成
+         try:
+             remote_mkdir_p(ssh, dest_abs_root, use_sudo=sudo_extract)
+         except Exception as _ex:
+             report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_MKDIR_DEST: {str(_ex)}"))
+             return
+-
++        _dbg_log(f"[upload] ensure dest ok -> {dest_abs_root}")
+         # 3) tar flavor 検出
+         try:
+             cmd_flavor: CmdFlavor = detect_tar_flavor_remote(ssh, timeout=TAR_DETECT_TIMEOUT)
+@@ -443,6 +455,8 @@ def _cleanup_all() -> None:
+             report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_TAR_DETECT: {str(_ex)}"))
+             return
+ 
++        _dbg_log(f"[upload] tar flavor={flavor}")
++
+         # 4) ローカルアーカイブのメンバー一覧
+         try:
+             rel_files, empty_dirs = list_tar_members_local(tar_path)
+@@ -450,6 +464,8 @@ def _cleanup_all() -> None:
+             report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_TAR_LIST: {str(_ex)}"))
+             return
+ 
++        _dbg_log(f"[upload] tar members files={len(rel_files)} empty_dirs={len(empty_dirs)}")
++
+         # 5) EXIST/NEW 仕分け
+         try:
+             exist_set, new_set = split_exist_new_by_remote_presence(
+@@ -501,6 +517,8 @@ def _cleanup_all() -> None:
+                 report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=f"E_MEMBERS_NEW_WRITE: {str(_ex)}"))
+                 return
+ 
++            _dbg_log(f"[upload] write -T (NEW) -> {members_file_new} count={len(new_list)}")
++
+             try:
+                 extract_cmd_new: List[str] = build_tar_extract_cmd(
+                     flavor=flavor, dest_abs=dest_abs_root, tar_gz_path=remote_tar,
+@@ -510,12 +528,17 @@ def _cleanup_all() -> None:
+                 report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_BUILD_EXTRACT_NEW: {str(_ex)}"))
+                 return
+ 
++            _cmd_new_str: str = " ".join(extract_cmd_new)
++            _dbg_log(f"[upload] extract NEW cmd={_cmd_new_str}")
++
+             rc_n, out_n, err_n = run_remote_cmd_capture(ssh, extract_cmd_new, timeout=EXTRACT_TIMEOUT_NEW)
+             if rc_n != 0:
+                 reason_n: str = (err_n.strip() or out_n.strip() or f"E_EXTRACT_NEW: rc={rc_n}")
+                 report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_n))
+                 return
+ 
++            _dbg_log(f"[upload] extract NEW ok count={len(new_list)}")
++
+             # NEW の chown（sudo 経路のみ）: ファイル本体 + 親ディレクトリも整える
+             if sudo_extract and target_user is not None and primary_group is not None:
+                 # 1) ファイル本体
+@@ -550,16 +573,24 @@ def _cleanup_all() -> None:
+                 report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=f"E_MEMBERS_EXIST_WRITE: {str(_ex)}"))
+                 return
+ 
++            _dbg_log(f"[upload] write -T (EXIST) -> {members_file_exist} count={len(exist_list)}")
++
+             extract_cmd_exist: List[str] = build_tar_extract_cmd(
+                 flavor=flavor, dest_abs=rtmp_exist, tar_gz_path=remote_tar,
+                 use_sudo=False, members_file=members_file_exist,
+             )
++
++            _cmd_exist_str: str = " ".join(extract_cmd_exist)
++            _dbg_log(f"[upload] extract EXIST tmp={rtmp_exist} cmd={_cmd_exist_str}")
++
+             rc_e, out_e, err_e = run_remote_cmd_capture(ssh, extract_cmd_exist, timeout=EXTRACT_TIMEOUT_EXIST)
+             if rc_e != 0:
+                 reason_e: str = (err_e.strip() or out_e.strip() or f"E_EXTRACT_EXIST_TMP: rc={rc_e}")
+                 report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_e))
+                 return
+ 
++            _dbg_log(f"[upload] extract EXIST to tmp ok count={len(exist_list)}")
++
+             rc_mkm, out_mkm, _ = run_remote_cmd_capture(
+                 ssh, ["bash","-lc","mktemp -d /tmp/gm-meta.XXXXXXXX"], timeout=PREFLIGHT_TEST_TIMEOUT)
+             rtmp_meta = (out_mkm.strip() if rc_mkm == 0 else None)
+@@ -612,6 +643,8 @@ def _cleanup_all() -> None:
+                     _LOG.error(f"[overwrite error] host={host} dst={dst_abs2} rc={rc_w} err={err_w.strip()}")
+                     continue
+ 
++                _dbg_log(f"[upload] overwrite EXIST -> {dst_abs2}")
++
+                 if sudo_extract:
+                     meta = meta_map.get(rel_over, {})
+                     try:
+@@ -663,12 +696,15 @@ def _cleanup_all() -> None:
+                     report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=f"E_SELINUX_RESTORECON: {str(_ex)}"))
+                     return
+ 
++                _dbg_log(f"[upload] restorecon paths={len(paths_restorecon)} mode={selinux_mode}")
++
+         # 10) 完了
+         report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="done"))
+         return
+ 
+     finally:
+         _cleanup_all()
++        _dbg_log(f"[upload] cleanup temp (tar, -T files, tmpdirs)")
+ 
+ 
+ def sftp_put_one(
+@@ -731,6 +767,7 @@ def _cleanup_meta() -> None:
+ 
+     # 転送先のベースパス ( 末尾'/'に依存しない )
+     rpath: str = _posix_join(dest_abs_root.rstrip("/"), rel_effective)
++    _dbg_log(f"[sftp] plan local={ap} was_rel_input={bool(was_rel_input)} rel_default={rel_default!r} remote_rel_in={remote_rel!r} rel_effective={rel_effective!r} rpath={rpath} sudo_mkdir={bool(sudo_mkdir)}")
+ 
+     # symlink は送らない (この時点では, rtmp_meta未作成のためクリーンナップ不要)
+     if os.path.islink(ap):
+@@ -776,6 +813,8 @@ def _cleanup_meta() -> None:
+     except Exception as _ex:
+         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=str(_ex)))
+         return
++    _dbg_log(f"[sftp] ensure dir {rdir} (sudo={bool(sudo_mkdir)})")
++
+     # sudo_mkdir 経路では SFTP 書込可否を事前検査（sudo できないため）
+     if sudo_mkdir:
+         rc_w, _, _ = run_remote_cmd_capture(
+@@ -828,6 +867,9 @@ def _cleanup_meta() -> None:
+                 report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=str(_ex)))
+                 _cleanup_meta()
+                 return
++
++            _dbg_log(f"[sftp] ensure dir {rr} (walk subdir)")
++
+             if sudo_mkdir:
+                 rc_w2, _, _ = run_remote_cmd_capture(
+                     ssh, ["bash","-lc", f"test -w {shlex.quote(rr)}"], timeout=CHECK_REGFILE_TIMEOUT
+@@ -864,6 +906,7 @@ def _cleanup_meta() -> None:
+ 
+                 # put 先はファイルパス ( 末尾'/'なし )
+                 dst: str = _posix_join(rr, fn)
++                _dbg_log(f"[sftp] put file lp={lp} -> dst={dst}")
+                 _sftp_put_with_exist_restore(
+                     ssh=ssh,
+                     sftp=sftp,
+@@ -877,6 +920,7 @@ def _cleanup_meta() -> None:
+                     rtmp_meta=rtmp_meta,
+                 )
+     else:
++        _dbg_log(f"[sftp] put single local={ap} -> remote={rpath}")
+         _sftp_put_with_exist_restore(
+             ssh=ssh,
+             sftp=sftp,
+@@ -920,6 +964,7 @@ def _sftp_put_with_exist_restore(
+     _e_ex: str
+     rc_ex, _o_ex, _e_ex = run_remote_cmd_capture(ssh, (["bash", "-lc", f"test -e {qdst}"]), timeout=CHECK_REGFILE_TIMEOUT)
+     exist_before: bool = (rc_ex == 0)
++    _dbg_log(f"[sftp] exist? path={remote_path} -> {bool(exist_before)}")
+ 
+     # メタの事前キャプチャ ( EXIST のみ )
+     owner: Optional[str] = None
+@@ -949,6 +994,8 @@ def _sftp_put_with_exist_restore(
+         report.add(host, TransferItem(host=host, remote_path=remote_path, phase="transfer", status="failed", reason=str(ex), local_path=local_path))
+         return
+ 
++    _dbg_log(f"[sftp] put ok local={local_path} -> remote={remote_path}")
++
+     # 復元 ( EXIST のみ ) 。sudo が必要。
+     if exist_before and sudo_needed:
+         try:
+@@ -966,3 +1013,4 @@ def _sftp_put_with_exist_restore(
+                 restore_xattr_dump(ssh, xat_dump, use_sudo=True)
+             except Exception as _ex:
+                 report.add(host, TransferItem(host=host, remote_path=remote_path, phase="transfer", status="failed", reason=f"E_RESTORE_XATTR: {str(_ex)}"))
++        _dbg_log(f"[sftp] restore meta done path={remote_path} owner={owner} group={group} mode={mode}")
+diff --git a/src/gm_tools/core_select.py b/src/gm_tools/core_select.py
+index 4f293af..87f1314 100644
+--- a/src/gm_tools/core_select.py
++++ b/src/gm_tools/core_select.py
+@@ -425,12 +425,19 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
+     seen: Set[str] = set()
+     cwd: str = os.getcwd()
+ 
++    # 解析用: 入力トークンと CWD を記録（paths がイテレータでも消費しないよう materialize）
++    paths_list: List[str] = [str(p) for p in list(paths)]
++    try:
++        _LOG.debug("enum_local: incoming tokens=%s cwd=%s", paths_list, cwd)
++    except Exception:
++        pass
++
+     # "~" を含むかどうかの判定ヘルパ（展開のタイミングを誤らないため分離）
+     def _looks_tilde(s: str) -> bool:
+         s_in: str = s
+         return s_in.startswith("~" + os.sep) or s_in == "~" or s_in.startswith("~/")
+ 
+-    for p in paths:
++    for p in paths_list:
+         token: str = p
+         # 1) まずは **元のトークン** を正規化して正規表現メタを検出する
+         #    - ここでは expanduser を実行しない（"~" を正規表現文字と誤解しないため）
+@@ -438,6 +445,7 @@ def _looks_tilde(s: str) -> bool:
+         raw_norm = re.sub(r"/+", "/", raw_norm)
+ 
+         has_meta: bool = looks_like_regex(raw_norm)
++        _LOG.debug("enum_local: token=%r raw_norm=%r has_meta=%s", token, raw_norm, has_meta)
+ 
+         # 2) 実際にファイル探索に使うための絶対パス化
+         #    - "~" はこのタイミングでのみ展開する
+@@ -465,11 +473,13 @@ def _looks_tilde(s: str) -> bool:
+             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
+         except ValueError as _ex:
+             _ex_msg: str = str(_ex)
++            _LOG.debug("enum_local: split failed token=%r abs_norm=%r err=%s", token, abs_norm, _ex_msg)
+             # 不正トークンは無視（gather と整合）
+             continue
+ 
+         if not os.path.isdir(root):
+             # 走査起点がディレクトリでなければ列挙不可
++            _LOG.debug("enum_local: root not dir token=%r root=%r (skip)", token, root)
+             continue
+ 
+         pattern_text: str = tail_re if tail_re else r".*"
+@@ -484,6 +494,7 @@ def _looks_tilde(s: str) -> bool:
+         dirpath: str
+         _dirnames: List[str]
+         filenames: List[str]
++        yielded_count: int = 0
+         for dirpath, _dirnames, filenames in os.walk(walk_root, followlinks=False):
+             name: str
+             for name in filenames:
+@@ -494,8 +505,10 @@ def _looks_tilde(s: str) -> bool:
+                     ap_abs: str = os.path.abspath(ap)
+                     if ap_abs not in seen:
+                         seen.add(ap_abs)
++                        yielded_count += 1
+                         yield ap_abs
+ 
++        _LOG.debug("enum_local: regex-walk root=%r pat=%r yielded=%d", walk_root, pattern_text, yielded_count)
+         # ルート自身に対するマッチ（空相対にマッチ）を考慮し、ディレクトリ根を含める
+         try:
+             root_rel_self: str = ""
+@@ -504,6 +517,7 @@ def _looks_tilde(s: str) -> bool:
+                 root_abs: str = os.path.abspath(root)
+                 if root_abs not in seen:
+                     seen.add(root_abs)
++                    _LOG.debug("enum_local: regex-root-yield %r (matches empty)", root_abs)
+                     yield root_abs
+         except Exception as _e:
+             _e_msg: str = str(_e)
+diff --git a/src/gm_tools/scatter_cli.py b/src/gm_tools/scatter_cli.py
+index 112c3da..ea673b0 100644
+--- a/src/gm_tools/scatter_cli.py
++++ b/src/gm_tools/scatter_cli.py
+@@ -6,6 +6,7 @@
+ import os
+ import sys
+ import threading
++import logging
+ from argparse import BooleanOptionalAction, Namespace
+ from pathlib import Path
+ from typing import Dict, List, Optional, Tuple, Final, Sequence, Set
+@@ -52,6 +53,8 @@
+ )
+ from .scatter_parallel import execute as run_parallel
+ 
++_LOG = logging.getLogger(__name__)
++
+ # === Module-level constants ===
+ _DESC: str = (
+     "gm-scatter: upload local files to remote DEST.\n"
+@@ -231,6 +234,16 @@ def _build_plan_for_host(
+         res = resolve_token_for_scatter(tok, cwd=os.getcwd())
+         tokens_and_resolved.append((tok, res))
+ 
++        try:
++            # 解析ログ: 入力・解決・正規表現判定
++            _is_rx: bool = looks_like_regex(tok.raw)
++            _LOG.debug(
++                "scatter: token raw=%r is_rx=%s abs_root=%r rel_root=%r",
++                tok.raw, _is_rx, res.abs_root, res.rel_root
++            )
++        except Exception:
++            pass
++
+     # 候補列挙とリモート配置 rel の算出
+     #  - 絶対 SRC: rel_root は <local_abs_without_leading_slash>
+     #  - 相対 SRC: rel_root は <指定された相対パス> ( 正規化済 )
+@@ -243,10 +256,13 @@ def _build_plan_for_host(
+         # pack ルートが候補列挙に出ない実装に備えて、先にマップだけは保証しておく
+         remote_rel_map[os.path.abspath(res.abs_root)] = res.rel_root
+         token_for_enum: str = scatter_expand_tilde_for_exec_user(tok.raw)
++        _LOG.debug("scatter: enum-input token_for_enum=%r (from raw=%r)", token_for_enum, tok.raw)
+         cand_list: List[str] = list(enumerate_candidates_local([token_for_enum]))
++        _LOG.debug("scatter: enum-return count=%d for raw=%r", len(cand_list), tok.raw)
+         for p in cand_list:
+             st_is_dir: bool = os.path.isdir(p)
+             if (not pack) and st_is_dir:
++                _LOG.debug("scatter: skip-dir-nonpack p=%r", p)
+                 continue
+             # inner_rel: abs_root からの相対。ルート自身は追加なし ( =空 ) 。
+             try:
+@@ -258,6 +274,11 @@ def _build_plan_for_host(
+ 
+             inner_rel: str = normalize_rel_for_dest(inner_rel_raw)
+             remote_rel: str = res.rel_root if not inner_rel else normalize_rel_for_dest(f"{res.rel_root}/{inner_rel}")
++            _LOG.debug(
++                "scatter: entry p=%r is_dir=%s inner_rel=%r remote_rel=%r",
++                p, st_is_dir, inner_rel, remote_rel
++            )
++
+             # ルックアップの安定化のため絶対パスキーで登録
+             key_abs: str = os.path.abspath(p)
+             remote_rel_map[key_abs] = remote_rel
+@@ -427,6 +448,24 @@ def _normalize_pack_srcs(srcs: Sequence[str]) -> List[str]:
+     parser: argparse.ArgumentParser = build_parser()
+     args: Namespace = parser.parse_args()
+ 
++    # 先にロガー初期化（Plan 構築より前に DEBUG を有効化して core_select 側のログを出す）
++    init_logging(verbose=bool(getattr(args, "verbose", False)))
++    # gm_tools 名前空間のロガーを DEBUG へ（冗長さは --verbose に依存させる）
++    import logging as _logging  # 局所 import（型：ModuleType）
++    _logger_pkg: _logging.Logger = _logging.getLogger("gm_tools")
++    _logger_sel: _logging.Logger = _logging.getLogger("gm_tools.core_select")
++    if bool(getattr(args, "verbose", False)):
++        _logger_pkg.setLevel(_logging.DEBUG)
++        _logger_sel.setLevel(_logging.DEBUG)
++
++    # 診断用に CWD と生 SRC を STDERR へ
++    _diag_cwd: str = os.getcwd()
++    print(f"[diag] cwd={_diag_cwd}", file=sys.stderr)
++    _s_arg: str
++    for _s_arg in args.src:
++        print(f"[diag] raw SRC={_s_arg}", file=sys.stderr)
++
++
+     # 位置引数検証 ( gather と同様の方針 )
+     if len(args.src) < 1 or not args.dest:
+         print("At least one SRC and a DEST are required.", file=sys.stderr)
+@@ -445,6 +484,10 @@ def _normalize_pack_srcs(srcs: Sequence[str]) -> List[str]:
+     srcs_input: List[str] = list(args.src)
+     if bool(args.pack):
+         srcs_input = _normalize_pack_srcs(srcs_input)
++        try:
++            _LOG.debug("scatter: pack-normalized-srcs=%s", srcs_input)
++        except Exception:
++            pass
+ 
+     plan_per_host: Dict[str, Plan] = {}
+     meta_per_host: Dict[str, Dict[str, object]] = {}
+@@ -474,7 +517,7 @@ def _normalize_pack_srcs(srcs: Sequence[str]) -> List[str]:
+ 
+     # dry-run: 計画のみ出力 ( logger 集約 )
+     if bool(args.dry_run):
+-        init_logging(verbose=bool(args.verbose))
++
+         aggr: HostLogAggregator = HostLogAggregator(op="scatter")
+         for host in hosts:
+             plan_opt: Optional[Plan] = plan_per_host.get(host)

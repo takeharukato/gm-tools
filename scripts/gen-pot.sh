@@ -2,7 +2,7 @@
 # gen-pot.sh - create/update POT from src/*.py
 # Usage: ./setup-i18n.sh [textdomain]
 # Examples:
-#   デフォルト（DOMAIN=gm-tools, SRCDIR=src, OUTDIR=locale）
+#   デフォルト ( DOMAIN=gm-tools, SRCDIR=src, OUTDIR=locale )
 #   ./gen-pot.sh
 #
 #   ドメイン名を指定
@@ -16,12 +16,12 @@
 set -euo pipefail
 
 # ==== settings ====
-DOMAIN="${1:-gm-tools}"                 # textdomain（出力ファイル名のベース）。引数で上書き可
+DOMAIN="${1:-gm-tools}"                 # textdomain ( 出力ファイル名のベース ) 。引数で上書き可
 SRCDIR="${SRCDIR:-src}"                 # 走査対象のディレクトリ
 OUTDIR="${OUTDIR:-locale}"              # 出力先ディレクトリ
 POT="${OUTDIR}/${DOMAIN}.pot"
 
-# 抽出対象のキーワード（Pythonのgettext慣習）
+# 抽出対象のキーワード ( Pythonのgettext慣習 )
 #  - _()
 #  - ngettext(singular, plural, n)
 #  - pgettext(context, msg)
@@ -58,19 +58,19 @@ find "$SRCDIR" -type f -name '*.py' \
 
 if ! test -s "$tmp_list"; then
   echo "No Python files found under '$SRCDIR'." >&2
-  # 空でもPOTだけは生成しておく（ツールチェーンがファイルを期待することがあるため）
+  # 空でもPOTだけは生成しておく ( ツールチェーンがファイルを期待することがあるため )
   : > "$POT"
   exit 0
 fi
 
-# 版情報（任意）
+# 版情報 ( 任意 )
 PKG_NAME="${PKG_NAME:-$DOMAIN}"
 PKG_VER="${PKG_VER:-$(git describe --tags --always 2>/dev/null || echo 0.0.0)}"
 
 # ==== run xgettext ====
 # --from-code=UTF-8 : UTF-8想定
 # --language=Python : Python用パーサ
-# --add-location=file : 参照元位置をファイル名だけに（行番号はdiffノイズになりやすい）
+# --add-location=file : 参照元位置をファイル名だけに ( 行番号はdiffノイズになりやすい )
 # -f listfile : 入力ファイル一覧を与える
 xgettext \
   --language=Python \

@@ -962,16 +962,16 @@ def make_external_tar_gz_from_relmap(
     verbose: bool
 ) -> str:
     """
-    rel_map (abs -> rel) を正しくアーカイブ名に反映するため、テンポラリの
-    ステージングディレクトリ配下に 'rel' 階層を作成し、通常ファイルは
-    可能ならハードリンク、シンボリックリンクは symlink を再現してから
+    rel_map (abs -> rel) を正しくアーカイブ名に反映するため, テンポラリの
+    ステージングディレクトリ配下に 'rel' 階層を作成し, 通常ファイルは
+    可能ならハードリンク, シンボリックリンクは symlink を再現してから
     外部 tar で一括圧縮する。
 
     引数:
       rel_map (Dict[str, str]): {abs_path -> rel_posix} の対応表。
-      preserve_owner (bool): 抽出時に所有者を復元するか（格納時は GNU/bsdtar 依存）。
-      preserve_acls (bool): ACL を格納/復元するか（GNU tar では --acls）。
-      preserve_xattrs (bool): xattr を格納/復元するか（GNU tar では --xattrs）。
+      preserve_owner (bool): 抽出時に所有者を復元するか ( 格納時は GNU/bsdtar 依存 ) 。
+      preserve_acls (bool): ACL を格納/復元するか ( GNU tar では --acls ) 。
+      preserve_xattrs (bool): xattr を格納/復元するか ( GNU tar では --xattrs ) 。
       preserve_perms (bool): パーミッションを可能な範囲で保持するか。
       verbose (bool): 実行ログ出力。
 
@@ -1022,7 +1022,7 @@ def make_external_tar_gz_from_relmap(
             except Exception as e:
                 print(_("[local] Error creating empty dir {dst}: {msg}").format(dst=str(staging_dir / rel_dir), msg=e), file=sys.stderr)
 
-        # 1) rel 階層をステージングに再現（ディレクトリは再帰的に展開）
+        # 1) rel 階層をステージングに再現 ( ディレクトリは再帰的に展開 )
         for ap, rel in rel_map.items():
             try:
                 if os.path.isdir(ap) and not os.path.islink(ap):
@@ -1048,7 +1048,7 @@ def make_external_tar_gz_from_relmap(
             except Exception as e:
                 print(_("[local] Error staging {src} -> {dst}: {msg}").format(src=ap, dst=str(staging_dir / rel), msg=e), file=sys.stderr)
 
-        # 2) 外部 tar で固める（GNU tar なら --acls/--xattrs を付与）
+        # 2) 外部 tar で固める ( GNU tar なら --acls/--xattrs を付与 )
         cmd: List[str] = [tar_cmd, "-czf", str(out_path)]
         local_flavor = probe_local_tar_flavor()
 
@@ -1073,7 +1073,7 @@ def make_external_tar_gz_from_relmap(
         return str(out_path)
 
     finally:
-        # ステージング削除（失敗は無視）
+        # ステージング削除 ( 失敗は無視 )
         try:
             shutil.rmtree(staging_dir, ignore_errors=True)
         except Exception:
@@ -1264,10 +1264,24 @@ def sftp_put_map(sftp: paramiko.SFTPClient,
             print(_("[put][{tag}] {src} -> {dst}").format(tag=tag, src=apath, dst=rpath))
 
         try:
-            sftp.put(apath, rpath)
-            count += 1
+            if os.path.islink(apath):
+                # symlink はまずリンクとして作成を試みる ( サーバが許可しない場合あり )
+                try:
+                    target = os.readlink(apath)
+                    # Paramiko SFTP に symlink が無い実装もあるので getattr で確認
+                    if hasattr(sftp, "symlink"):
+                        sftp.symlink(target, rpath)
+                        count += 1
+                    else:
+                        raise NotImplementedError("SFTP symlink not supported by client")
+                except Exception as _e:
+                    print(_("[Warning] SFTP symlink unsupported/failed; skipped link (use --pack to preserve): {src}").format(src=apath), file=sys.stderr)
+            else:
+                sftp.put(apath, rpath)
+                count += 1
         except Exception as e:
             print(_("[Error] sftp.put failed: {src} -> {dst}: {msg}").format(src=apath, dst=rpath, msg=e), file=sys.stderr)
+
     return count
 
 
@@ -1648,6 +1662,7 @@ def main() -> None:
         sys.exit(EXIT_INVALID_ARGS)
 
     rel_map: Dict[str, str] = {}
+    collisions:int = 0
     empty_dirs_rel: Set[str] = set()
     seen_abs: Set[str] = set()
 
@@ -1673,8 +1688,25 @@ def main() -> None:
                 else:
                     rel = to_posix_rel(os.path.basename(apath))
             else:
-                # 非 POSIX 絶対パス ( 例: "C:\\path\\to\\file" ) はbasenameに変換する。
-                rel = to_posix_rel(os.path.basename(apath))
+                # 非 POSIX 絶対パス ( 例: "C:\\path\\to\\file" ) は
+                # ドライブレターをサニタイズして先頭ディレクトリ化する。
+                #   "C:\\path\\to\\file" -> "C_/path/to/file"
+                _p = apath
+                drive = ""
+                try:
+                    # Windows のドライブレター切り出し
+                    import ntpath
+                    drive, tail = ntpath.splitdrive(_p)
+                    if drive:
+                        drive = drive.rstrip(":").upper() + "_"   # "C_"
+                        tail = tail.lstrip("\\/")
+                        rel = drive + tail.replace("\\", "/")
+                    else:
+                        # ドライブなしの特殊ケースは basename にフォールバック
+                        rel = to_posix_rel(os.path.basename(apath))
+                except Exception:
+                    rel = to_posix_rel(os.path.basename(apath))
+
         else:
             rel = to_posix_rel(rel_opt)
 
@@ -1721,8 +1753,16 @@ def main() -> None:
                     if f_abs in seen_abs:
                         print(_("[Warning] duplicate src ignored: {src}").format(src=f_abs), file=sys.stderr)
                         continue
+
+                    # rel の衝突検出 ( first-wins ) : 既に他の abs が同じ rel を占有していればスキップ
+                    if f_rel in rel_map.values():
+                        # 将来 --verbose 詳細列挙予定 ( 現時点はサマリのみ )
+                        # 衝突カウンタは後段でサマリ出力するため, ここでは stderr への詳細出力はしない
+                        collisions += 1
+                        continue
                     seen_abs.add(f_abs)
                     rel_map[f_abs] = f_rel
+
                 # 空ディレクトリ作成 ( SFTPのみ, 要求時 )
                 if args.include_empty_dirs and not files and not _dirs:
                     # root は apath 配下。apath からの相対を rel の下に付与
@@ -1738,8 +1778,14 @@ def main() -> None:
         if apath in seen_abs:
             print(_("[Warning] duplicate src ignored: {src}").format(src=apath), file=sys.stderr)
             continue
-        seen_abs.add(apath)
-        rel_map[apath] = rel
+
+        # rel の衝突検出 ( first-wins )
+        if rel in rel_map.values():
+            collisions += 1
+            # 先勝ルール：後続は破棄
+        else:
+            seen_abs.add(apath)
+            rel_map[apath] = rel
 
     roots_abs = [os.path.abspath(os.path.expanduser(r)) for r in roots_opt]
     for r in roots_abs:
@@ -1863,6 +1909,8 @@ def main() -> None:
 
     print("\n")
     print(_("=== Summary ==="))
+    if collisions > 0:
+        print(_("[Warning] Relative path collisions (first-wins policy): {n} skipped").format(n=collisions), file=sys.stderr)
     print(_("Hosts processed: {n}").format(n=len(results)))
     label = _('planned') if args.dry_run else (_('packed(archives)') if args.pack else _('files/dirs created'))
     print(_("Total {label}: {n}").format(label=label, n=total_uploaded))

@@ -1,0 +1,15 @@
+# tests_env.sh (sample)
+export SSH_USER="ansible"
+export TARGET_USER="ansible"
+export HOSTS_BOTH="localhost vmlinux4.local"
+export HOST_UBUNTU="localhost"
+export HOST_ALMA="vmlinux4.local"
+export SSH_PORT="22"
+export SSH_STRICT="no"
+export REMOTE_DEST_ROOT="/tmp/gmtools_remote_dest"
+export LOCAL_WORK_ROOT="$(pwd)/_tmp_test_local"
+export PARALLEL="2"
+export VERBOSE="1"
+# gm commands (split by shlex):
+export GM_GATHER_CMD="python3 -m gm_tools.gather_cli"
+export GM_SCATTER_CMD="python3 -m gm_tools.scatter_cli"
