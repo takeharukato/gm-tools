@@ -22,7 +22,6 @@ from __future__ import annotations
 import fnmatch
 import shlex
 import os
-import glob
 import re
 import logging
 
@@ -37,7 +36,8 @@ from .core_cmd_flavor import run_remote_cmd_capture
 from .core_path_handling import (
     split_src_to_root_and_tail_regex,
     is_abs_path,
-    normalize_src_abs
+    normalize_src_abs,
+    looks_like_regex,
 )
 
 # ---- Logging setup -----------------------------------------------------------
@@ -412,30 +412,100 @@ def enumerate_candidates_for_host(
 
 def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
     """
-    Yield absolute local paths to process.
-    - Deduplicate while preserving input order
-    - Expand simple globs (using glob.glob)
-
-    Parameters
-    ----------
-    paths : Iterable[str]
-        Input path patterns (may include globs). Relative paths are resolved
-        against the current working directory.
-
-    Yields
-    ------
-    Iterator[str]
-        Absolute, de-duplicated paths in stable order.
+    Yield absolute local paths to process using **regex semantics** (glob 非対応).
+    仕様:
+      - SRC に正規表現メタが含まれる場合:
+          split_src_to_root_and_tail_regex で (root, tail_re) に分解し、
+          root 配下を走査して「root 相対パス」に re.search(tail_re) を適用。
+          **ファイルのみ**列挙（ディレクトリは明示指定時に後段で展開）。
+      - 正規表現メタが含まれない場合:
+          単一の厳密パスとして扱い、存在すれば（ファイル/ディレクトリいずれも）そのまま列挙。
+      - 相対パスは CWD 基準で絶対化。
     """
-    seen: set[str] = set()
+    seen: Set[str] = set()
+    cwd: str = os.getcwd()
+
+    # "~" を含むかどうかの判定ヘルパ（展開のタイミングを誤らないため分離）
+    def _looks_tilde(s: str) -> bool:
+        s_in: str = s
+        return s_in.startswith("~" + os.sep) or s_in == "~" or s_in.startswith("~/")
 
     for p in paths:
-        matches: list[str] = glob.glob(p)
-        if not matches:
-            # keep the original token if glob produced nothing
-            matches = [p]
-        for m in matches:
-            ap: str = os.path.abspath(m)
-            if ap not in seen:
-                seen.add(ap)
-                yield ap
+        token: str = p
+        # 1) まずは **元のトークン** を正規化して正規表現メタを検出する
+        #    - ここでは expanduser を実行しない（"~" を正規表現文字と誤解しないため）
+        raw_norm: str = token.replace("\\", "/")
+        raw_norm = re.sub(r"/+", "/", raw_norm)
+
+        has_meta: bool = looks_like_regex(raw_norm)
+
+        # 2) 実際にファイル探索に使うための絶対パス化
+        #    - "~" はこのタイミングでのみ展開する
+        token_expanded: str = os.path.expanduser(token) if _looks_tilde(token) else token
+        is_abs: bool = is_abs_path(token_expanded)
+
+        abs_raw: str = token_expanded if is_abs else os.path.abspath(os.path.join(cwd, token_expanded))
+        abs_norm: str = abs_raw.replace("\\", "/")
+        abs_norm = re.sub(r"/+", "/", abs_norm)
+
+        if not has_meta:
+            ap_exact: str = abs_norm
+            if os.path.exists(ap_exact):
+                ap_real: str = os.path.abspath(ap_exact)
+                if ap_real not in seen:
+                    seen.add(ap_real)
+                    yield ap_real
+            # リテラル指定で存在しなければ何も列挙しない（静かに無視）
+            continue
+
+        # --- 正規表現モード ---
+        try:
+            root: str
+            tail_re: str
+            root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
+        except ValueError as _ex:
+            _ex_msg: str = str(_ex)
+            # 不正トークンは無視（gather と整合）
+            continue
+
+        if not os.path.isdir(root):
+            # 走査起点がディレクトリでなければ列挙不可
+            continue
+
+        pattern_text: str = tail_re if tail_re else r".*"
+        try:
+            rx: re.Pattern[str] = re.compile(pattern_text)
+        except re.error as _re:
+            _re_msg: str = str(_re)
+            # 不正な正規表現は無視
+            continue
+
+        walk_root: str = root
+        dirpath: str
+        _dirnames: List[str]
+        filenames: List[str]
+        for dirpath, _dirnames, filenames in os.walk(walk_root, followlinks=False):
+            name: str
+            for name in filenames:
+                ap: str = os.path.join(dirpath, name)
+                rel: str = ap[len(walk_root):].lstrip("/\\")
+                m: Optional[re.Match[str]] = rx.search(rel)
+                if m is not None:
+                    ap_abs: str = os.path.abspath(ap)
+                    if ap_abs not in seen:
+                        seen.add(ap_abs)
+                        yield ap_abs
+
+        # ルート自身に対するマッチ（空相対にマッチ）を考慮し、ディレクトリ根を含める
+        try:
+            root_rel_self: str = ""
+            m_root: Optional[re.Match[str]] = rx.search(root_rel_self)
+            if m_root is not None:
+                root_abs: str = os.path.abspath(root)
+                if root_abs not in seen:
+                    seen.add(root_abs)
+                    yield root_abs
+        except Exception as _e:
+            _e_msg: str = str(_e)
+            # 失敗時は黙って無視（列挙結果に影響なし）
+            pass

@@ -28,6 +28,7 @@ from .core_path_handling import (
     ScatterSrcToken,
     ScatterResolvedToken,
     resolve_token_for_scatter,
+    scatter_expand_tilde_for_exec_user,
     normalize_rel_for_dest,
     looks_like_regex,
 )
@@ -220,21 +221,29 @@ def _build_plan_for_host(
             raise SystemExit(EXIT_ERR_ARGS)
 
     # SRC を scatter 仕様に基づいて解決 ( ~/ は実行ユーザ HOME 展開、相対は cwd 起点 )
-    resolved_tokens: List[ScatterResolvedToken] = []
-    for s in srcs_raw:
-        tok: ScatterSrcToken = ScatterSrcToken(raw=str(s))
-        res: ScatterResolvedToken = resolve_token_for_scatter(tok, cwd=os.getcwd())
-        resolved_tokens.append(res)
+    # 元トークン (ScatterSrcToken) と解決結果 (ScatterResolvedToken) をペアで保持する
+    tokens_and_resolved: List[Tuple[ScatterSrcToken, ScatterResolvedToken]] = []
+    s_in: str
+    tok: ScatterSrcToken
+    res: ScatterResolvedToken
+    for s_in in srcs_raw:
+        tok = ScatterSrcToken(raw=str(s_in))
+        res = resolve_token_for_scatter(tok, cwd=os.getcwd())
+        tokens_and_resolved.append((tok, res))
 
     # 候補列挙とリモート配置 rel の算出
     #  - 絶対 SRC: rel_root は <local_abs_without_leading_slash>
     #  - 相対 SRC: rel_root は <指定された相対パス> ( 正規化済 )
     entries: List[PlanEntry] = []
     remote_rel_map: Dict[str, str] = {}
-    for res in resolved_tokens:
+    pair: Tuple[ScatterSrcToken, ScatterResolvedToken]
+    for pair in tokens_and_resolved:
+        tok = pair[0]
+        res = pair[1]
         # pack ルートが候補列挙に出ない実装に備えて、先にマップだけは保証しておく
         remote_rel_map[os.path.abspath(res.abs_root)] = res.rel_root
-        cand_list: List[str] = list(enumerate_candidates_local([res.abs_root]))
+        token_for_enum: str = scatter_expand_tilde_for_exec_user(tok.raw)
+        cand_list: List[str] = list(enumerate_candidates_local([token_for_enum]))
         for p in cand_list:
             st_is_dir: bool = os.path.isdir(p)
             if (not pack) and st_is_dir:
@@ -255,7 +264,7 @@ def _build_plan_for_host(
             entries.append(PlanEntry(path=Path(p), relpath=remote_rel, is_dir=st_is_dir))
 
     plan: Plan = Plan(entries=entries)
-    pack_roots_abs: List[str] = [os.path.abspath(res.abs_root) for res in resolved_tokens]
+    pack_roots_abs: List[str] = [os.path.abspath(res.abs_root) for (_tok, res) in tokens_and_resolved]
 
     meta: Dict[str, object] = {
         "ssh": ssh,
