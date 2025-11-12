@@ -1976,6 +1976,329 @@ def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> Dict[str, 
             "details": {"rc": run.rc, "exp_abs": exp_abs, "exp_rel": exp_rel,
                         "argv": " ".join(shlex.quote(a) for a in argv)}}
 
+def case_gather_src_regex_absolute(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      gather の SRC を正規表現として解釈する（絶対パス）挙動の検証。
+      - 例: <abs>/src/dir1/.*\\.txt -> dir1/b.txt のみが対象（a.txt は対象外）
+    """
+    name: str = "gather_src_regex_absolute"
+    host: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    # リモートに検体を作成: <home>/gm_step4_regex_abs/src/{a.txt, dir1/b.txt}
+    home: str = _get_remote_home(cfg, host, user)
+    abs_root: str = os.path.join(home, "gm_step4_regex_abs")
+    src_dir: str = os.path.join(abs_root, "src")
+    dir1: str = os.path.join(src_dir, "dir1")
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", abs_root)
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dir1)
+    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
+    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "a.txt"), content="A\n", sudo=False)
+    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(dir1, "b.txt"), content="B\n", sudo=False)
+
+    # 正規表現 SRC（絶対）: dir1 配下の *.txt のみ
+    pattern: str = os.path.join(src_dir, "dir1") + "/.*\\.txt"
+
+    # ローカル出力先
+    out_dir: str = os.path.join(cfg.local_root, "g_regex_abs_out")
+    _ = _clear_dir(out_dir, ensure_under=cfg.local_root)
+
+    hosts_path: str = _write_temp_hosts([host])
+    argv: List[str] = (
+        cfg.gm_gather_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", pattern, out_dir]
+    )
+    run: LocalRun = _run_local_argv(argv)
+
+    # 期待ローカルパス:
+    # <out>/<host>/<abs_without_leading>/src/dir1/b.txt は存在
+    # <out>/<host>/<abs_without_leading>/src/a.txt は不在
+    host_label: str = host
+    exp_b: str = os.path.join(out_dir, host_label, os.path.join(dir1, "b.txt").lstrip(os.sep))
+    exp_a: str = os.path.join(out_dir, host_label, os.path.join(src_dir, "a.txt").lstrip(os.sep))
+
+    b_ok: bool = os.path.isfile(exp_b)
+    a_ng: bool = not os.path.exists(exp_a)
+
+    passed: bool = (run.rc == 0 and b_ok and a_ng)
+    reason: str = "" if passed else f"rc={run.rc}, b_ok={b_ok}, a_ng={a_ng}, exp_b={exp_b}, exp_a={exp_a}"
+    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
+            "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv),
+                        "exp_b": exp_b, "exp_a": exp_a}}
+
+
+def case_gather_src_regex_relative(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      gather の SRC 正規表現（相対パス）挙動の検証（-u の HOME 相対）。
+      - 例: gm_step4_regex_rel/src/dir1/.* -> dir1/b.txt のみが対象
+    """
+    name: str = "gather_src_regex_relative"
+    host: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    # リモートに検体: <home>/gm_step4_regex_rel/src/{a.txt, dir1/b.txt}
+    home: str = _get_remote_home(cfg, host, user)
+    rel_top: str = "gm_step4_regex_rel"
+    abs_root: str = os.path.join(home, rel_top)
+    src_dir: str = os.path.join(abs_root, "src")
+    dir1: str = os.path.join(src_dir, "dir1")
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", abs_root)
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dir1)
+    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
+    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "a.txt"), content="A\n", sudo=False)
+    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(dir1, "b.txt"), content="B\n", sudo=False)
+
+    # 正規表現 SRC（相対）: dir1 配下のみ
+    pattern_rel: str = f"{rel_top}/src/dir1/.*"
+
+    out_dir: str = os.path.join(cfg.local_root, "g_regex_rel_out")
+    _ = _clear_dir(out_dir, ensure_under=cfg.local_root)
+
+    hosts_path: str = _write_temp_hosts([host])
+    argv: List[str] = (
+        cfg.gm_gather_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", pattern_rel, out_dir]
+    )
+    run: LocalRun = _run_local_argv(argv)
+
+    host_label: str = host
+    # gather のローカル配置は「解決済みの絶対パス」を用いるため、相対SRCでも
+    # <out>/<host>/<home>/<rel_top>/... 配下に出力される
+    exp_b: str = os.path.join(out_dir, host_label, os.path.join(dir1, "b.txt").lstrip(os.sep))
+    exp_a: str = os.path.join(out_dir, host_label, os.path.join(src_dir, "a.txt").lstrip(os.sep))
+
+    b_ok: bool = os.path.isfile(exp_b)
+    a_ng: bool = not os.path.exists(exp_a)
+
+    passed: bool = (run.rc == 0 and b_ok and a_ng)
+    reason: str = "" if passed else f"rc={run.rc}, b_ok={b_ok}, a_ng={a_ng}, exp_b={exp_b}, exp_a={exp_a}"
+    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
+            "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv),
+                        "exp_b": exp_b, "exp_a": exp_a}}
+
+
+def case_gather_src_regex_negative(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      誤マッチ防止（アンカー ^/$）の検証（絶対パス）。
+      - 例: <abs>/src/^x\\.txt$ -> x.txt のみを許容し、x.txt.bak は除外。
+    """
+    name: str = "gather_src_regex_negative"
+    host: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    # リモートに検体: <home>/gm_step4_regex_neg/src/{x.txt, x.txt.bak}
+    home: str = _get_remote_home(cfg, host, user)
+    abs_root: str = os.path.join(home, "gm_step4_regex_neg")
+    src_dir: str = os.path.join(abs_root, "src")
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", abs_root)
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", src_dir)
+    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
+    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "x.txt"), content="X\n", sudo=False)
+    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "x.txt.bak"), content="XB\n", sudo=False)
+
+    # アンカー付き SRC: basename 厳密一致のみ
+    pattern: str = os.path.join(src_dir, "^x\\.txt$")
+
+    out_dir: str = os.path.join(cfg.local_root, "g_regex_neg_out")
+    _ = _clear_dir(out_dir, ensure_under=cfg.local_root)
+
+    hosts_path: str = _write_temp_hosts([host])
+    argv: List[str] = (
+        cfg.gm_gather_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", pattern, out_dir]
+    )
+    run: LocalRun = _run_local_argv(argv)
+
+    host_label: str = host
+    exp_x: str = os.path.join(out_dir, host_label, os.path.join(src_dir, "x.txt").lstrip(os.sep))
+    exp_bak: str = os.path.join(out_dir, host_label, os.path.join(src_dir, "x.txt.bak").lstrip(os.sep))
+
+    ok_x: bool = os.path.isfile(exp_x)
+    ng_bak: bool = not os.path.exists(exp_bak)
+
+    passed: bool = (run.rc == 0 and ok_x and ng_bak)
+    reason: str = "" if passed else f"rc={run.rc}, ok_x={ok_x}, ng_bak={ng_bak}, exp_x={exp_x}, exp_bak={exp_bak}"
+    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
+            "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv),
+                        "exp_x": exp_x, "exp_bak": exp_bak}}
+
+
+def case_scatter_src_regex_absolute(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      scatter の SRC を正規表現として解釈する（絶対パス）挙動の検証。
+      - 例: <abs_src_dir>/sub/.*\\.txt -> sub/b.txt のみが対象
+    """
+    name: str = "scatter_src_regex_absolute"
+    host: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    # ローカルに検体を作成
+    abs_src_dir: str = os.path.join(cfg.local_root, "sc_regex_abs_src")
+    abs_src_dir = abs_src_dir.rstrip(os.sep)
+    os.makedirs(os.path.join(abs_src_dir, "sub"), exist_ok=True)
+    with open(os.path.join(abs_src_dir, "a.txt"), "w", encoding="utf-8") as wf:
+        wf.write("A\n")
+    with open(os.path.join(abs_src_dir, "sub", "b.txt"), "w", encoding="utf-8") as wf:
+        wf.write("B\n")
+
+    # 正規表現 SRC（絶対）: sub 配下の *.txt のみ
+    pattern: str = os.path.join(abs_src_dir, "sub") + "/.*\\.txt"
+
+    dest_abs: str = "/tmp/gm_scatter_regex_abs_dest"
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
+    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", dest_abs)
+
+    hosts_path: str = _write_temp_hosts([host])
+    argv: List[str] = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", pattern, dest_abs]
+    )
+    run: LocalRun = _run_local_argv(argv)
+
+    # 期待: sub/b.txt は転送される / a.txt は転送されない
+    exp_b: str = os.path.join(dest_abs, os.path.abspath(os.path.join(abs_src_dir, "sub", "b.txt")).lstrip(os.sep))
+    exp_a: str = os.path.join(dest_abs, os.path.abspath(os.path.join(abs_src_dir, "a.txt")).lstrip(os.sep))
+
+    rb = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_b)
+    ra = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_a)
+
+    passed: bool = (run.rc == 0 and rb.returncode == 0 and ra.returncode != 0)
+    reason: str = "" if passed else (
+        f"rc={run.rc}, b_rc={rb.returncode}, a_rc={ra.returncode}, exp_b={exp_b}, exp_a={exp_a}"
+    )
+    return {
+        "name": name,
+        "passed": passed,
+        "skipped": False,
+        "reason": reason,
+        "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv)},
+    }
+
+
+def case_scatter_src_regex_relative(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      scatter の SRC 正規表現（相対パス）挙動の検証。
+      - 例: sc_layout_rel_src/sub/.* -> sub/b.txt のみが対象
+    """
+    name: str = "scatter_src_regex_relative"
+    host: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    # カレント配下に相対検体を作成
+    rel_base: str = "sc_layout_rel_src"
+    cwd: str = os.getcwd()
+    rel_dir_abs: str = os.path.join(cwd, rel_base)
+    os.makedirs(os.path.join(rel_dir_abs, "sub"), exist_ok=True)
+    with open(os.path.join(rel_dir_abs, "a.txt"), "w", encoding="utf-8") as wf:
+        wf.write("A\n")
+    with open(os.path.join(rel_dir_abs, "sub", "b.txt"), "w", encoding="utf-8") as wf:
+        wf.write("B\n")
+
+    # 正規表現 SRC（相対）: sub 配下のみ
+    pattern: str = rel_base + "/sub/.*"
+
+    dest_abs: str = "/tmp/gm_scatter_regex_rel_dest"
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
+    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", dest_abs)
+
+    hosts_path: str = _write_temp_hosts([host])
+    argv: List[str] = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", pattern, dest_abs]
+    )
+    run: LocalRun = _run_local_argv(argv)
+
+    # 期待: rel_base/sub/b.txt は存在 / rel_base/a.txt は不在
+    exp_b: str = os.path.join(dest_abs, rel_base, "sub", "b.txt")
+    exp_a: str = os.path.join(dest_abs, rel_base, "a.txt")
+
+    rb = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_b)
+    ra = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_a)
+
+    passed: bool = (run.rc == 0 and rb.returncode == 0 and ra.returncode != 0)
+    reason: str = "" if passed else (
+        f"rc={run.rc}, b_rc={rb.returncode}, a_rc={ra.returncode}, exp_b={exp_b}, exp_a={exp_a}"
+    )
+    return {
+        "name": name,
+        "passed": passed,
+        "skipped": False,
+        "reason": reason,
+        "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv)},
+    }
+
+
+def case_scatter_src_regex_negative(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      誤マッチ防止（アンカー ^/$）の検証。厳密一致のみ許容されること。
+      - 例: <abs_src_dir>/^x\\.txt$ -> x.txt のみを許容し、x.txt.bak は除外。
+    """
+    name: str = "scatter_src_regex_negative"
+    host: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    # 絶対検体: x.txt と x.txt.bak を用意
+    abs_src_dir: str = os.path.join(cfg.local_root, "sc_regex_neg_src")
+    os.makedirs(abs_src_dir, exist_ok=True)
+    with open(os.path.join(abs_src_dir, "x.txt"), "w", encoding="utf-8") as wf:
+        wf.write("X\n")
+    with open(os.path.join(abs_src_dir, "x.txt.bak"), "w", encoding="utf-8") as wf:
+        wf.write("XB\n")
+
+    # アンカー付き（basename 厳密一致）
+    pattern: str = os.path.join(abs_src_dir, "^x\\.txt$")
+
+    dest_abs: str = "/tmp/gm_scatter_regex_neg_dest"
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
+    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
+    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", dest_abs)
+
+    hosts_path: str = _write_temp_hosts([host])
+    argv: List[str] = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", pattern, dest_abs]
+    )
+    run: LocalRun = _run_local_argv(argv)
+
+    # 期待: x.txt は存在 / x.txt.bak は不在
+    exp_x: str = os.path.join(dest_abs, os.path.abspath(os.path.join(abs_src_dir, "x.txt")).lstrip(os.sep))
+    exp_bak: str = os.path.join(dest_abs, os.path.abspath(os.path.join(abs_src_dir, "x.txt.bak")).lstrip(os.sep))
+
+    r_x = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_x)
+    r_bak = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_bak)
+
+    passed: bool = (run.rc == 0 and r_x.returncode == 0 and r_bak.returncode != 0)
+    reason: str = "" if passed else (
+        f"rc={run.rc}, x_rc={r_x.returncode}, bak_rc={r_bak.returncode}, exp_x={exp_x}, exp_bak={exp_bak}"
+    )
+    return {
+        "name": name,
+        "passed": passed,
+        "skipped": False,
+        "reason": reason,
+        "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv)},
+    }
+
 # =========================
 # Main
 # =========================
@@ -2012,6 +2335,12 @@ def main() -> None:
         results.append(case_scatter_mixed_sources_two_hosts(cfg))
         results.append(case_scatter_pack_dedup_roots(cfg))
         results.append(case_scatter_nonpack_same_basename_collision_free(cfg))
+        results.append(case_gather_src_regex_absolute(cfg))
+        results.append(case_gather_src_regex_relative(cfg))
+        results.append(case_gather_src_regex_negative(cfg))
+        results.append(case_scatter_src_regex_absolute(cfg))
+        results.append(case_scatter_src_regex_relative(cfg))
+        results.append(case_scatter_src_regex_negative(cfg))
 
         print("STEP4 SUMMARY")
         summary: str = json.dumps({"results": results}, indent=2, ensure_ascii=False)
