@@ -8,7 +8,7 @@ _gm_gather()
     # bash-completion 2.x API
     _init_completion -n : || return
 
-    # すべてのロング/ショートオプション（引数を取る/取らないを区別）
+    # すべてのロング/ショートオプション ( 引数を取る/取らないを区別 )
     local -a opts_flags=(
         --help -h
         --ignore-case -i
@@ -41,7 +41,7 @@ _gm_gather()
         after_eq=${cur#*=}
     fi
 
-    # 直前のトークンが「引数を要するオプション」なら、その引数を補完
+    # 直前のトークンが「引数を要するオプション」なら, その引数を補完
     case "$prev" in
         --user|-u)
             # ローカルユーザー名候補
@@ -68,12 +68,12 @@ _gm_gather()
             return
             ;;
         --timeout|-T)
-            # 秒（float想定だが提示候補は整数）
+            # 秒 ( float想定だが提示候補は整数 )
             COMPREPLY=( $(compgen -W "5 10 15 20 30 45 60 90 120" -- "$cur") )
             return
             ;;
         --roots|-R)
-            # ディレクトリ複数（スペース区切り）を想定
+            # ディレクトリ複数 ( スペース区切り ) を想定
             compopt -o filenames
             COMPREPLY=( $(compgen -d -- "$cur") )
             return
@@ -137,7 +137,7 @@ _gm_gather()
         return
     fi
 
-    # 位置引数（dest）: ディレクトリを補完
+    # 位置引数 ( dest ) : ディレクトリを補完
     compopt -o dirnames
     COMPREPLY=( $(compgen -d -- "$cur") )
 }

@@ -997,7 +997,7 @@ def process_host(
             key_filename=key, password=password, timeout=timeout,
             strict_host_key_checking=strict,
         )
-
+        print("Config:%s" % cfg)
         # SSH 接続
         ssh = ssh_open(cfg)
 
