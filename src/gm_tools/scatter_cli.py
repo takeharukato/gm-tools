@@ -30,6 +30,7 @@ from .core_path_handling import (
     resolve_token_for_scatter,
     scatter_expand_tilde_for_exec_user,
     normalize_rel_for_dest,
+    split_src_to_root_and_tail_regex,
     looks_like_regex,
 )
 from .core_push import PushOne
@@ -165,6 +166,22 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
     # 相対
     return f"{remote_home}/{d}", None
 
+def _rel_base_from_abs_for_dest(base_abs: str) -> str:
+    """
+    正規表現 SRC のとき、転送先レイアウトの基点（rel_root）を
+    「正規表現を除去した絶対パス base_abs」から算出するための補助関数。
+    例:
+      /foo/bar         -> "foo/bar"
+      \\foo\\bar       -> "foo/bar"
+      C:\\foo\\bar     -> "C:/foo/bar"
+    """
+    base_abs_str: str = str(base_abs)
+    normalized: str = base_abs_str.replace("\\", "/")
+    # 先頭のスラッシュ 1 つだけを除去（Windows ドライブレターは残す）
+    stripped: str = normalized[1:] if normalized.startswith("/") else normalized
+    rel_base: str = normalize_rel_for_dest(stripped)
+    return rel_base
+
 
 def _build_plan_for_host(
     *,
@@ -236,35 +253,59 @@ def _build_plan_for_host(
     #  - 相対 SRC: rel_root は <指定された相対パス> ( 正規化済 )
     entries: List[PlanEntry] = []
     remote_rel_map: Dict[str, str] = {}
+    pack_roots_abs_local: List[str] = []
     pair: Tuple[ScatterSrcToken, ScatterResolvedToken]
     for pair in tokens_and_resolved:
         tok = pair[0]
         res = pair[1]
-        # pack ルートが候補列挙に出ない実装に備えて、先にマップだけは保証しておく
-        remote_rel_map[os.path.abspath(res.abs_root)] = res.rel_root
+
+        # 列挙に使うトークンと「相対計算の起点(base_abs)」を決定
         token_for_enum: str = scatter_expand_tilde_for_exec_user(tok.raw)
+        is_regex: bool = looks_like_regex(token_for_enum.replace("\\", "/"))
+
+        # 正規表現なら split_src_to_root_and_tail_regex で root を起点にする
+        if is_regex:
+            abs_norm: str = os.path.abspath(token_for_enum)
+            base_split: Tuple[str, Optional[str]] = split_src_to_root_and_tail_regex(abs_norm)
+            base_abs: str = base_split[0]
+            _tail_re: Optional[str] = base_split[1]
+        else:
+            base_abs: str = os.path.abspath(res.abs_root)
+
+        # rel_root の決定:
+        #   - 正規表現 SRC: base_abs から算出（正規表現テキストを含めない）
+        #   - リテラル SRC: 従来どおり resolve_token_for_scatter の res.rel_root を使用
+        rel_base: str = _rel_base_from_abs_for_dest(base_abs) if is_regex else str(res.rel_root)
+
+        # pack ルートが候補列挙に出ない実装に備えて、先にマップだけは保証しておく（起点で登録）
+        remote_rel_map[base_abs] = rel_base
+        pack_roots_abs_local.append(base_abs)
         cand_list: List[str] = list(enumerate_candidates_local([token_for_enum]))
+        p: str
         for p in cand_list:
             st_is_dir: bool = os.path.isdir(p)
             if (not pack) and st_is_dir:
                 continue
             # inner_rel: abs_root からの相対。ルート自身は追加なし ( =空 ) 。
             try:
-                inner_rel_raw: str = os.path.relpath(p, start=res.abs_root)
+                inner_rel_raw: str = os.path.relpath(p, start=base_abs)
             except ValueError:
                 inner_rel_raw = ""
             if inner_rel_raw in (".", "\\", ""):
                 inner_rel_raw = ""
 
             inner_rel: str = normalize_rel_for_dest(inner_rel_raw)
-            remote_rel: str = res.rel_root if not inner_rel else normalize_rel_for_dest(f"{res.rel_root}/{inner_rel}")
+            remote_rel: str = (
+                rel_base if not inner_rel else normalize_rel_for_dest(f"{rel_base}/{inner_rel}")
+            )
             # ルックアップの安定化のため絶対パスキーで登録
             key_abs: str = os.path.abspath(p)
             remote_rel_map[key_abs] = remote_rel
             entries.append(PlanEntry(path=Path(p), relpath=remote_rel, is_dir=st_is_dir))
 
     plan: Plan = Plan(entries=entries)
-    pack_roots_abs: List[str] = [os.path.abspath(res.abs_root) for (_tok, res) in tokens_and_resolved]
+    # --pack 用のルートは、正規表現なら split で得た root、リテラルなら従来の abs を使用
+    pack_roots_abs: List[str] = [os.path.abspath(p) for p in pack_roots_abs_local]
 
     meta: Dict[str, object] = {
         "ssh": ssh,

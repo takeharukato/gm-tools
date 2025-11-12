@@ -432,12 +432,9 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
 
     for p in paths:
         token: str = p
-        # 1) まずは **元のトークン** を正規化して正規表現メタを検出する
-        #    - ここでは expanduser を実行しない（"~" を正規表現文字と誤解しないため）
-        raw_norm: str = token.replace("\\", "/")
-        raw_norm = re.sub(r"/+", "/", raw_norm)
-
-        has_meta: bool = looks_like_regex(raw_norm)
+        # 1) 正規表現メタの検出は**文字列を壊さず**そのまま判定する
+        #    - ここでは expanduser もしない（"~" を誤解しない）
+        has_meta: bool = looks_like_regex(token)
 
         # 2) 実際にファイル探索に使うための絶対パス化
         #    - "~" はこのタイミングでのみ展開する
@@ -445,8 +442,8 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
         is_abs: bool = is_abs_path(token_expanded)
 
         abs_raw: str = token_expanded if is_abs else os.path.abspath(os.path.join(cwd, token_expanded))
-        abs_norm: str = abs_raw.replace("\\", "/")
-        abs_norm = re.sub(r"/+", "/", abs_norm)
+        # tail の正規表現を壊さないため、ここでは '\\'→'/' の全体置換は行わない
+        abs_norm: str = abs_raw
 
         if not has_meta:
             ap_exact: str = abs_norm
@@ -462,6 +459,8 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
         try:
             root: str
             tail_re: str
+            # split_src_to_root_and_tail_regex 側で head（パス）だけを正規化し、
+            # tail（正規表現）は無改変で保持する
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
         except ValueError as _ex:
             _ex_msg: str = str(_ex)
