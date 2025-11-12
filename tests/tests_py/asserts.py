@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Tuple, Any
+from typing import Dict, Iterable, Any, List
 
 def assert_rc(name: str, rc: int, expect_zero: bool = True) -> None:
     """Assert return code according to expectation.
@@ -64,7 +64,7 @@ def compare_attr_maps(src: Dict[str, Any],
 
     Raises AssertionError with a detailed diff on mismatch.
     """
-    diffs = []
+    diffs: List[str] = []
     for k in keys:
         s = src.get(k, None)
         d = dst.get(k, None)

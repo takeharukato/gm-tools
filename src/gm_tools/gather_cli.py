@@ -4,12 +4,14 @@
 
 from __future__ import annotations
 
+import re
 import os
 import sys
 import shlex
 import argparse
 import getpass
 import threading
+import logging
 from argparse import BooleanOptionalAction
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -53,18 +55,26 @@ from .core_constants import (
     EXIT_ERR_ARGS,
     EXIT_ERR_NO_HOSTS,
     EXIT_ERR_TILDE_USER,
+    RE_SAFE_HOST_PTN
 )
 from .core_logging import init_logging, shutdown_logging, HostLogAggregator
 from .core_constants import DEFAULT_HOSTS_FILE
+
+_LOG = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description=(
             "gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
             "Usage: gm-gather [SRC ...] DEST\n"
-            "  - SRC: absolute path starting with '/', 'X:/' (Windows), or '~/'.\n"
-            "         The portion after the root is treated as a regex path.\n"
-            "         e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/bar\\.txt'.\n"
+            "  - SRC:\n"
+            "      * '/...': absolute on remote (UNIX)\n"
+            "      * 'X:/...': absolute on remote (Windows)\n"
+            "      * '~/...': expanded by -u user's HOME on remote\n"
+            "      * RELATIVE: treated as '-u' user's HOME-relative,\n"
+            "                  HOME escape via '..' is rejected.\n"
+            "    The portion after the root is treated as a regex path.\n"
+            "    e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/.*', 'var/log/.*'.\n"
             "  - DEST: local directory where files are stored as DEST/<HOST>/..."
         ),
         formatter_class=argparse.RawTextHelpFormatter,
@@ -74,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "src",
         nargs="+",
-        help="One or more SRC absolute path patterns (root '/', 'X:/', or '~/').",
+        help="One or more SRC path patterns. Absolute ('/','X:/','~/') or HOME-relative.",
     )
     parser.add_argument("dest", help="Local destination directory.")
 
@@ -118,6 +128,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not download.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logs.")
     parser.add_argument("--pack", action="store_true", help="Pack on remote (tar.gz) and download once.")
+    # --follow-symlinksは, ファイルへのシンボリックリンクをたどることを指示する
+    #  ディレクトリへのシンボリックリンクについては未対応
     parser.add_argument(
         "--follow-symlinks",
         action="store_true",
@@ -141,9 +153,13 @@ def _make_pull_one_sftp() -> Callable[[SFTPClientLike, str, Path, bool], None]:
     """SFTP 逐次GET。PlanEntry.relpathはローカル相対, remote_rootは per-entry。"""
 
     def _pull_one(sftp: SFTPClientLike, remote_path: str, local_path: Path, is_dir: bool) -> None:
+        lp: Path = Path(local_path)
+
+        _LOG.debug("[debug][sftp] get: remote=%s -> local=%s (is_dir=%s)", remote_path, str(lp), is_dir)
+
         if is_dir:
             return
-        lp: Path = Path(local_path)
+
         lp.parent.mkdir(parents=True, exist_ok=True)
         sftp.get(remote_path, str(lp))
 
@@ -159,6 +175,7 @@ def _make_pull_one_pack(
     use_sudo: bool,
     follow_symlinks: bool,
     host: str,
+    dest_host_root: Path
 ) -> Callable[[SFTPClientLike, str, Path, bool], None]:
     """
     初回呼出しで pack+download+extract を実施。以降 no-op。
@@ -167,22 +184,38 @@ def _make_pull_one_pack(
     state: Dict[str, int | bool] = {"ran": False, "extracted": 0}
 
     def _pull_one(_sftp: SFTPClientLike, _remote: str, _local: Path, _is_dir: bool) -> None:
+
+        _LOG.debug(
+            "[debug][pack][sender] host=%s start: follow_symlinks=%s use_sudo=%s timeout=%s pack_items=%d",
+            host, follow_symlinks, use_sudo, timeout, len(pack_list),
+        )
+        for line in pack_list:
+            _LOG.debug("[debug][pack][sender][pack]   %s", line)
+
         if state["ran"]:
             return
         state["ran"] = True  # type: ignore[assignment]
         remote_gz: str = remote_pack_paths(
             ssh, pack_list, timeout=timeout, use_sudo=use_sudo, follow_symlinks=follow_symlinks
         )
-        # _local は DEST/<HOST>/<first-relpath> を指すので, HOST 直下に展開させる
-        dest_host_root: Path = Path(_local).parents[1]
-        extracted, _ = download_and_extract_tar(_sftp, remote_gz, str(dest_host_root), host)
-        state["extracted"] = extracted  # type: ignore[assignment]
-        _ = run_remote_cmd_capture(
-            ssh, ["bash", "-lc", f"rm -f {shlex.quote(remote_gz)} || true"], timeout=timeout
+        _LOG.debug("[debug][pack][sender] host=%s remote_tar_gz=%s", host, remote_gz)
+        # 常に DEST/<HOST> 直下に展開（_local から親を推測しない）
+        _LOG.debug(
+            "[debug][pack][receiver] enter remote_tar_gz=%s extract_base=%s subdir=%s verbose=%s",
+            remote_gz, str(dest_host_root), "", False,
         )
 
+        # 常に DEST/<HOST> 直下に展開（_local から親を推測しない）
+        # 第4引数subdirはdownload_and_extract_tar内で2重にパスを作らないよう
+        # 空文字列を指定している。
+        extracted, _ = download_and_extract_tar(_sftp, remote_gz, str(dest_host_root), "")
+        state["extracted"] = extracted  # type: ignore[assignment]
+        # sudo で作成された一時ファイルも確実に削除する
+        cmd_rm = "sudo -n rm -f {f} || rm -f {f} || true".format(f=shlex.quote(remote_gz))
+        _ = run_remote_cmd_capture(ssh, ["bash", "-lc", cmd_rm], timeout=timeout)
+        _LOG.debug("[debug][pack][cleanup] host=%s removed %s; extracted_count=%s",
+                    host, remote_gz, state["extracted"])
     return _pull_one
-
 
 # ---- plan builder per host ---------------------------------------------------
 
@@ -255,22 +288,27 @@ def _build_plan_for_host(
         home_abs=home_abs,
         use_sudo=use_sudo,
         pack_remote=pack_remote,
+        follow_symlinks=follow_symlinks,
         verbose=verbose,
     )
-
+    _LOG.debug("[debug][plan] host=%s enumerate_candidates: %d item(s)", host, len(candidates))
     # ファイルのみに絞る ( symlink は pack+follow 指定時のみ pack_list に含める )
     files_only: List[str] = []
     symlinks: List[str] = []
     for rp in candidates:
         try:
             if not sftp_exists(sftp, rp):
+                _LOG.debug("[debug][plan] host=%s skip_file=%s", host, rp)
                 continue
             if sftp_isdir(sftp, rp):
+                _LOG.debug("[debug][plan] host=%s skip_dir=%s", host, rp)
                 continue
             if sftp_islink(sftp, rp):
+                _LOG.debug("[debug][plan] host=%s add_symlink=%s", host, rp)
                 symlinks.append(rp)
                 continue
             if sftp_isfile(sftp, rp):
+                _LOG.debug("[debug][plan] host=%s add_file=%s", host, rp)
                 files_only.append(rp)
         except Exception:
             # 事前検査エラーは対象外扱い ( 進捗は run_host_gather 側でERROR加算 )
@@ -278,17 +316,26 @@ def _build_plan_for_host(
 
     # Plan 構築：relpath はローカル相対 ( DEST/<HOST>/relpath )
     entries: List[PlanEntry] = []
-    dest_host_root: str = os.path.join(dest_local, host)
+    safe_host = re.sub(RE_SAFE_HOST_PTN, "_", host).lstrip(".") or "_"
+    dest_host_root: str = os.path.join(dest_local, safe_host)
     os.makedirs(dest_host_root, exist_ok=True)
 
     targets: List[str] = list(files_only)
-    pack_list: List[str] = list(files_only) + (symlinks if (pack_remote and follow_symlinks) else [])
+    pack_list: List[str] = list(files_only) + (symlinks if pack_remote else [])
+    if verbose:
+        _LOG.debug(
+            "[debug][plan] host=%s pack_remote=%s follow_symlinks=%s files=%d symlinks=%d pack_list=%d",
+            host, pack_remote, follow_symlinks, len(files_only), len(symlinks), len(pack_list),
+        )
+        _LOG.debug("[debug][plan] sample files: %s", ", ".join(map(str, files_only[:3])))
+        _LOG.debug("[debug][plan] sample symlinks: %s", ", ".join(map(str, symlinks[:3])))
+        _LOG.debug("[debug][plan] sample pack_list: %s", ", ".join(map(str, pack_list[:5])))
 
     for rp in (targets if not pack_remote else pack_list):
         remote_root: str
         inner: str
         remote_root, inner = _split_remote_root_for_abs(rp, home_abs=home_abs)
-        abs_local: str = local_path_for_download(dest_local, host, rp)
+        abs_local: str = local_path_for_download(dest_local, safe_host, rp)
         rel_local: str = os.path.relpath(abs_local, start=dest_host_root)
 
         pe = PlanEntry(
@@ -299,16 +346,20 @@ def _build_plan_for_host(
         )
         # 並行処理仕様を保ちつつ, 混在ルートでも確実に元の絶対パスへ到達できるように付帯情報を持たせる
         # - core_pull は remote_abs を最優先, 次点で remote_root + remote_rel を使用
-        setattr(pe, "remote_abs", rp)       # type: ignore[attr-defined]
-        setattr(pe, "remote_rel", inner)    # type: ignore[attr-defined]
+        pe.remote_abs = rp
+        pe.remote_rel = inner
         entries.append(pe)
-
+        _LOG.debug(
+            "[debug][plan] host=%s plan_entry: remote_abs=%s remote_root=%s remote_rel=%s -> local_abs=%s rel=%s",
+            host, rp, remote_root, inner, abs_local, rel_local
+        )
     meta: Dict[str, object] = {
         "ssh": ssh,
         "sftp": sftp,
         "home_abs": home_abs,
         "use_sudo": use_sudo,
         "pack_list": pack_list,
+        "dest_host_root": dest_host_root,
     }
     return Plan(entries=entries), meta
 
@@ -319,6 +370,16 @@ def _build_plan_for_host(
 def main() -> None:
     parser: argparse.ArgumentParser = build_parser()
     args: argparse.Namespace = parser.parse_args()
+
+    # --- デバッグ常時表示のため、最初にロギング初期化（既存handlerが無ければ） ---
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        # 既存の core_logging のフォーマットを使いたい場合は init_logging を使う
+        # （run_parallel 側でも初期化されるが、重複追加しない実装なら問題なし）
+        init_logging(verbose=True)
+    else:
+        # 既に何かしらの初期化が済んでいる環境でも INFO を出す
+        root_logger.setLevel(logging.INFO)
 
     # 位置引数の検証
     if len(args.src) < 1 or not args.dest:
@@ -420,6 +481,7 @@ def main() -> None:
                 use_sudo=bool(m["use_sudo"]),
                 follow_symlinks=bool(args.follow_symlinks),
                 host=h,
+                dest_host_root=Path(m["dest_host_root"]),  # type: ignore[arg-type]
             )
 
     # 並行実行 : ロギング初期化・集計は run_parallel 側が担当
@@ -444,5 +506,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    finalize_sockets()
-    main()
+    # 開始前の finalize ではなく、終了時に必ず後片付けを行う
+    try:
+        main()
+    finally:
+        try:
+            finalize_sockets()
+        except Exception:
+            pass

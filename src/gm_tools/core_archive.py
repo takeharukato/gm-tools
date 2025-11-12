@@ -19,6 +19,7 @@ from __future__ import annotations
 
 
 import threading
+import re
 import os
 import random
 import shlex
@@ -31,7 +32,17 @@ from pathlib import PurePosixPath
 from typing import Callable, Dict, Iterable, List, Optional, Set, Literal, Tuple, TypeAlias
 
 from .core_ssh import CancelledError, SSHClientLike, SFTPClientLike  # for consistent cancellation semantics
-from .core_cmd_flavor import run_remote_cmd_capture
+from .core_cmd_flavor import (
+    run_remote_cmd_capture,
+    detect_tar_flavor_remote,
+)
+
+# ローカル展開名を core_path_handling の規則と整合させるために再利用
+from .core_path_handling import (
+    WINDOWS_FORBIDDEN_RE,
+    WINDOWS_RESERVED_DEVICES,
+    WINDOWS_TRAILING_STRIP,
+)
 
 # ---- Typing helpers for tarfile modes ---------------------------------------
 
@@ -264,7 +275,8 @@ def remote_pack_paths(
     絶対パス群をリモートで .tar.gz にまとめ, そのリモートパスを返す。
       1) printfでリスト作成  =>  2) tar -cf  =>  3) gzip -f  =>  4) リスト削除
     - アーカイブ内部パスは相対 ( -Pは使わない )
-    - follow_symlinks=True なら 'tar -h'
+    - follow_symlinks=True なら tar フレーバに応じて symlink を dereference
+      (GNU: -h, bsdtar: -L, unknown: 警告を出しフラグなしで実行し, symlinkはリンクとして保存)
     - use_sudo=True なら 'sudo -n' で tar/gzip を実行
     """
     if not abs_paths:
@@ -283,10 +295,28 @@ def remote_pack_paths(
         raise RuntimeError(f"prepare list failed: {(err_l or '').strip()}")
 
     try:
-        # 2) tar 作成 ( -h は必要時のみ )
-        deref = " -h" if follow_symlinks else ""
+        # 2) tar 作成（follow_symlinks のときのみフレーバ別に deref フラグを付与）
+        deref_flag = ""
+        if follow_symlinks:
+            try:
+                tar_flavor = detect_tar_flavor_remote(ssh, timeout=timeout).tar
+            except Exception:
+                tar_flavor = "unknown"
+            if tar_flavor == "gnu":
+                deref_flag = "-h"          # GNU tar: --dereference と等価
+            elif tar_flavor == "bsdtar":
+                deref_flag = "-L"          # libarchive/bsdtar 系
+            else:
+                # フレーバ不明: 警告しフラグ無しで続行（symlinkはリンクのまま保存される）
+                _LOG.warning(
+                    "remote_pack_paths: follow_symlinks requested but remote tar flavor is unknown; "
+                    "proceeding without dereference flag (symlinks will be archived as links)."
+                )
+
         q_tarf = shlex.quote(tarf)
-        tar_cmd = f"LC_ALL=C tar{deref} -cf {q_tarf} -T {q_lst}"
+        tar_cmd = f"LC_ALL=C tar {deref_flag} -cf {q_tarf} -T {q_lst}".strip()
+        if follow_symlinks and deref_flag:
+            _LOG.debug("remote_pack_paths: using dereference flag '%s' for tar", deref_flag)
         tar_argv = (["sudo", "-n"] if use_sudo else []) + ["bash", "-lc", tar_cmd]
         rc_t, _o_t, err_t = run_remote_cmd_capture(ssh, tar_argv, timeout=timeout)
         if rc_t != 0:
@@ -300,7 +330,8 @@ def remote_pack_paths(
             raise RuntimeError(f"gzip failed: {(err_g or '(no stderr)').strip()}")
     except Exception:
         # 失敗時の掃除 ( ベストエフォート )
-        _ = run_remote_cmd_capture(ssh, ["bash", "-lc", f"rm -f {shlex.quote(tarf)} {q_lst} || true"], timeout=timeout)
+        _ = run_remote_cmd_capture(
+            ssh, ["bash", "-lc", f"rm -f {shlex.quote(tarf)} {shlex.quote(tgz)} {q_lst} || true"], timeout=timeout)
         raise
     finally:
         # 4) リスト削除
@@ -343,12 +374,20 @@ def download_and_extract_tar(
     """
     リモート .tar.gz をローカルに保存し, extract_base/subdir に安全展開。
     戻り値: (extracted_count, extracted_paths)
-      - extracted_count は「通常ファイル + ハードリンク」をカウント
-      - extracted_paths は tar 内パス ( 相対 ) 一覧
+      - extracted_count は「通常ファイル（GNU tar の最適化由来 hardlink のデマテリアライズ含む）」をカウント
+      - extracted_paths は tar 内の相対パス（正規化後）一覧
     """
+
+    tmp_path = None
+
     os.makedirs(extract_base, exist_ok=True)
     dest_root = os.path.join(extract_base, subdir)
     os.makedirs(dest_root, exist_ok=True)
+
+    # [debug] 受信側：関数進入の観測
+    if verbose:
+        _LOG.info("[debug][pack][receiver] enter remote_tar_gz=%s extract_base=%s subdir=%s verbose=%s",
+                remote_tar_gz, extract_base, subdir, verbose)
 
     with tempfile.NamedTemporaryFile(prefix="gm_dl_", suffix=".tar.gz", delete=False) as tmpf:
         tmp_path = tmpf.name
@@ -361,16 +400,182 @@ def download_and_extract_tar(
             pass
         raise
 
+    # ---- Helpers for hardened extraction -----------------------------------
+    def _normalize_archive_relpath_for_local(name: str) -> str:
+        """
+        アーカイブ内の相対パスをローカル安全名へ正規化。
+          - '\\'→'/'、先頭'/'除去
+          - 'X:/...' → 'X_/...'
+          - 連続'//'・'.' の整理
+          - Windows 禁止記号置換、末尾スペース/ドット除去、予約デバイス名回避
+          - 空要素/UNC 由来の空セグメントは '_' として保持
+        """
+        p = name.replace("\\", "/")
+        p = p.lstrip("/")
+        # 'X:/' → 'X_/'（最初の 1 か所だけ）
+        if re.match(r'^[A-Za-z]:/', p):
+            p = p.replace(":/", "_/", 1)
+        # 末尾の '/' は抽出名としては無視
+        had_trailing = p.endswith("/")
+        parts_raw = p.split("/")
+        if had_trailing:
+            while parts_raw and parts_raw[-1] == "":
+                parts_raw.pop()
+        out: List[str] = []
+        for comp in parts_raw:
+            if comp == "":
+                out.append("_")
+                continue
+            if comp == ".":
+                continue
+            if comp == "..":
+                # _safe_members 側で排除済みのはずだが、念のため拒否
+                continue
+            comp = WINDOWS_FORBIDDEN_RE.sub("_", comp)
+            comp = comp.rstrip(WINDOWS_TRAILING_STRIP)
+            base = comp.split(".", 1)[0].upper()
+            if base in WINDOWS_RESERVED_DEVICES:
+                comp = "_" + (comp or "_")
+            out.append(comp or "_")
+        if not out:
+            out.append("_")
+        return "/".join(out)
+
+    def _parent_chain_has_symlink(base_dir: str, relpath: str) -> bool:
+        """
+        親ディレクトリ連鎖に symlink が混ざっていないかを lstat で確認する。
+        """
+        base_abs = os.path.abspath(base_dir)
+        cur = base_abs
+        for part in PurePosixPath(relpath).parts:
+            cur = os.path.abspath(os.path.join(cur, part))
+            parent = os.path.dirname(cur)
+            try:
+                _st = os.lstat(parent)
+            except FileNotFoundError:
+                # これから mkdir する場合はここでは判断しない
+                continue
+            if os.path.islink(parent):
+                return True
+        return False
+
     extracted = 0
     extracted_paths: List[str] = []
     try:
         with tarfile.open(str(tmp_path), mode="r:gz") as tf:
-            members = list(_safe_members(dest_root, tf.getmembers()))
-            for m in members:
-                tf.extract(m, dest_root)  # 安全化済みメンバーのみ
-                if m.isfile() or m.islnk():       # ハードリンクも1件として数える
-                    extracted += 1
-                    extracted_paths.append(str(PurePosixPath(m.name)))
+            members_all = tf.getmembers()
+            members = list(_safe_members(dest_root, members_all))
+
+            # 1) 先にディレクトリを作成（正規化名で）
+            dirs = [m for m in members if m.isdir()]
+            for d in dirs:
+                norm_dir = _normalize_archive_relpath_for_local(d.name)
+                if _parent_chain_has_symlink(dest_root, norm_dir):
+                    _LOG.warning("skip extracting directory due to symlinked parent: %s", norm_dir)
+                    continue
+                target_dir = os.path.join(dest_root, norm_dir)
+                os.makedirs(target_dir, exist_ok=True)
+
+            # 索引用: アーカイブ内「正規化名 -> TarInfo」
+            members_map: Dict[str, tarfile.TarInfo] = {}
+            for _m in members:
+                key = _normalize_archive_relpath_for_local(_m.name)
+                if key not in members_map:
+                    members_map[key] = _m
+
+            # 2) 通常ファイルを抽出（symlink は抽出しない / hardlink は後段で特例処理）
+            extracted_map: Dict[str, str] = {}  # 正規化相対 -> ローカル絶対
+            files = [m for m in members if m.isfile()]
+
+            for m in files:
+                norm_rel = _normalize_archive_relpath_for_local(m.name)
+                if _parent_chain_has_symlink(dest_root, norm_rel):
+                    _LOG.warning("skip extracting file due to symlinked parent: %s", norm_rel)
+                    continue
+                abs_out = os.path.join(dest_root, norm_rel)
+                os.makedirs(os.path.dirname(abs_out), exist_ok=True)
+                # 書き出し
+                fobj = tf.extractfile(m)
+                if fobj is None:
+                    # 読み取り不能（デバイス等）はスキップ
+                    continue
+                with open(abs_out, "wb") as w:
+                    shutil.copyfileobj(fobj, w)
+                # パーミッション・時刻（可能な範囲で）を反映
+                try:
+                    os.chmod(abs_out, m.mode & 0o777)
+                except Exception:
+                    pass
+                try:
+                    os.utime(abs_out, (m.mtime, m.mtime))
+                except Exception:
+                    pass
+                extracted += 1
+                extracted_paths.append(norm_rel)
+                extracted_map[norm_rel] = abs_out
+
+            # 3) GNU tar 最適化由来のハードリンク（islnk）を「通常ファイル」としてデマテリアライズ
+            hardlinks = [m for m in members if m.islnk()]
+            for m in hardlinks:
+                norm_rel = _normalize_archive_relpath_for_local(m.name)
+                # 親チェーンに symlink があれば安全のため拒否
+                if _parent_chain_has_symlink(dest_root, norm_rel):
+                    _LOG.warning("skip extracting hardlink due to symlinked parent: %s -> %s",
+                                  norm_rel, m.linkname)
+                    continue
+                abs_out = os.path.join(dest_root, norm_rel)
+                os.makedirs(os.path.dirname(abs_out), exist_ok=True)
+
+                # 3-1) 既に抽出済みのリンク先があれば、それをソースに複製
+                norm_link = _normalize_archive_relpath_for_local(m.linkname or "")
+                src_abs = extracted_map.get(norm_link)
+                if src_abs and os.path.isfile(src_abs):
+                    try:
+                        with open(src_abs, "rb") as rf, open(abs_out, "wb") as wf:
+                            shutil.copyfileobj(rf, wf)
+                        try:
+                            os.chmod(abs_out, m.mode & 0o777)
+                        except Exception:
+                            pass
+                        try:
+                            os.utime(abs_out, (m.mtime, m.mtime))
+                        except Exception:
+                            pass
+                        extracted += 1
+                        extracted_paths.append(norm_rel)
+                        extracted_map[norm_rel] = abs_out
+                        continue
+                    except Exception as e:
+                        _LOG.warning("failed to materialize hardlink from extracted source: %s -> %s (%s)",
+                            norm_rel, norm_link, e)
+
+                # 3-2) 未抽出なら、アーカイブ内の同名メンバー（通常ファイル）から抽出・複製
+                src_member = members_map.get(norm_link)
+                if src_member is not None and src_member.isfile():
+                    try:
+                        fobj2 = tf.extractfile(src_member)
+                        if fobj2 is None:
+                            raise RuntimeError("extractfile() returned None")
+                        with open(abs_out, "wb") as wf2:
+                            shutil.copyfileobj(fobj2, wf2)
+                        try:
+                            os.chmod(abs_out, src_member.mode & 0o777)
+                        except Exception:
+                            pass
+                        try:
+                            os.utime(abs_out, (src_member.mtime, src_member.mtime))
+                        except Exception:
+                            pass
+                        extracted += 1
+                        extracted_paths.append(norm_rel)
+                        extracted_map[norm_rel] = abs_out
+                        continue
+                    except Exception as e:
+                        _LOG.warning("failed to materialize hardlink from archive member: %s -> %s (%s)",
+                            norm_rel, norm_link, e)
+
+                # 3-3) いずれも解決できなければ警告してスキップ
+                _LOG.warning("skip hardlink (unresolvable link target): %s -> %s", norm_rel, m.linkname)
     finally:
         try:
             os.remove(tmp_path)
