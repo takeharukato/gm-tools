@@ -139,8 +139,8 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
       - '/' で始まれば絶対
       - 'X:\\'/'X:/' ( Windows ) で始まれば絶対
       - '~/' は remote_home に展開
-      - 素の '~' は非対応（エラーメッセージを返す）
-      - '~user' は非対応（エラーメッセージを返す）
+      - 素の '~' は非対応 ( エラーメッセージを返す )
+      - '~user' は非対応 ( エラーメッセージを返す )
       - 上記以外は remote_home からの相対
     戻り値: (dest_abs, error_or_None)
     """
@@ -187,7 +187,7 @@ def _build_plan_for_host(
     Plan + Meta per host ( Paramiko 直接依存なし, DI 用に接続を構築して meta に格納 ) 。
     - SRC 正規表現混在の解決 ( ローカル )
     - DEST の絶対解決 ( ~ 展開 )
-    - 配置規則: DEST/<rel>/...（絶対 SRC は先頭スラッシュを除去、相対 SRC は指定相対を保持）
+    - 配置規則: DEST/<rel>/... ( 絶対 SRC は先頭スラッシュを除去、相対 SRC は指定相対を保持 )
     """
     cfg: SSHConfig = SSHConfig(
         host=host,
@@ -219,7 +219,7 @@ def _build_plan_for_host(
             print(ERR_TILDE_USERNAME, file=sys.stderr)
             raise SystemExit(EXIT_ERR_ARGS)
 
-    # SRC を scatter 規約で解決（~/ は実行ユーザ HOME 展開、相対は cwd 起点）
+    # SRC を scatter 仕様に基づいて解決 ( ~/ は実行ユーザ HOME 展開、相対は cwd 起点 )
     resolved_tokens: List[ScatterResolvedToken] = []
     for s in srcs_raw:
         tok: ScatterSrcToken = ScatterSrcToken(raw=str(s))
@@ -228,7 +228,7 @@ def _build_plan_for_host(
 
     # 候補列挙とリモート配置 rel の算出
     #  - 絶対 SRC: rel_root は <local_abs_without_leading_slash>
-    #  - 相対 SRC: rel_root は <指定された相対パス>（正規化済）
+    #  - 相対 SRC: rel_root は <指定された相対パス> ( 正規化済 )
     entries: List[PlanEntry] = []
     remote_rel_map: Dict[str, str] = {}
     for res in resolved_tokens:
@@ -239,7 +239,7 @@ def _build_plan_for_host(
             st_is_dir: bool = os.path.isdir(p)
             if (not pack) and st_is_dir:
                 continue
-            # inner_rel: abs_root からの相対。ルート自身は追加なし（=空）。
+            # inner_rel: abs_root からの相対。ルート自身は追加なし ( =空 ) 。
             try:
                 inner_rel_raw: str = os.path.relpath(p, start=res.abs_root)
             except ValueError:
@@ -284,7 +284,7 @@ def _make_push_one_sftp(
     remote_rel_map: Dict[str, str],
 ) -> PushOne:
     """
-    非 pack 経路：PlanEntry 毎の逐次 PUT。
+    非 pack 経路 : PlanEntry 毎の逐次 PUT。
     リモート配置は core_scatter.sftp_put_one が DEST/<local_abs_without_leading_slash> を作成。
     """
     def _push_one(_sftp: SFTPClientLike, local_path: Path, _remote_root: str, is_dir: bool) -> None:
@@ -324,7 +324,7 @@ def _make_push_one_pack(
     remote_rel_map: Dict[str, str],
 ) -> PushOne:
     """
-    pack 経路：最初の 1 回だけ local pack  =>  upload  =>  remote extract。
+    pack 経路 : 最初の 1 回だけ local pack  =>  upload  =>  remote extract。
     """
     state: Dict[str, bool] = {"ran": False}
 
@@ -333,15 +333,15 @@ def _make_push_one_pack(
             return
         state["ran"] = True
         src_list: List[str] = [str(p) for p in pack_srcs]
-        # アーカイブ名はリモート相対配置に一致させる（DEST 直下に再現）
-        # フォールバックは許容しない：remote_rel_map に存在しないキーは例外
+        # アーカイブ名はリモート相対配置に一致させる ( DEST 直下に再現 )
+        # フォールバックは許容しない : remote_rel_map に存在しないキーは例外
         src_list_abs: List[str] = [os.path.abspath(p) for p in src_list]
         abs_to_rel: Dict[str, str] = remote_rel_map
         missing: List[str] = [a for a in src_list_abs if a not in abs_to_rel]
         if missing:
             miss_join: str = ", ".join(missing)
             raise ValueError(f"E_ARCNAME_KEY: missing remote_rel for pack roots: {miss_join}")
-        # ここで '' が含まれていてよい（src='/' の正規表現／リテラル入力に対応）
+        # ここで '' が含まれていてよい ( src='/' の正規表現／リテラル入力に対応 )
         arc_list: List[str] = [abs_to_rel[a] for a in src_list_abs]
 
         # アンパック代入に直接の型注釈は不可なため, いったんタプルに受けてから展開する。
@@ -372,20 +372,45 @@ def _make_push_one_pack(
 
 def main() -> None:
 
-    # --pack の場合は SRC の末尾に必ず '/' を付与してディレクトリ意図を明確化
+    # --pack の場合の SRC 正規化 :
+    #   - 正規表現入力は壊さない ( 末尾スラッシュ付与しない )
+    #   - リテラル入力については「実体がディレクトリ」のときのみ末尾スラッシュを付与
+    #      ( ファイルに付けてしまうと「x.txt/」となり不正 )
     def _normalize_pack_srcs(srcs: Sequence[str]) -> List[str]:
-         out: List[str] = []
-         s_in: str = ""
-         v: str = ""
-         is_rx: bool = False
-         for s_in in srcs:
-             v = str(s_in)
-             # 正規表現入力を壊さない：regex と判定された場合は末尾スラッシュを付与しない
-             is_rx = looks_like_regex(v)
-             if (not is_rx) and (not (v.endswith("/") or v.endswith(os.sep))):
-                 v = v + "/"
-             out.append(v)
-         return out
+        out: List[str] = []
+        s_in: str = ""
+        v: str = ""
+        is_rx: bool = False
+        ends_with_sep: bool = False
+        exists_b: bool = False
+        looks_dir: bool = False
+        abs_probe: str = ""
+        for s_in in srcs:
+            v = str(s_in)
+            # 1) 正規表現は末尾スラッシュを付与しない
+            is_rx = looks_like_regex(v)
+            if is_rx:
+                out.append(v)
+                continue
+            # 2) 既に区切りで終わっていればそのまま
+            ends_with_sep = bool(v.endswith("/") or v.endswith(os.sep))
+            if ends_with_sep:
+                out.append(v)
+                continue
+            # 3) リテラルとして実体が「存在」かつ「ディレクトリ」のときのみ付与
+            #    - 相対は cwd 起点で評価
+            #    - 例外 ( 権限・競合 ) 時は安全側 ( 付与しない )
+            try:
+                abs_probe = os.path.abspath(v)
+                exists_b = os.path.exists(abs_probe)
+                looks_dir = os.path.isdir(abs_probe) if exists_b else False
+            except OSError:
+                exists_b = False
+                looks_dir = False
+            if looks_dir:
+                v = v + "/"
+            out.append(v)
+        return out
 
     parser: argparse.ArgumentParser = build_parser()
     args: Namespace = parser.parse_args()
@@ -485,7 +510,6 @@ def main() -> None:
                 timeout_f = DEFAULT_TIMEOUT
         else:
             timeout_f = DEFAULT_TIMEOUT
-
 
         if bool(meta["pack"]):  # type: ignore[index]
             pack_srcs: List[Path] = _dedup_roots_for_pack([e.path for e in plan_per_host[host].entries])

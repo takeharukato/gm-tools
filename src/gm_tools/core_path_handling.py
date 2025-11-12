@@ -17,13 +17,13 @@ HOME_FALLBACK_PREFIX: str = "/home"
 
 # === Constants (local) ===
 # エスケープされていないこれらの文字が現れた時点で「ここから正規表現」
-# Windows のファイル名に使えない文字（予約文字）
+# Windows のファイル名に使えない文字 ( 予約文字 )
 #   https://learn.microsoft.com/windows/win32/fileio/naming-a-file
 WINDOWS_FORBIDDEN_CHARS = '<>:"\\|?*'
 WINDOWS_TRAILING_STRIP = ' .'  # 末尾のスペース・ドットは不可
 WINDOWS_ABS_RE: re.Pattern[str] = re.compile(r"^[A-Za-z]:[\\/]")
 WINDOWS_FORBIDDEN_RE = re.compile(r'[<>:"\\|?*]')
-# Windows 予約デバイス名（拡張子が付いていても不可）の回避用
+# Windows 予約デバイス名 ( 拡張子が付いていても不可 ) の回避用
 WINDOWS_RESERVED_DEVICES = {
         "CON", "PRN", "AUX", "NUL",
         "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
@@ -41,7 +41,7 @@ SEP_POSIX: str = "/"
 SEP_WIN: str = "\\"
 UNC_PREFIX: str = r"\\"
 
-# scatter/gather 共通で使える正規表現（命名は衝突しないように接頭辞を付与）
+# scatter/gather 共通で使える正規表現 ( 命名は衝突しないように接頭辞を付与 )
 RE_TILDE_SELF: "re.Pattern[str]" = re.compile(r"^~(?:[/\\]|$)")
 RE_REL_LEADING_DOT: "re.Pattern[str]" = re.compile(r"^(?:\./)+")
 RE_MULTI_SLASH: "re.Pattern[str]" = re.compile(r"/+")
@@ -54,16 +54,16 @@ DEST_PATH_SEP: str = "/"
 def _sanitize_remote_abs_for_local(remote_abs_path: str) -> str:
     """
     リモート絶対パスを「ローカル保存用の相対パス」に変換する。
-    - バックスラッシュ→スラッシュ正規化
-    - 先頭が 1 本の '/' の場合は相対化（先頭 '_' は付けない）
-    - 先頭が '//'（2 本以上）の場合は、先頭に '_' を 1 つ立てて空セグメントを保持
-       ( WindowsのUNC（Universal Naming Convention）パス由来の可能性を考慮 )
-    - Windows ドライブレター 'X:/' は最初の ':/ ' を '_/' に置換（例: 'C:/foo' → 'C_/foo'）
-    - 中間の空セグメント（'//'）は '_' に置換
-    - 末尾の '/' は無視（末尾 '_' は付けない）
-    - 禁止記号（<>:"\\|?*）は '_' に置換
+    - バックスラッシュ => スラッシュ正規化
+    - 先頭が 1 本の '/' の場合は相対化 ( 先頭 '_' は付けない )
+    - 先頭が '//' ( 2 本以上 ) の場合は, 先頭に '_' を 1 つ立てて空セグメントを保持
+       ( WindowsのUNC ( Universal Naming Convention ) パス由来の可能性を考慮 )
+    - Windows ドライブレター 'X:/' は最初の ':/ ' を '_/' に置換 ( 例: 'C:/foo'  =>  'C_/foo' )
+    - 中間の空セグメント ( '//' ) は '_' に置換
+    - 末尾の '/' は無視 ( 末尾 '_' は付けない )
+    - 禁止記号 ( <>:"\\|?* ) は '_' に置換
     - 各コンポーネント末尾のスペース・ドットは削除
-    - Windows 予約デバイス名（CON, PRN, AUX, NUL, COM1..9, LPT1..9）は安全化
+    - Windows 予約デバイス名 ( CON, PRN, AUX, NUL, COM1..9, LPT1..9 ) は安全化
     - すべて空になった場合は '_' を返す
     例:
       '/etc/hosts'         -> 'etc/hosts'
@@ -72,7 +72,7 @@ def _sanitize_remote_abs_for_local(remote_abs_path: str) -> str:
     """
     p = remote_abs_path.replace("\\", "/")
 
-    # 'X:/...' → 'X_/...'（絶対ドライブパスのみ）
+    # 'X:/...'  =>  'X_/...' ( 絶対ドライブパスのみ )
     if re.match(r'^[A-Za-z]:/', p):
         p = p.replace(":/", "_/", 1)
 
@@ -80,12 +80,12 @@ def _sanitize_remote_abs_for_local(remote_abs_path: str) -> str:
     leading_slashes = len(p) - len(p.lstrip("/"))
     had_trailing_slash = p.endswith("/")
 
-    # 先頭スラッシュはすべて剥がして相対化（UNC 由来は後段で '_' を立てて表現）
+    # 先頭スラッシュはすべて剥がして相対化 ( UNC 由来は後段で '_' を立てて表現 )
     rel = p.lstrip("/")
 
     parts_raw = rel.split("/")
 
-    # 末尾スラッシュに由来する空要素は「すべて」捨てる（末尾 '_' は作らない）
+    # 末尾スラッシュに由来する空要素は「すべて」捨てる ( 末尾 '_' は作らない )
     # 例: "C:/path///" や "/a/b//" などでも末尾に '_' を作らない
     if had_trailing_slash:
         while parts_raw and parts_raw[-1] == "":
@@ -93,13 +93,13 @@ def _sanitize_remote_abs_for_local(remote_abs_path: str) -> str:
 
     out_parts: list[str] = []
 
-    # 先頭が '//' 以上なら、空セグメントの存在を先頭 '_' で保持
+    # 先頭が '//' 以上なら, 空セグメントの存在を先頭 '_' で保持
     if leading_slashes >= 2:
         out_parts.append("_")
 
     for comp in parts_raw:
         if comp == "":
-            # 中間の '//' → '_' を保持（UNC など空セグメントの情報保存）
+            # 中間の '//'  =>  '_' を保持 ( UNC など空セグメントの情報保存 )
             out_parts.append("_")
             continue
         if comp == ".":
@@ -110,7 +110,7 @@ def _sanitize_remote_abs_for_local(remote_abs_path: str) -> str:
             # 先頭の UNC 空セグメント('_')は「ポップ対象にしない」ことでルート超えを防ぐ。
             if out_parts and out_parts[-1] != "_":
                 out_parts.pop()
-            # それ以外（ポップできない＝ルート超え要求）は無視して落とす
+            # それ以外 ( ポップできない＝ルート超え要求 ) は無視して落とす
             continue
 
         # 禁止記号を '_' に
@@ -118,14 +118,14 @@ def _sanitize_remote_abs_for_local(remote_abs_path: str) -> str:
         # 末尾スペース/ドットを削除
         comp = comp.rstrip(WINDOWS_TRAILING_STRIP)
 
-        # Windows 予約デバイス名（拡張子付きでもベース名が一致すれば不可）
+        # Windows 予約デバイス名 ( 拡張子付きでもベース名が一致すれば不可 )
         base_name = comp.split(".", 1)[0].upper()
         if base_name in WINDOWS_RESERVED_DEVICES:
             comp = "_" + (comp or "_")
 
         out_parts.append(comp or "_")
 
-    # すべて空だった場合（例: "/" のみ）も '_' を返す
+    # すべて空だった場合 ( 例: "/" のみ ) も '_' を返す
     if not out_parts:
         out_parts.append("_")
 
@@ -192,16 +192,16 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
     """
     リモートSRCトークンを「絶対パスパターン」に正規化する。
       - '~/...'        : <home_abs_for_tilde>/... に展開
-      - '/...'         : そのまま（UNIX絶対）
-      - 'X:\\...'等    : 'X:/...' に正規化（Windows絶対）
-      - 上記以外（相対）: <home_abs_for_tilde>/<rel> に連結し、HOME逸脱（'..'）を禁止
+      - '/...'         : そのまま ( UNIX絶対 )
+      - 'X:\\...'等    : 'X:/...' に正規化 ( Windows絶対 )
+      - 上記以外 ( 相対 ) : <home_abs_for_tilde>/<rel> に連結し, HOME逸脱 ( '..' ) を禁止
     安全化:
-      - 区切りは '\\'→'/' に統一
-      - 先頭 './' を折り畳み、'//' を1本化
+      - 区切りは '\\' => '/' に統一
+      - 先頭 './' を折り畳み, '//' を1本化
       - 相対トークン中の path セグメントに '..' が含まれる場合は ValueError
-        （HOME逸脱の恐れがあるため）
+         ( HOME逸脱の恐れがあるため )
     備考:
-      - 正規表現メタは tail 側で評価されるため、root 部は HOME配下に固定される。
+      - 正規表現メタは tail 側で評価されるため, root 部は HOME配下に固定される。
     """
     s = src
     # 1) tilde-self
@@ -265,7 +265,7 @@ def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
     if m is None:
         # pure literal
 
-        # OS 非依存化のため、最後の '/' で分割（posix ルールに固定）
+        # OS 非依存化のため, 最後の '/' で分割 ( posix ルールに固定 )
         slash_pos = abs_path.rfind("/")
         if slash_pos < 0:
             root = "/"
@@ -275,7 +275,7 @@ def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
             base = abs_path[slash_pos + 1 :]
 
         if not base:
-            # '/etc/' や 'C:/' のようなディレクトリ意図は root を保持し、配下すべてを意味する
+            # '/etc/' や 'C:/' のようなディレクトリ意図は root を保持し, 配下すべてを意味する
             root_keep = abs_path if re.match(r'^[A-Za-z]:/$', abs_path) else (abs_path.rstrip("/") or "/")
             return (root_keep, r".*")
         # 相対名に対する厳密一致
@@ -304,8 +304,8 @@ class ScatterSrcToken:
 
 @dataclass(frozen=True)
 class ScatterResolvedToken:
-    abs_root: str     # 列挙に使う絶対パス（ローカル）
-    rel_root: str     # DEST 配下のレイアウト根（正規化済）
+    abs_root: str     # 列挙に使う絶対パス ( ローカル )
+    rel_root: str     # DEST 配下のレイアウト根 ( 正規化済 )
     is_absolute: bool
 
 # ============================================================
@@ -327,7 +327,7 @@ def is_tilde_self_form(p: str) -> bool:
 def scatter_expand_tilde_for_exec_user(raw: str) -> str:
     """
     scatter における ~/ 展開は『コマンド実行ユーザの HOME』で行う。
-     ~user/ は仕様上受理しない。~（単独）も HOME に展開する
+     ~user/ は仕様上受理しない。~ ( 単独 ) も HOME に展開する
     """
     s: str = raw
     if is_tilde_user_form(s):
@@ -338,22 +338,22 @@ def scatter_expand_tilde_for_exec_user(raw: str) -> str:
     return s
 
 # ============================================================
-# DEST レイアウト用の正規化（SRC 実解決には適用しない）
+# DEST レイアウト用の正規化 ( SRC 実解決には適用しない )
 # ============================================================
 def normalize_rel_for_dest(rel: str) -> str:
     """
     DEST 配下で用いる相対パス表記の正規化。
       - '\\' を '/' に統一
-      - 先頭 './' を折り畳み、'//' を 1 本化
-      - 先頭の '/' を除去（絶対化の禁止）
-      - スタック方式で '..' を評価し、CWD 外への脱出のみ拒否
+      - 先頭 './' を折り畳み, '//' を 1 本化
+      - 先頭の '/' を除去 ( 絶対化の禁止 )
+      - スタック方式で '..' を評価し, CWD 外への脱出のみ拒否
     """
     r: str = rel.replace(SEP_WIN, SEP_POSIX)
     r = RE_REL_LEADING_DOT.sub("", r)
     r = RE_MULTI_SLASH.sub("/", r)
     r = r.lstrip(SEP_POSIX)
 
-    # スタックで '..' を評価（ベースより上に出るとエラー）
+    # スタックで '..' を評価 ( ベースより上に出るとエラー )
     parts = [p for p in r.split(SEP_POSIX) if p not in ("", ".")]
     stack: list[str] = []
     for p in parts:
@@ -409,12 +409,12 @@ def validate_relative_token_safe(raw_rel: str, cwd: Optional[str] = None) -> Non
         raise ValueError(f"Relative SRC escapes above CWD: {raw_rel!r}")
 
 # ============================================================
-# トークン解決（scatter 用）
+# トークン解決 ( scatter 用 )
 # ============================================================
 def resolve_token_for_scatter(token: ScatterSrcToken, cwd: Optional[str] = None) -> ScatterResolvedToken:
     raw: str = token.raw
     raw2: str = scatter_expand_tilde_for_exec_user(raw)
-    # 絶対判定は展開後（raw2）に対して行う
+    # 絶対判定は展開後 ( raw2 ) に対して行う
     win_abs = is_windows_abs(raw2) or is_unc(raw2)
     is_abs: bool = (is_unix_abs(raw2) or win_abs)
 
@@ -439,8 +439,8 @@ def resolve_token_for_scatter(token: ScatterSrcToken, cwd: Optional[str] = None)
 def looks_like_regex(text: str) -> bool:
     """
     与えられた文字列が正規表現として解釈される可能性が高いかの軽量判定。
-    シェルのグロブではなく、scatter がサポートする「regex 指定」を壊さない目的で使用する。
-    - いずれかのメタ文字を含む場合は True とみなす（保守的な判定）。
+    シェルのグロブではなく, scatter がサポートする「regex 指定」を壊さない目的で使用する。
+    - いずれかのメタ文字を含む場合は True とみなす ( 保守的な判定 ) 。
     """
     c: str = ""
     found: bool = False

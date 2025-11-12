@@ -78,11 +78,11 @@ def _dbg_log(msg: str) -> None:
 # ------------------------
 def _normalize_remote_rel_file(rel: Optional[str]) -> str:
     """
-    remote_rel を「DEST からの相対“ファイル”パス」として扱い、安全化する。
+    remote_rel を「DEST からの相対“ファイル”パス」として扱い, 安全化する。
       - None/空なら "" を返す（呼び出し側で basename(local) にフォールバック可）
       - '\\' を '/' に統一
       - 先頭の '/' は除去（絶対化の禁止）
-      - './' の折り畳み、'//' の除去
+      - './' の折り畳み, '//' の除去
       - スタック方式で '..' を評価 : ベースより上に出る場合のみ拒否
       - 正常時は正規化済みの相対パスを返す（内部 '..' は解消される）
     """
@@ -142,14 +142,14 @@ def local_pack_paths_to_tmp(
     """
     与えられたパス群から 重複を除去し, follow_symlinks に応じてシンボリックリンクを処理したうえで,
     tar.gz アーカイブを作成する。
-      - arcnames が与えられた場合は、各要素を「DEST からの相対パス」として正規化
-        （'\\' => '/'、先頭'/'除去、'..' 脱出拒否、'./' 折り畳み）
+      - arcnames が与えられた場合は, 各要素を「DEST からの相対パス」として正規化
+        （'\\' => '/', 先頭'/'除去, '..' 脱出拒否, './' 折り畳み）
       - 同一 arcname は重複排除
     """
 
     def _filter(ti: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
-        # follow_symlinks=False の場合は、シンボリックリンクのみ除外する。
-        # ハードリンクを除外すると、同一内容を別パスに展開するべきエントリが欠落し得る。
+        # follow_symlinks=False の場合は, シンボリックリンクのみ除外する。
+        # ハードリンクを除外すると, 同一内容を別パスに展開するべきエントリが欠落し得る。
         ti_in: tarfile.TarInfo = ti
         if not follow_symlinks and ti_in.issym():
             return None
@@ -189,7 +189,7 @@ def local_pack_paths_to_tmp(
         kept_pairs: List[Tuple[str, str]] = []
         for p, a in zip(plist, alist):
             na: str = _normalize_remote_rel_file(a)
-            # 空（=呼び出し側が basename にフォールバックする意図）も許すが、
+            # 空（=呼び出し側が basename にフォールバックする意図）も許すが,
             # 重複判定のキーとしては空文字もそのまま扱う。
             if na in seen_arc:
                 continue
@@ -199,7 +199,7 @@ def local_pack_paths_to_tmp(
             plist = [p for p, _ in kept_pairs]
             alist = [na for _, na in kept_pairs]
         else:
-            # 全て重複で消えた場合は、両者とも空に揃える
+            # 全て重複で消えた場合は, 両者とも空に揃える
             plist, alist = [], []
 
     added: List[str] = []
@@ -229,7 +229,7 @@ def local_pack_paths_to_tmp(
                     arc_norm2 = os.path.basename(ap).replace("\\", "/")
                 arcname: str = arc_norm2
 
-            # ここで arcname == '' の場合、tarfile はトップのディレクトリエントリ '' と
+            # ここで arcname == '' の場合, tarfile はトップのディレクトリエントリ '' と
             # その直下（例: 'etc', 'var', ...）を格納する。
             # 抽出側は相対名で扱うため問題なし（'' エントリはディレクトリであり isfile() では弾かれる）。
             tf.add(ap, arcname=arcname, recursive=True, filter=_filter)
@@ -418,7 +418,6 @@ def upload_pack_and_extract(
         rel_order: List[str] = list(rel_files)
         exist_list: List[str] = [r for r in rel_order if r in exist_set]
         new_list:   List[str] = [r for r in rel_order if r in new_set]
-
         # 6) 空ディレクトリを作成（属性は変更しない）
         empty_dir_created: Dict[str, bool] = {}
         for _d in empty_dirs:
@@ -551,7 +550,7 @@ def upload_pack_and_extract(
                 src_tmp: str = posixpath.join(rtmp_exist, rel_over)
                 dst_abs2: str = posixpath.join(dest_abs_root, rel_over)
 
-                # 一時ファイル名は raw で組み立て、挿入時にクォートする
+                # 一時ファイル名は raw で組み立て, 挿入時にクォートする
                 tmp_dest_raw: str = f"{dst_abs2}.gm-tmp.$$"
                 overwrite_cmd: List[str] = (["sudo","-n"] if sudo_extract else []) + [
                     "bash", "-lc",
@@ -764,7 +763,7 @@ def sftp_put_one(
         for root, _dirs, files in os.walk(ap, followlinks=False):
             # ここで必ず root_str を定義して以降で使用する
             root_str: str = os.path.abspath(root)
-            # root_str が ap 自身なら rel_effective のまま、
+            # root_str が ap 自身なら rel_effective のまま,
             # それ以外なら ap からの相対パスを連結
             if root_str != ap:
                 sub_rel: str = os.path.join(rel_effective, os.path.relpath(root_str, ap))
