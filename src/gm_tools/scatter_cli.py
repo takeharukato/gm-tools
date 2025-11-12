@@ -28,7 +28,9 @@ from .core_path_handling import (
     ScatterSrcToken,
     ScatterResolvedToken,
     resolve_token_for_scatter,
+    scatter_expand_tilde_for_exec_user,
     normalize_rel_for_dest,
+    split_src_to_root_and_tail_regex,
     looks_like_regex,
 )
 from .core_push import PushOne
@@ -164,6 +166,22 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
     # 相対
     return f"{remote_home}/{d}", None
 
+def _rel_base_from_abs_for_dest(base_abs: str) -> str:
+    """
+    正規表現 SRC のとき、転送先レイアウトの基点（rel_root）を
+    「正規表現を除去した絶対パス base_abs」から算出するための補助関数。
+    例:
+      /foo/bar         -> "foo/bar"
+      \\foo\\bar       -> "foo/bar"
+      C:\\foo\\bar     -> "C:/foo/bar"
+    """
+    base_abs_str: str = str(base_abs)
+    normalized: str = base_abs_str.replace("\\", "/")
+    # 先頭のスラッシュ 1 つだけを除去（Windows ドライブレターは残す）
+    stripped: str = normalized[1:] if normalized.startswith("/") else normalized
+    rel_base: str = normalize_rel_for_dest(stripped)
+    return rel_base
+
 
 def _build_plan_for_host(
     *,
@@ -220,42 +238,74 @@ def _build_plan_for_host(
             raise SystemExit(EXIT_ERR_ARGS)
 
     # SRC を scatter 仕様に基づいて解決 ( ~/ は実行ユーザ HOME 展開、相対は cwd 起点 )
-    resolved_tokens: List[ScatterResolvedToken] = []
-    for s in srcs_raw:
-        tok: ScatterSrcToken = ScatterSrcToken(raw=str(s))
-        res: ScatterResolvedToken = resolve_token_for_scatter(tok, cwd=os.getcwd())
-        resolved_tokens.append(res)
+    # 元トークン (ScatterSrcToken) と解決結果 (ScatterResolvedToken) をペアで保持する
+    tokens_and_resolved: List[Tuple[ScatterSrcToken, ScatterResolvedToken]] = []
+    s_in: str
+    tok: ScatterSrcToken
+    res: ScatterResolvedToken
+    for s_in in srcs_raw:
+        tok = ScatterSrcToken(raw=str(s_in))
+        res = resolve_token_for_scatter(tok, cwd=os.getcwd())
+        tokens_and_resolved.append((tok, res))
 
     # 候補列挙とリモート配置 rel の算出
     #  - 絶対 SRC: rel_root は <local_abs_without_leading_slash>
     #  - 相対 SRC: rel_root は <指定された相対パス> ( 正規化済 )
     entries: List[PlanEntry] = []
     remote_rel_map: Dict[str, str] = {}
-    for res in resolved_tokens:
-        # pack ルートが候補列挙に出ない実装に備えて、先にマップだけは保証しておく
-        remote_rel_map[os.path.abspath(res.abs_root)] = res.rel_root
-        cand_list: List[str] = list(enumerate_candidates_local([res.abs_root]))
+    pack_roots_abs_local: List[str] = []
+    pair: Tuple[ScatterSrcToken, ScatterResolvedToken]
+    for pair in tokens_and_resolved:
+        tok = pair[0]
+        res = pair[1]
+
+        # 列挙に使うトークンと「相対計算の起点(base_abs)」を決定
+        token_for_enum: str = scatter_expand_tilde_for_exec_user(tok.raw)
+        is_regex: bool = looks_like_regex(token_for_enum.replace("\\", "/"))
+
+        # 正規表現なら split_src_to_root_and_tail_regex で root を起点にする
+        if is_regex:
+            abs_norm: str = os.path.abspath(token_for_enum)
+            base_split: Tuple[str, Optional[str]] = split_src_to_root_and_tail_regex(abs_norm)
+            base_abs: str = base_split[0]
+            _tail_re: Optional[str] = base_split[1]
+        else:
+            base_abs: str = os.path.abspath(res.abs_root)
+
+        # rel_root の決定:
+        #   - 正規表現 SRC: base_abs から算出（正規表現テキストを含めない）
+        #   - リテラル SRC: 従来どおり resolve_token_for_scatter の res.rel_root を使用
+        rel_base: str = _rel_base_from_abs_for_dest(base_abs) if is_regex else str(res.rel_root)
+
+        # pack ルートが候補列挙に出ない実装に備えて、先にマップだけは保証しておく（起点で登録）
+        remote_rel_map[base_abs] = rel_base
+        pack_roots_abs_local.append(base_abs)
+        cand_list: List[str] = list(enumerate_candidates_local([token_for_enum]))
+        p: str
         for p in cand_list:
             st_is_dir: bool = os.path.isdir(p)
             if (not pack) and st_is_dir:
                 continue
             # inner_rel: abs_root からの相対。ルート自身は追加なし ( =空 ) 。
             try:
-                inner_rel_raw: str = os.path.relpath(p, start=res.abs_root)
+                inner_rel_raw: str = os.path.relpath(p, start=base_abs)
             except ValueError:
                 inner_rel_raw = ""
             if inner_rel_raw in (".", "\\", ""):
                 inner_rel_raw = ""
 
             inner_rel: str = normalize_rel_for_dest(inner_rel_raw)
-            remote_rel: str = res.rel_root if not inner_rel else normalize_rel_for_dest(f"{res.rel_root}/{inner_rel}")
+            remote_rel: str = (
+                rel_base if not inner_rel else normalize_rel_for_dest(f"{rel_base}/{inner_rel}")
+            )
             # ルックアップの安定化のため絶対パスキーで登録
             key_abs: str = os.path.abspath(p)
             remote_rel_map[key_abs] = remote_rel
             entries.append(PlanEntry(path=Path(p), relpath=remote_rel, is_dir=st_is_dir))
 
     plan: Plan = Plan(entries=entries)
-    pack_roots_abs: List[str] = [os.path.abspath(res.abs_root) for res in resolved_tokens]
+    # --pack 用のルートは、正規表現なら split で得た root、リテラルなら従来の abs を使用
+    pack_roots_abs: List[str] = [os.path.abspath(p) for p in pack_roots_abs_local]
 
     meta: Dict[str, object] = {
         "ssh": ssh,
@@ -487,93 +537,6 @@ def main() -> None:
         # fallback ( 通常到達しない )
         return list(meta_per_host.values())[0]["sftp"]  # type: ignore[index, return-value]
 
-    # push_one をホスト毎に割当
-    def _dedup_roots_for_pack_abs(abs_paths: List[str]) -> List[str]:
-        """
-        pack 対象の『ルート候補（abs のみ）』から**実体ベース**の最小集合を作る。
-        - ルート候補は os.path.realpath()（Windows では大小無視のため casefold() も併用）で正規化した
-        canon_abs を基準に親子判定を行う。
-        - 親が採択された場合は子は除外する（最小集合化）。
-        - 途中でより上位の親が現れた場合は、既存の子を外して親に置換する（順序に依らず最小集合）。
-        """
-
-        def _canon(p_in: str) -> str:
-            p0: str = os.path.abspath(p_in)
-            rp: str = os.path.realpath(p0)
-            canon: str = rp.casefold() if os.name == "nt" else rp
-            return canon
-
-        # 入力の正規化（重複除去）: 同一 orig_abs の重複をまず除く
-        uniq_abs: Set[str] = {os.path.abspath(p) for p in abs_paths}
-        # (orig_abs, canon_abs) のペアに
-        pairs: List[Tuple[str, str]] = [(p, _canon(p)) for p in uniq_abs]
-
-        # 同一実体（canon_abs が同じ）は 1 つに代表させる（代表は安定に選ぶ）
-        # 代表選択: (canon_abs に対する orig_abs の最短長, lex 小) を優先
-        best_for_canon: Dict[str, str] = {}
-        for orig_abs, canon_abs in pairs:
-            prev: Optional[str] = best_for_canon.get(canon_abs)  # type: ignore[assignment]
-            if prev is None:
-                best_for_canon[canon_abs] = orig_abs
-            else:
-                prev_len: int = len(prev)
-                cur_len: int = len(orig_abs)
-                if (cur_len < prev_len) or (cur_len == prev_len and orig_abs < prev):
-                    best_for_canon[canon_abs] = orig_abs
-
-        # 採用候補を (canon 深さ, canon 長さ, canon 文字列, 代表 orig_abs) で安定ソート
-        sorted_candidates: List[Tuple[int, int, str, str]] = []
-        for canon_abs, rep_orig in best_for_canon.items():
-            depth: int = canon_abs.count(os.sep)
-            length: int = len(canon_abs)
-            key_tuple: Tuple[int, int, str, str] = (depth, length, canon_abs, rep_orig)
-            sorted_candidates.append(key_tuple)
-        sorted_candidates.sort()
-
-        # 最小集合化：親優先。親が見つかったら子を落とす／既存の子も取り除いて親に置換。
-        kept: List[Tuple[str, str]] = []  # [(orig_abs, canon_abs)]
-        for _depth, _length, canon_abs, rep_orig in sorted_candidates:
-            # 既存 kept の「親／子」関係を判定
-            is_child_of_existing: bool = False
-            _parent_index_to_remove: List[int] = []  # 常に空（親置換は子置換の逆）だが型の明示を徹底
-            _i: int
-            pair: Tuple[str, str]
-            for _i, pair in enumerate(kept):
-                _kept_orig, kept_canon = pair
-                # すでに親がある => 今回は子なのでスキップ
-                common1: str = ""
-                try:
-                    common1 = os.path.commonpath([canon_abs, kept_canon])
-                except ValueError:
-                    common1 = ""
-                if common1 == kept_canon and canon_abs != kept_canon:
-                    is_child_of_existing = True
-                    break
-            if is_child_of_existing:
-                continue
-
-            # 既存 kept に「今回が親で、既存が子」のものがあれば、それらを外す
-            new_kept: List[Tuple[str, str]] = []
-            for pair in kept:
-                _kept_orig2: str
-                kept_canon2: str
-                _kept_orig2, kept_canon2 = pair
-                common2: str = ""
-                try:
-                    common2 = os.path.commonpath([canon_abs, kept_canon2])
-                except ValueError:
-                    common2 = ""
-                if common2 == canon_abs and canon_abs != kept_canon2:
-                    # 既存は子 => 捨てる（親で置換する）
-                    continue
-                new_kept.append(pair)
-            kept = new_kept
-            kept.append((rep_orig, canon_abs))
-
-        # 出力は「元の絶対パス」の集合（ソートは入力非依存になるが安定）
-        result: List[str] = [orig for (orig, _c) in kept]
-        return result
-
     push_one_map: Dict[str, PushOne] = {}
     for host, meta in meta_per_host.items():
 
@@ -591,10 +554,28 @@ def main() -> None:
             timeout_f = DEFAULT_TIMEOUT
 
         if bool(meta["pack"]):  # type: ignore[index]
-            # 入力は「解決済みトークンの abs_root 群」のみ（entries は使わない）
-            pack_roots_abs_list: List[str] = list(meta.get("pack_roots_abs", []))  # type: ignore[list-item]
-            dedup_abs: List[str] = _dedup_roots_for_pack_abs(pack_roots_abs_list)
-            pack_srcs: List[Path] = [Path(p) for p in dedup_abs]
+
+            # 重要: pack 入力は「ベースディレクトリ群」ではなく
+            #       「Plan.entries の実マッチ結果（ファイル/ディレクトリ）群」を用いる。
+            #       これにより正規表現でヒットした個々のエントリが確実にアーカイブへ入る。
+            plan_for_host: Optional[Plan] = plan_per_host.get(host)
+            if plan_for_host is None:
+                plan_for_host = Plan(entries=[])
+
+            # Plan.entries から絶対パス（順序保持・重複排除）を作成
+            entry_abs_list: List[str] = []
+            seen_abs: Set[str] = set()
+            e: PlanEntry
+            p_abs: str
+            for e in plan_for_host.entries:
+                p_abs = os.path.abspath(str(e.path))
+                if p_abs in seen_abs:
+                    continue
+                seen_abs.add(p_abs)
+                entry_abs_list.append(p_abs)
+
+            pack_srcs: List[Path] = [Path(p) for p in entry_abs_list]
+
             push_one_map[host] = _make_push_one_pack(
                 ssh=meta["ssh"],  # type: ignore[arg-type]
                 sftp=meta["sftp"],  # type: ignore[arg-type]
