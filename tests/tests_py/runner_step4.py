@@ -2187,7 +2187,6 @@ def case_scatter_src_regex_absolute(cfg: Config) -> Dict[str, object]:
         "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv)},
     }
 
-
 def case_scatter_src_regex_relative(cfg: Config) -> Dict[str, object]:
     """
     目的:
@@ -2201,7 +2200,7 @@ def case_scatter_src_regex_relative(cfg: Config) -> Dict[str, object]:
     # カレント配下に相対検体を作成
     rel_base: str = "sc_layout_rel_src"
     cwd: str = os.getcwd()
-    rel_dir_abs: str = os.path.join(cwd, rel_base)
+    rel_dir_abs: str = os.path.abspath(os.path.join(cwd, rel_base))
     os.makedirs(os.path.join(rel_dir_abs, "sub"), exist_ok=True)
     with open(os.path.join(rel_dir_abs, "a.txt"), "w", encoding="utf-8") as wf:
         wf.write("A\n")
@@ -2225,9 +2224,9 @@ def case_scatter_src_regex_relative(cfg: Config) -> Dict[str, object]:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    # 期待: rel_base/sub/b.txt は存在 / rel_base/a.txt は不在
-    exp_b: str = os.path.join(dest_abs, rel_base, "sub", "b.txt")
-    exp_a: str = os.path.join(dest_abs, rel_base, "a.txt")
+    # 期待パス: base_abs を起点に絶対→_as_posix_rel()で DEST 直下にぶら下がる
+    exp_b: str = os.path.join(dest_abs, _as_posix_rel(os.path.join(rel_dir_abs, "sub", "b.txt")))
+    exp_a: str = os.path.join(dest_abs, _as_posix_rel(os.path.join(rel_dir_abs, "a.txt")))
 
     rb = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_b)
     ra = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_a)
@@ -2236,14 +2235,34 @@ def case_scatter_src_regex_relative(cfg: Config) -> Dict[str, object]:
     reason: str = "" if passed else (
         f"rc={run.rc}, b_rc={rb.returncode}, a_rc={ra.returncode}, exp_b={exp_b}, exp_a={exp_a}"
     )
+
+    # === ここから診断用スナップショット採取 ===
+    snap_dest: Dict[str, str] = _remote_script_snapshot(
+        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, dest_abs
+    )
+    # 期待パスの存在チェックとツリー/メタ情報を一括採取（whoami/pwd/umask なども含む）
+    snap_verbose: Dict[str, str] = snapshot_scatter_dest_verbose(
+        cfg, host, dest_abs, expected_paths=[exp_b, exp_a]
+    )
+    # === ここまで追記 ===
+
     return {
         "name": name,
         "passed": passed,
         "skipped": False,
         "reason": reason,
-        "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv)},
+        "details": {
+            "rc": run.rc,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+            "exp_b": exp_b,
+            "exp_a": exp_a,
+            # 失敗時の深掘りに使えるスナップショット一式
+            "snapshot_dest_stdout": snap_dest.get("stdout", ""),
+            "snapshot_dest_stderr": snap_dest.get("stderr", ""),
+            "snapshot_dest_rc": snap_dest.get("rc", ""),
+            "scatter_dest_verbose_snapshot": snap_verbose,
+        },
     }
-
 
 def case_scatter_src_regex_negative(cfg: Config) -> Dict[str, object]:
     """
