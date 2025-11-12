@@ -28,7 +28,7 @@ AS_IF([test -z "$BASH_COMPLETION_DIR"], [
   AS_IF([test -n "$PKG_CONFIG" && $PKG_CONFIG --exists bash-completion], [
     BASH_COMPLETION_DIR=`$PKG_CONFIG --variable=completionsdir bash-completion`
   ], [
-    dnl フォールバック（ディストリ一般）
+    dnl フォールバック ( ディストリ一般 )
     for d in \
       /usr/share/bash-completion/completions \
       /etc/bash_completion.d \
