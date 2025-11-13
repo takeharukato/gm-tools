@@ -273,6 +273,34 @@ def _enumerate_via_sftp_walk(
             _LOG.debug("skip missing/non-dir root: %s", root)
             continue
 
+        # ----------------------------------------------------------------------
+        # SFTP経路でのDirectory-SRC 対応
+        # 正規表現メタ無し・tail_re=""（＝SRC がディレクトリを指すリテラル指定）
+        # の場合は、root 配下の全ファイルを列挙する。
+        #
+        # 条件:
+        #   - looks_like_regex(src) == False（＝「正規表現扱いではない」）
+        #   - tail_re == ""        （＝パス末尾に正規表現を含まない）
+        #   - root がディレクトリである
+        #
+        # 動作:
+        #   remote_walk_files(root) の結果から通常ファイルを列挙し candidates に追加。
+        #   （ディレクトリ自身は candidates に含めない）
+        #
+        # この分岐は正規表現 SRC の動作に影響しない。
+        # ----------------------------------------------------------------------
+        if not looks_like_regex(src) and (tail_re == ""):
+            _LOG.debug("Directory-SRC literal detected: %s", src)
+            try:
+                for ap in remote_walk_files(sftp_client, root, include_symlinks=False):
+                    # remote_walk_files は通常ファイルのみ yield（dir は再帰のみ）
+                    if sftp_isfile(sftp_client, ap):
+                        candidates.add(ap)
+            except Exception as e:
+                _LOG.warning("directory-SRC walk failed at root=%s: %s", root, e)
+            continue
+
+
         pattern = tail_re if tail_re else r".*"
         try:
             rx = re.compile(pattern)
@@ -345,6 +373,57 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
         rc, _out, _err = run_remote_cmd_capture(ssh, ["bash", "-lc", check], timeout=DEFAULT_TIMEOUT)
         if rc != 0:
             _LOG.debug("skip missing/non-dir root: %s", root)
+            continue
+
+        # ----------------------------------------------------------------------
+        # sudo 経路でのDirectory-SRC 対応
+        #
+        # 条件:
+        #   - looks_like_regex(src) == False
+        #   - tail_re == ""
+        #   - root がディレクトリ
+        #
+        # 動作:
+        #   sudo / 非 sudo の python3 os.walk を利用して root 配下の通常ファイルを列挙。
+        # ----------------------------------------------------------------------
+        if not looks_like_regex(src) and (tail_re == ""):
+            _LOG.debug("Directory-SRC literal detected (sudo-walk): %s", src)
+
+            py_script_dir = r"""
+import os, sys
+root = os.environ.get("GM_ROOT", "")
+for dp, _dirs, files in os.walk(root, followlinks=False):
+    for fn in files:
+        ap = os.path.join(dp, fn)
+        sys.stdout.write(ap + "\n")
+        sys.stdout.flush()
+""".strip()
+
+            # sudo または非 sudo のいずれかで歩ければ採用
+            cmd_sudo = (
+                "sudo -n env GM_ROOT=" + shlex.quote(root) +
+                " python3 - <<'PY'\n" + py_script_dir + "\nPY"
+            )
+            rc, out, _err = run_remote_cmd_capture(
+                ssh, ["bash", "-lc", cmd_sudo], timeout=DEFAULT_TIMEOUT
+            )
+            if rc != 0:
+                cmd_nonsudo = (
+                    "env GM_ROOT=" + shlex.quote(root) +
+                    " python3 - <<'PY'\n" + py_script_dir + "\nPY"
+                )
+                rc2, out2, _err2 = run_remote_cmd_capture(
+                    ssh, ["bash", "-lc", cmd_nonsudo], timeout=DEFAULT_TIMEOUT
+                )
+                if rc2 != 0:
+                    _LOG.warning("directory-SRC sudo-walk failed at root=%s", root)
+                    continue
+                out = out2
+
+            for line in (out or "").splitlines():
+                p = line.strip()
+                if p:
+                    acc.add(p)
             continue
 
         pat = tail_re if tail_re else r".*"
