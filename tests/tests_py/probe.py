@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Dict
-from .types import Config
+from ._local_types import Config
 from .sshexec import run_remote, run_sudo
 
 def is_selinux_supported(cfg: Config, host: str) -> bool:
