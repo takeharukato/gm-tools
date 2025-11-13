@@ -59,6 +59,7 @@ from .core_constants import (
 )
 from .core_logging import init_logging, shutdown_logging, HostLogAggregator
 from .core_constants import DEFAULT_HOSTS_FILE
+from .core_i18n import setup_gettext
 
 _LOG = logging.getLogger(__name__)
 
@@ -368,6 +369,11 @@ def _build_plan_for_host(
 
 
 def main() -> None:
+
+    # 1. 国際化初期化
+    setup_gettext()
+
+    # 2. 引数解析
     parser: argparse.ArgumentParser = build_parser()
     args: argparse.Namespace = parser.parse_args()
 

@@ -19,14 +19,12 @@ import builtins
 import gettext
 from pathlib import Path
 from typing import Callable, Optional, Sequence, Tuple
-
-from .core_constants import LOG_DOMAIN, LOCALE_DIR
-
+from . import _config
 
 def setup_gettext(
     *,
-    domain: str = LOG_DOMAIN,
-    locale_dir: Path = LOCALE_DIR,
+    domain: str|None = None,
+    locale_dir: Path | str | None = None,
     languages: Optional[Sequence[str]] = None,
     install_into_builtins: bool = True,
 ) -> Tuple[Callable[[str], str], Callable[[str, str, int], str]]:
@@ -36,10 +34,10 @@ def setup_gettext(
     Parameters
     ----------
     domain : str
-        gettext domain name (defaults to core_constants.LOG_DOMAIN).
+        gettext domain name (defaults to configured DOMAIN).
     locale_dir : Path
         Directory path that contains locale/<lang>/LC_MESSAGES/<domain>.mo
-        (defaults to core_constants.LOCALE_DIR).
+        (defaults to configured LOCALEDIR).
     languages : Optional[Sequence[str]]
         Preferred languages (e.g., ["ja_JP", "ja", "en"]). If None, gettext
         will use environment settings.
@@ -59,13 +57,20 @@ def setup_gettext(
     - This function does not attempt to translate *exception payloads*.
       Callers should join `str(e)` directly to translated wrappers.
     """
-    # Resolve directory to str for gettext API; allow Path inputs.
-    localedir_str: str = str(locale_dir)
+    if domain is None:
+        effective_domain = _config.DOMAIN
+    else:
+        effective_domain = domain
+
+    if locale_dir is None:
+        effective_locale_dir = Path(_config.LOCALEDIR)
+    else:
+        effective_locale_dir = Path(locale_dir)
 
     try:
         trans = gettext.translation(
-            domain=domain,
-            localedir=localedir_str,
+            domain=effective_domain,
+            localedir=str(effective_locale_dir),
             languages=list(languages) if languages is not None else None,
             fallback=True,  # Use NullTranslations when catalogs are missing.
         )

@@ -1,0 +1,35 @@
+# Makevars for gm-tools po/ directory
+#
+# This file is read by the gettext-related make rules in po/Makefile.
+# You may customize the variables below as needed.
+
+# The domain of this package.
+# This name is used for:
+#   - the base name of .pot/.po/.mo files (gm-tools.pot, gm-tools.po, gm-tools.mo)
+#   - the gettext domain passed to gettext.translation()
+DOMAIN = gm-tools
+
+# Directory containing this po/ directory, relative to the top builddir.
+subdir = po
+
+# Relative path from po/ to the top of the build tree.
+top_builddir = ..
+
+# Email address or URL for reporting bugs in message translations or messages.
+# You can adjust this to a real address if needed.
+MSGID_BUGS_ADDRESS = tkato1219@gmail.com
+
+# The copyright holder of the message catalog.
+# Adjust as appropriate (individual or organization name).
+COPYRIGHT_HOLDER = Takeharu KATO
+
+# General options for xgettext.
+# - from-code=UTF-8 : source files are UTF-8 encoded
+# - language=Python : treat sources as Python (for .py files)
+XGETTEXT_OPTIONS = \
+  --from-code=UTF-8 \
+  --language=Python
+
+# Additional flags can be added here if needed, for example:
+#   --keyword=_ --keyword=N_ --keyword=ngettext:1,2
+# but gettext's Python defaults already recognize _()/ngettext().

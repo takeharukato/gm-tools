@@ -52,6 +52,7 @@ from .core_ssh import (
     ssh_open,
 )
 from .scatter_parallel import execute as run_parallel
+from .core_i18n import setup_gettext
 
 # === Module-level constants ===
 _DESC: str = (
@@ -465,6 +466,10 @@ def main() -> None:
             out.append(v)
         return out
 
+    # 1. 国際化初期化
+    setup_gettext()
+
+    # 2. 引数解析
     parser: argparse.ArgumentParser = build_parser()
     args: Namespace = parser.parse_args()
 
