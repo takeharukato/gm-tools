@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os, shlex
 from typing import List
-from .types import Config
+from ._local_types import Config
 from .constants import (
     SSH_PORT_DEFAULT, SSH_STRICT_DEFAULT,
     REMOTE_DEST_ROOT_DEFAULT, LOCAL_WORK_ROOT_DEFAULT,

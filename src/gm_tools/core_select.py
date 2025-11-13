@@ -251,6 +251,7 @@ def _enumerate_via_sftp_walk(
     include_symlinks: bool,
 ) -> List[str]:
     candidates: Set[str] = set()
+
     for src in resolved_srcs:
         try:
             abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
@@ -262,6 +263,32 @@ def _enumerate_via_sftp_walk(
         if not is_abs:
             _LOG.warning("skip non-absolute SRC after normalization (unexpected): %s", src)
             continue
+
+        # ------------------------------------------------------------------
+        # Directory-SRC (リテラルディレクトリ指定) の先行判定
+        # 条件:
+        #   - looks_like_regex(src) == False  (正規表現扱いではない)
+        #   - abs_norm がディレクトリ (remote 側で sftp_isdir)
+        # 動作:
+        #   abs_norm 配下の通常ファイルを列挙し candidates に追加。
+        #   ディレクトリ自身は candidates に含めない。
+        # ------------------------------------------------------------------
+        if not looks_like_regex(src):
+            try:
+                if sftp_isdir(sftp_client, abs_norm) and not sftp_isfile(sftp_client, abs_norm):
+                    _LOG.debug(
+                        "Directory-SRC literal detected via abs path: src=%s abs_norm=%s",
+                        src,
+                        abs_norm,
+                    )
+                    for ap in remote_walk_files(sftp_client, abs_norm, include_symlinks=False):
+                        if sftp_isfile(sftp_client, ap):
+                            candidates.add(ap)
+                    # この SRC については通常の正規表現ロジックには進まない
+                    continue
+            except Exception as e:
+                _LOG.warning("directory-SRC detection failed for %s (%s)", src, e)
+
 
         try:
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
@@ -334,6 +361,70 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
             _LOG.warning("skip non-absolute SRC after normalization (unexpected): %s", src)
             continue
 
+        # ------------------------------------------------------------------
+        # Directory-SRC (リテラルディレクトリ指定) の先行判定 (sudo 経路)
+        # 条件:
+        #   - looks_like_regex(src) == False
+        #   - abs_norm がディレクトリ (sudo / 非 sudo いずれかの test -d が成功)
+        # 動作:
+        #   abs_norm 配下の通常ファイルを python3/os.walk で列挙し acc に追加。
+        # ------------------------------------------------------------------
+        if not looks_like_regex(src):
+            check_dir = (
+                f"sudo -n test -d {shlex.quote(abs_norm)} "
+                f"|| test -d {shlex.quote(abs_norm)}"
+            )
+            rc_dir, _out_dir, _err_dir = run_remote_cmd_capture(
+                ssh, ["bash", "-lc", check_dir], timeout=DEFAULT_TIMEOUT
+            )
+            if rc_dir == 0:
+                _LOG.debug(
+                    "Directory-SRC literal detected (sudo-walk) via abs path: src=%s abs_norm=%s",
+                    src,
+                    abs_norm,
+                )
+
+                py_script_dir = r"""
+import os, sys
+root = os.environ.get("GM_ROOT", "")
+for dp, _dirs, files in os.walk(root, followlinks=False):
+    for fn in files:
+        ap = os.path.join(dp, fn)
+        sys.stdout.write(ap + "\n")
+        sys.stdout.flush()
+""".strip()
+
+                # sudo または非 sudo のいずれかで歩ければ採用
+                cmd_sudo = (
+                    "sudo -n env GM_ROOT=" + shlex.quote(abs_norm) +
+                    " python3 - <<'PY'\n" + py_script_dir + "\nPY"
+                )
+                rc_walk, out, _err_walk = run_remote_cmd_capture(
+                    ssh, ["bash", "-lc", cmd_sudo], timeout=DEFAULT_TIMEOUT
+                )
+                if rc_walk != 0:
+                    cmd_nonsudo = (
+                        "env GM_ROOT=" + shlex.quote(abs_norm) +
+                        " python3 - <<'PY'\n" + py_script_dir + "\nPY"
+                    )
+                    rc2, out2, _err2 = run_remote_cmd_capture(
+                        ssh, ["bash", "-lc", cmd_nonsudo], timeout=DEFAULT_TIMEOUT
+                    )
+                    if rc2 != 0:
+                        _LOG.warning("directory-SRC sudo-walk failed at root=%s", abs_norm)
+                        continue
+                    out = out2
+
+                for line in (out or "").splitlines():
+                    p = line.strip()
+                    if p:
+                        acc.add(p)
+                # この SRC については通常の正規表現ロジックには進まない
+                continue
+        # ------------------------------------------------------------------
+        # ここからは「正規表現 SRC」または「非ディレクトリのリテラル SRC」
+        # として、従来通り root/tail_re を使った列挙を行う。
+        # ------------------------------------------------------------------
         try:
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
         except ValueError as e:
@@ -341,8 +432,8 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
             continue
 
         # root ディレクトリの存在確認 ( sudo/非 sudo のどちらかで通ればOK )
-        check = f"sudo -n test -d {shlex.quote(root)} || test -d {shlex.quote(root)}"
-        rc, _out, _err = run_remote_cmd_capture(ssh, ["bash", "-lc", check], timeout=DEFAULT_TIMEOUT)
+        check_root = f"sudo -n test -d {shlex.quote(root)} || test -d {shlex.quote(root)}"
+        rc, _out, _err = run_remote_cmd_capture(ssh, ["bash", "-lc", check_root], timeout=DEFAULT_TIMEOUT)
         if rc != 0:
             _LOG.debug("skip missing/non-dir root: %s", root)
             continue
