@@ -1,6 +1,0 @@
-# 文書ディレクトリへの格納対象物
-# Install the top-level license into $(docdir) (defaults to $(datarootdir)/doc/$(PACKAGE))
-dist_doc_DATA = gm-scatter-spec.md gm-gather-spec.md
-
-## インストールされない配布物
-EXTRA_DIST =
