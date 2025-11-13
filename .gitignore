@@ -66,14 +66,30 @@ __pycache__/
 *.log
 
 # autoconf/automake
+Makefile
 Makefile.in
+configure
 aclocal.m4
 autom4te.cache
 install-sh
 missing
-
-dest/
 config.status
-configure
-Makefile
-src/tests_env.sh
+config.log
+config.cache
+config.h
+config.h.in
+stamp-h1
+build-aux/
+build-aux/*
+libtool
+ltmain.sh
+depcomp
+compile
+INSTALL
+
+# sphinx build directory
+docs/sphinx/_build/
+# test output directory / configuration files for testing
+dest/
+tests_env.sh
+hostfile
