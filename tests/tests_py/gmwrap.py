@@ -1,7 +1,7 @@
 from __future__ import annotations
 import subprocess, shlex, tempfile
 from typing import List
-from .types import CommandResult, Config
+from ._local_types import CommandResult, Config
 
 def _run_local_argv(argv: List[str]) -> CommandResult:
     print("[DEBUG] _run_local_argv argv:",

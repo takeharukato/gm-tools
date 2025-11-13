@@ -1,7 +1,7 @@
 from __future__ import annotations
 import subprocess
 from typing import List
-from .types import CommandResult, Config
+from ._local_types import CommandResult, Config
 
 def _base_ssh_args(cfg: Config, host: str) -> List[str]:
     return [
