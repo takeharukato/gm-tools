@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # tests/tests_py/runner_step5.py
-# Step5 parallel scatter runner（自己完結版）
+# Step5 parallel scatter/gather runner（自己完結版）
 # - ssh 呼び出し順序は runner_step4.py と同様に
 #     ssh <opts> -- user@host <argv...>
-# - gather は使わず、scatter のみを対象とする
-# - --pack 有無と -j 並列数の違いで結果レイアウトが変化しないことを検証する
+# - scatter/gather 双方について、--pack 有無と -j 並列数の違いで
+#   結果レイアウトが変化しないことを検証する
 # - 結果比較は「ホストごとの DEST 配下ツリー + ファイルハッシュ」で行う
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -140,19 +141,51 @@ def _write_temp_hosts(hosts: List[str]) -> str:
     return path
 
 
-def _as_posix_rel(path_abs: str) -> str:
+def _resolve_parallel_pair_from_env() -> Tuple[int, int]:
     """
-    絶対パスを scatter 用 DEST 直下の相対表現に正規化する。
-      - 区切りを '/' に統一
-      - 先頭の '/' を除去
-      - 末尾スラッシュ有無は入力を尊重
+    並列度を環境変数から解決する。
+      - GM_PARALLEL が設定されていれば (1, GM_PARALLEL)
+      - 未設定ならば (1, 4)
     """
-    s0: str = path_abs.replace("\\", "/")
-    had_trailing: bool = s0.endswith("/")
-    s: str = s0.lstrip("/")
-    if had_trailing and not s.endswith("/"):
-        s = s + "/"
-    return s
+    gm_par_raw: str = os.environ.get("GM_PARALLEL", "").strip()
+    if gm_par_raw:
+        j2: int = int(gm_par_raw)
+        j1: int = 1
+        return j1, j2
+    j1_default: int = 1
+    j2_default: int = 4
+    return j1_default, j2_default
+
+
+def _hash_file_sha256(path: str) -> str:
+    """
+    ローカルファイル path の sha256 ハッシュ値（16進文字列）を返す。
+    """
+    h: hashlib._Hash = hashlib.sha256() # type: ignore
+    buf_size: int = 1024 * 1024
+    with open(path, "rb") as rf:
+        while True:
+            chunk: bytes = rf.read(buf_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    digest: str = h.hexdigest()
+    return digest
+
+
+def _all_hosts_state_snapshot(states: AllHostsState) -> Dict[str, List[str]]:
+    """
+    AllHostsState から host ごとの find スナップショット（kind\\tpath）一覧を生成する。
+    """
+    snapshot: Dict[str, List[str]] = {}
+    for host, per_state in states.items():
+        lines: List[str] = []
+        for rel, (kind, _digest) in per_state.items():
+            # sha256 はテキスト上はノイズになるので省略し、kind+rel だけを並べる
+            lines.append(f"{kind}\t{rel}")
+        lines.sort()
+        snapshot[host] = lines
+    return snapshot
 
 
 # =========================
@@ -174,6 +207,7 @@ class Config:
     host_alma: str
 
     gm_scatter_cmd: List[str]
+    gm_gather_cmd: List[str]
 
     verbose: bool
 
@@ -210,6 +244,7 @@ def load_config_from_env() -> Config:
     host_alma: str = os.environ.get("HOST_ALMA", "vmlinux4.local")
 
     gm_scatter_cmd: List[str] = _split_cmd_env("GM_SCATTER_CMD", "python3 -m gm_tools.scatter_cli")
+    gm_gather_cmd: List[str] = _split_cmd_env("GM_GATHER_CMD", "python3 -m gm_tools.gather_cli")
 
     verbose: bool = (os.environ.get("VERBOSE", "0") == "1")
 
@@ -224,6 +259,7 @@ def load_config_from_env() -> Config:
         host_ubuntu=host_ubuntu,
         host_alma=host_alma,
         gm_scatter_cmd=gm_scatter_cmd,
+        gm_gather_cmd=gm_gather_cmd,
         verbose=verbose,
     )
     return cfg
@@ -232,8 +268,10 @@ def load_config_from_env() -> Config:
 def print_env(cfg: Config) -> None:
     msg1: str = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)}"
     msg2: str = f"[env] GM_SCATTER_CMD='{shlex.join(cfg.gm_scatter_cmd)}'"
+    msg3: str = f"[env] GM_GATHER_CMD='{shlex.join(cfg.gm_gather_cmd)}'"
     print(msg1)
     print(msg2)
+    print(msg3)
 
 
 # =========================
@@ -280,7 +318,7 @@ def _preflight(cfg: Config) -> None:
 
 
 # =========================
-# サンプル SRC 構築
+# サンプル SRC 構築（scatter 用）
 # =========================
 
 def _prepare_local_parallel_sources(cfg: Config) -> List[str]:
@@ -339,12 +377,79 @@ def _prepare_remote_dest_for_all_hosts(cfg: Config, dest_rel: str) -> str:
 
 
 # =========================
-# リモート状態採取
+# サンプル SRC 構築（gather 用）
+# =========================
+
+def _prepare_remote_parallel_sources(cfg: Config) -> str:
+    """
+    並列 gather 用のリモート検体ツリーを各ホスト上に作成し、その SRC ルートパスを返す。
+      - 各ホスト上に remote_src_root/dir1, remote_src_root/dir2 を作成し、
+        a.txt, b.txt, c.txt を scatter 用と同じ内容で作成する。
+    """
+    remote_src_root: str = os.path.join(cfg.remote_dest_root, "step5_gather_src")
+    i: int = 0
+    n: int = len(cfg.hosts_both)
+    while i < n:
+        host: str = cfg.hosts_both[i]
+        _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", remote_src_root)
+        r_mkdir_root: subprocess.CompletedProcess[str] = ssh_sudo(
+            cfg.ssh_user,
+            host,
+            cfg.ssh_port,
+            cfg.ssh_strict,
+            "mkdir",
+            "-p",
+            "--",
+            remote_src_root,
+        )
+        assert_rc(f"{host}: mkdir remote_src_root", r_mkdir_root.returncode, expect_zero=True)
+        r_chown_root: subprocess.CompletedProcess[str] = ssh_sudo(
+            cfg.ssh_user,
+            host,
+            cfg.ssh_port,
+            cfg.ssh_strict,
+            "chown",
+            "-R",
+            "--",
+            f"{cfg.target_user}:{cfg.target_user}",
+            remote_src_root,
+        )
+        assert_rc(f"{host}: chown remote_src_root", r_chown_root.returncode, expect_zero=True)
+
+        # dir1, dir2 とファイルを作成（target_user として）
+        script_lines: List[str] = []
+        root_q: str = shlex.quote(remote_src_root)
+        script_lines.append("set -eu")
+        script_lines.append(f"root={root_q}")
+        script_lines.append('mkdir -p "$root/dir1" "$root/dir2"')
+        script_lines.append('printf \'A\n\' > "$root/dir1/a.txt"')
+        script_lines.append('printf \'B\n\' > "$root/dir1/b.txt"')
+        script_lines.append('printf \'C\n\' > "$root/dir2/c.txt"')
+        script: str = "\n".join(script_lines)
+
+        r_populate: subprocess.CompletedProcess[str] = ssh_do(
+            cfg.ssh_user,
+            host,
+            cfg.ssh_port,
+            cfg.ssh_strict,
+            "bash",
+            "-lc",
+            script,
+        )
+        assert_rc(f"{host}: populate remote_src_root", r_populate.returncode, expect_zero=True)
+
+        i += 1
+
+    return remote_src_root
+
+
+# =========================
+# リモート状態採取（scatter/gather 用）
 # =========================
 
 def _collect_remote_state_for_host(cfg: Config, host: str, dest_abs: str) -> PerHostState:
     """
-    指定ホスト上の DEST 配下を走査し、
+    指定ホスト上の DEST(または SRC) 配下を走査し、
       rel_path -> (kind, digest)
     の辞書として返す。
       - kind: find の %y（'f'=ファイル, 'd'=ディレクトリ, 他）
@@ -356,18 +461,17 @@ def _collect_remote_state_for_host(cfg: Config, host: str, dest_abs: str) -> Per
     lines_script.append(f"root={root_q}")
     lines_script.append('if [ ! -d "$root" ]; then exit 0; fi')
     lines_script.append(
-        'find "$root" -mindepth 1 -printf \'%y\\t%P\\n\' | LC_ALL=C sort | '
-        'while IFS=$\'\\t\' read -r kind rel; do'
+        'find "$root" -mindepth 1 -printf \'%y\t%P\n\' | LC_ALL=C sort | '
+        'while IFS=$\'\t\' read -r kind rel; do'
     )
     lines_script.append('  if [ "$kind" = "f" ]; then')
-    # awk の { } は f-string 内なので二重の {{ }} でエスケープ
     lines_script.append(
         '    sum=$(sha256sum "$root/$rel" | awk \'{print $1}\')'
     )
     lines_script.append('  else')
     lines_script.append('    sum="-"')
     lines_script.append('  fi')
-    lines_script.append('  printf \'%s\\t%s\\t%s\\n\' "$kind" "$rel" "$sum"')
+    lines_script.append('  printf \'%s\t%s\t%s\n\' "$kind" "$rel" "$sum"')
     lines_script.append('done')
     script: str = "\n".join(lines_script)
 
@@ -421,6 +525,64 @@ def _collect_remote_state_all_hosts(cfg: Config, dest_abs: str) -> AllHostsState
     return states
 
 
+# =========================
+# ローカル状態採取（gather 用）
+# =========================
+
+def _collect_local_state_all_hosts(dest_abs: str, hosts: List[str]) -> AllHostsState:
+    """
+    gather で作成されたローカル DEST 配下を走査し、
+      host -> (rel_path -> (kind, digest))
+    の辞書として返す。
+      - 各 host ごとに DEST/host をルートとみなす
+      - kind: 'f'/'d'/...（os.walk 結果から組み立て）
+      - digest: kind='f' の場合 sha256、それ以外は "-"
+    """
+    states: AllHostsState = {}
+    host_idx: int = 0
+    host_n: int = len(hosts)
+    while host_idx < host_n:
+        host: str = hosts[host_idx]
+        host_root: str = os.path.join(dest_abs, host)
+        per_state: PerHostState = {}
+
+        if os.path.isdir(host_root):
+            for root, dirs, files in os.walk(host_root):
+                root_abs: str = root
+                # ディレクトリ
+                d_idx: int = 0
+                d_n: int = len(dirs)
+                while d_idx < d_n:
+                    dname: str = dirs[d_idx]
+                    dpath_abs: str = os.path.join(root_abs, dname)
+                    rel_path: str = os.path.relpath(dpath_abs, host_root)
+                    kind_d: str = "d"
+                    entry_d: EntryValue = (kind_d, "-")
+                    per_state[rel_path] = entry_d
+                    d_idx += 1
+                # ファイル
+                f_idx: int = 0
+                f_n: int = len(files)
+                while f_idx < f_n:
+                    fname: str = files[f_idx]
+                    fpath_abs: str = os.path.join(root_abs, fname)
+                    rel_path_f: str = os.path.relpath(fpath_abs, host_root)
+                    kind_f: str = "f"
+                    digest_f: str = _hash_file_sha256(fpath_abs)
+                    entry_f: EntryValue = (kind_f, digest_f)
+                    per_state[rel_path_f] = entry_f
+                    f_idx += 1
+
+        states[host] = per_state
+        host_idx += 1
+
+    return states
+
+
+# =========================
+# 状態比較
+# =========================
+
 def _compare_host_states(lhs: AllHostsState, rhs: AllHostsState) -> Tuple[bool, str]:
     """
     2つの AllHostsState が完全に一致するか判定する。
@@ -468,11 +630,11 @@ def _run_scatter_parallel(
     hosts_path: str = _write_temp_hosts(cfg.hosts_both)
 
     argv: List[str] = []
-    _i_opt: int = 0
-
     base_cmd: List[str] = list(cfg.gm_scatter_cmd)
     argv = base_cmd + ["-H", hosts_path, "-u", cfg.target_user, "-j", str(parallel)]
-    _i_opt = len(argv)
+
+    if pack:
+        argv.append("--pack")
 
     if cfg.verbose:
         argv.append("-v")
@@ -497,7 +659,60 @@ def _run_scatter_parallel(
 
 
 # =========================
-# テストケース
+# gather 実行ヘルパ
+# =========================
+
+def _run_gather_parallel(
+    cfg: Config,
+    remote_src_root: str,
+    dest_rel: str,
+    *,
+    pack: bool,
+    parallel: int,
+) -> Tuple[LocalRun, AllHostsState]:
+    """
+    指定リモート SRC ルートをローカル DEST に gather し、その後 DEST の状態を採取して返す。
+      - pack=True の場合は --pack を付与
+      - -j parallel を指定
+      - SRC はディレクトリ 1 個（remote_src_root）のみを指定
+    """
+    # ローカル DEST をクリアして作成
+    dest_abs: str = os.path.join(cfg.local_root, dest_rel)
+    cwd: str = os.getcwd()
+    _safe_rmtree_abs(dest_abs, ensure_under=cwd)
+    os.makedirs(dest_abs, exist_ok=True)
+
+    hosts_path: str = _write_temp_hosts(cfg.hosts_both)
+
+    argv: List[str] = []
+    base_cmd: List[str] = list(cfg.gm_gather_cmd)
+    argv = base_cmd + ["-H", hosts_path, "-u", cfg.target_user, "-j", str(parallel)]
+
+    if pack:
+        argv.append("--pack")
+
+    if cfg.verbose:
+        argv.append("-v")
+
+    argv.append("--")
+    # Step4 と同一仕様：
+    # gather の SRC は「末尾スラッシュを含まないディレクトリパス」
+    # remote_src_root が '/path/to/src/' のように末尾 '/' を含む場合は除去する
+    src_remote: str = remote_src_root.rstrip("/")
+
+    argv.append(src_remote)
+    argv.append(dest_abs)
+
+    run: LocalRun = _run_local_argv(argv)
+    # 正常終了であることを確認
+    assert_rc("gather run", run.rc, expect_zero=True)
+
+    states: AllHostsState = _collect_local_state_all_hosts(dest_abs, cfg.hosts_both)
+    return run, states
+
+
+# =========================
+# テストケース（scatter）
 # =========================
 
 def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> Dict[str, object]:
@@ -510,13 +725,12 @@ def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> Dict[str, object
 
     src_files: List[str] = _prepare_local_parallel_sources(cfg)
 
-    j1_str: str = os.environ.get("STEP5_J_NONPACK_1", "1")
-    j2_str: str = os.environ.get("STEP5_J_NONPACK_2", "4")
-    j1: int = int(j1_str)
-    j2: int = int(j2_str)
+    j1: int
+    j2: int
+    j1, j2 = _resolve_parallel_pair_from_env()
 
-    dest_rel_j1: str = "step5_nonpack_j1"
-    dest_rel_j2: str = "step5_nonpack_j2"
+    dest_rel_j1: str = "step5_scatter_nonpack_j1"
+    dest_rel_j2: str = "step5_scatter_nonpack_j2"
 
     run_j1: LocalRun
     state_j1: AllHostsState
@@ -572,13 +786,12 @@ def case_scatter_parallel_pack_layout_stable(cfg: Config) -> Dict[str, object]:
 
     src_files: List[str] = _prepare_local_parallel_sources(cfg)
 
-    j1_str: str = os.environ.get("STEP5_J_PACK_1", "1")
-    j2_str: str = os.environ.get("STEP5_J_PACK_2", "4")
-    j1: int = int(j1_str)
-    j2: int = int(j2_str)
+    j1: int
+    j2: int
+    j1, j2 = _resolve_parallel_pair_from_env()
 
-    dest_rel_j1: str = "step5_pack_j1"
-    dest_rel_j2: str = "step5_pack_j2"
+    dest_rel_j1: str = "step5_scatter_pack_j1"
+    dest_rel_j2: str = "step5_scatter_pack_j2"
 
     run_j1: LocalRun
     state_j1: AllHostsState
@@ -625,6 +838,152 @@ def case_scatter_parallel_pack_layout_stable(cfg: Config) -> Dict[str, object]:
 
 
 # =========================
+# テストケース（gather）
+# =========================
+
+def case_gather_parallel_nonpack_layout_stable(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      非 pack 経路で -j=1 と -j>1 を変えても、
+      ローカル DEST 配下レイアウトとファイル内容が変化しないことを検証する。
+      あわせて remote_src_root および各 DEST の find スナップショットを採取する。
+    """
+    name: str = "gather_parallel_nonpack_layout_stable"
+
+    remote_src_root: str = _prepare_remote_parallel_sources(cfg)
+    remote_src_states: AllHostsState = _collect_remote_state_all_hosts(cfg, remote_src_root)
+    remote_src_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(remote_src_states)
+
+    j1: int
+    j2: int
+    j1, j2 = _resolve_parallel_pair_from_env()
+
+    dest_rel_j1: str = "step5_gather_nonpack_j1"
+    dest_rel_j2: str = "step5_gather_nonpack_j2"
+
+    run_j1: LocalRun
+    state_j1: AllHostsState
+    run_j1, state_j1 = _run_gather_parallel(
+        cfg, remote_src_root, dest_rel_j1, pack=False, parallel=j1
+    )
+
+    run_j2: LocalRun
+    state_j2: AllHostsState
+    run_j2, state_j2 = _run_gather_parallel(
+        cfg, remote_src_root, dest_rel_j2, pack=False, parallel=j2
+    )
+
+    same: bool
+    reason_diff: str
+    same, reason_diff = _compare_host_states(state_j1, state_j2)
+
+    passed: bool = same
+    reason: str = "" if passed else f"layout/content differs between j={j1} and j={j2}: {reason_diff}"
+
+    dest_j1_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(state_j1)
+    dest_j2_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(state_j2)
+
+    details: Dict[str, object] = {
+        "j1": j1,
+        "j2": j2,
+        "remote_src_root": remote_src_root,
+        "remote_src_snapshot": remote_src_snapshot,
+        "dest_j1": os.path.join(cfg.local_root, dest_rel_j1),
+        "dest_j2": os.path.join(cfg.local_root, dest_rel_j2),
+        "dest_j1_snapshot": dest_j1_snapshot,
+        "dest_j2_snapshot": dest_j2_snapshot,
+        "state_j1_hosts": sorted(list(state_j1.keys())),
+        "state_j2_hosts": sorted(list(state_j2.keys())),
+        "run_j1_rc": run_j1.rc,
+        "run_j1_stdout": run_j1.stdout,
+        "run_j1_stderr": run_j1.stderr,
+        "run_j2_rc": run_j2.rc,
+        "run_j2_stdout": run_j2.stdout,
+        "run_j2_stderr": run_j2.stderr,
+    }
+
+    result: Dict[str, object] = {
+        "name": name,
+        "passed": passed,
+        "skipped": False,
+        "reason": reason,
+        "details": details,
+    }
+    return result
+
+
+def case_gather_parallel_pack_layout_stable(cfg: Config) -> Dict[str, object]:
+    """
+    目的:
+      --pack 経路で -j=1 と -j>1 を変えても、
+      ローカル DEST 配下レイアウトとファイル内容が変化しないことを検証する。
+      あわせて remote_src_root および各 DEST の find スナップショットを採取する。
+    """
+    name: str = "gather_parallel_pack_layout_stable"
+
+    remote_src_root: str = _prepare_remote_parallel_sources(cfg)
+    remote_src_states: AllHostsState = _collect_remote_state_all_hosts(cfg, remote_src_root)
+    remote_src_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(remote_src_states)
+
+    j1: int
+    j2: int
+    j1, j2 = _resolve_parallel_pair_from_env()
+
+    dest_rel_j1: str = "step5_gather_pack_j1"
+    dest_rel_j2: str = "step5_gather_pack_j2"
+
+    run_j1: LocalRun
+    state_j1: AllHostsState
+    run_j1, state_j1 = _run_gather_parallel(
+        cfg, remote_src_root, dest_rel_j1, pack=True, parallel=j1
+    )
+
+    run_j2: LocalRun
+    state_j2: AllHostsState
+    run_j2, state_j2 = _run_gather_parallel(
+        cfg, remote_src_root, dest_rel_j2, pack=True, parallel=j2
+    )
+
+    same: bool
+    reason_diff: str
+    same, reason_diff = _compare_host_states(state_j1, state_j2)
+
+    passed: bool = same
+    reason: str = "" if passed else f"layout/content differs between j={j1} and j={j2}: {reason_diff}"
+
+    dest_j1_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(state_j1)
+    dest_j2_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(state_j2)
+
+    details: Dict[str, object] = {
+        "j1": j1,
+        "j2": j2,
+        "remote_src_root": remote_src_root,
+        "remote_src_snapshot": remote_src_snapshot,
+        "dest_j1": os.path.join(cfg.local_root, dest_rel_j1),
+        "dest_j2": os.path.join(cfg.local_root, dest_rel_j2),
+        "dest_j1_snapshot": dest_j1_snapshot,
+        "dest_j2_snapshot": dest_j2_snapshot,
+        "state_j1_hosts": sorted(list(state_j1.keys())),
+        "state_j2_hosts": sorted(list(state_j2.keys())),
+        "run_j1_rc": run_j1.rc,
+        "run_j1_stdout": run_j1.stdout,
+        "run_j1_stderr": run_j1.stderr,
+        "run_j2_rc": run_j2.rc,
+        "run_j2_stdout": run_j2.stdout,
+        "run_j2_stderr": run_j2.stderr,
+    }
+
+    result: Dict[str, object] = {
+        "name": name,
+        "passed": passed,
+        "skipped": False,
+        "reason": reason,
+        "details": details,
+    }
+    return result
+
+
+# =========================
 # Main
 # =========================
 
@@ -636,8 +995,13 @@ def main() -> None:
     try:
         _ = _preflight(cfg)
 
+        # scatter 並列試験
         results.append(case_scatter_parallel_nonpack_layout_stable(cfg))
         results.append(case_scatter_parallel_pack_layout_stable(cfg))
+
+        # gather 並列試験
+        results.append(case_gather_parallel_nonpack_layout_stable(cfg))
+        results.append(case_gather_parallel_pack_layout_stable(cfg))
 
         print("STEP5 SUMMARY")
         summary: str = json.dumps({"results": results}, indent=2, ensure_ascii=False)
