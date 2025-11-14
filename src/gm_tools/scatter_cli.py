@@ -86,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # SSH
     parser.add_argument(
-        "-H", "--hosts", default=DEFAULT_HOSTS_FILE, help=_("Hosts file. Default: %(default).")
+        "-H", "--hosts", default=DEFAULT_HOSTS_FILE, help=_("Hosts file. Default: %(default)s.")
     )
     parser.add_argument(
         "-u", "--user", default=getpass.getuser(), help=_("Target account semantics on remote.")
@@ -95,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-s", "--ssh-user", default=None, help=_("SSH login user. Default: same as --user.")
     )
     parser.add_argument(
-        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: %(default).")
+        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: %(default)s.")
     )
     parser.add_argument("-K", "--key", default=None, help=_("SSH private key file."))
     parser.add_argument("-W", "--password", default=None, help=_("SSH password (not recommended)."))
@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeout",
         type=float,
         default=DEFAULT_TIMEOUT,
-        help=_("SSH/command timeout seconds. Default: %(default)."),
+        help=_("SSH/command timeout seconds. Default: %(default)s."),
     )
     parser.add_argument(
         "-S", "--strict-host-key-checking", action="store_true", help=_("Enable strict host key checking.")
@@ -116,7 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--parallel",
         type=int,
         default=DEFAULT_PARALLEL_HOSTS,
-        help=_("Parallel hosts (not parallel per-host). Default: %(default)."),
+        help=_("Parallel hosts (not parallel per-host). Default: %(default)s."),
     )
     parser.add_argument("-n", "--dry-run", action="store_true", help=_("Show plan only; do not upload."))
     parser.add_argument("-v", "--verbose", action="store_true", help=_("Verbose logs."))
@@ -136,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--selinux",
         choices=["auto", "policy", "ignore"],
         default="auto",
-        help=_("SELinux label restore policy (pack path only). Default: %(default)."),
+        help=_("SELinux label restore policy (pack path only). Default: %(default)s."),
     )
     return parser
 

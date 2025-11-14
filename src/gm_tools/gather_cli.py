@@ -98,16 +98,16 @@ def build_parser() -> argparse.ArgumentParser:
         "-H",
         "--hosts",
         default=DEFAULT_HOSTS_FILE,
-        help=_("Hosts file. Default: %(default)."),
+        help=_("Hosts file. Default: %(default)s."),
     )
     parser.add_argument(
-        "-u", "--user", default=getpass.getuser(), help=_("Target account on remote %(default).")
+        "-u", "--user", default=getpass.getuser(), help=_("Target account on remote %(default)s.")
     )
     parser.add_argument(
         "-s", "--ssh-user", default=None, help=_("SSH login user. Default: same as --user.")
     )
     parser.add_argument(
-        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: %(default).")
+        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: %(default)s.")
     )
     parser.add_argument("-K", "--key", default=None, help=_("SSH private key file."))
     parser.add_argument("-W", "--password", default=None, help=_("SSH password (not recommended)."))
@@ -116,7 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeout",
         type=float,
         default=DEFAULT_TIMEOUT,
-        help=_("SSH/command timeout seconds. Default: %(default)."),
+        help=_("SSH/command timeout seconds. Default: %(default)s."),
     )
     parser.add_argument(
         "-S", "--strict-host-key-checking", action="store_true", help=_("Enable strict host key checking.")
@@ -128,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--parallel",
         type=int,
         default=DEFAULT_PARALLEL_HOSTS,
-        help=_("Parallel hosts (not parallel per-host). Default: %(default)."),
+        help=_("Parallel hosts (not parallel per-host). Default: %(default)s."),
     )
     parser.add_argument("-n", "--dry-run", action="store_true", help=_("Show plan only; do not download."))
     parser.add_argument("-v", "--verbose", action="store_true", help=_("Verbose logs."))
@@ -401,7 +401,7 @@ def main() -> None:
     _dest_tilde_user: Optional[str] = tilde_username(_dest_raw)
     if _dest_tilde_user is not None:
         print(
-            _("Error: tilde with username is not supported in DEST: ~%(user)") % {"user": _dest_tilde_user},
+            _("Error: tilde with username is not supported in DEST: ~%(user)s") % {"user": _dest_tilde_user},
             file=sys.stderr,
         )
         sys.exit(EXIT_ERR_TILDE_USER)
@@ -417,7 +417,7 @@ def main() -> None:
     for s in srcs:
         u: Optional[str] = tilde_username(s)
         if u is not None:
-            print(_("Error: tilde with username is not supported in SRC: ~%(user)") % {"user": u}, file=sys.stderr)
+            print(_("Error: tilde with username is not supported in SRC: ~%(user)s") % {"user": u}, file=sys.stderr)
             sys.exit(EXIT_ERR_TILDE_USER)
 
     hosts: List[str] = parse_hosts_file(str(args.hosts))
