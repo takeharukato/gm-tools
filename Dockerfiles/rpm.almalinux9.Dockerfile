@@ -17,13 +17,13 @@ RUN dnf -y update && \
         gettext \
         autoconf \
         automake \
-        libtool && \
-    dnf clean all
+        libtool \
+        gettext-devel \
+        pkgconf-pkg-config \
+        glibc-langpack-en \
+        glibc-langpack-ja \
+    && dnf clean all
 
-# ビルド用ユーザ (必要なら追加)
-RUN useradd -m builder
-USER builder
-WORKDIR /home/builder/build
 
 # ホスト側からソースツリーをマウントして使う想定
 # (make rpm ターゲットで -v オプションを指定)
@@ -43,4 +43,5 @@ WORKDIR /home/builder/build
 COPY entrypoint-rpm.sh /usr/local/bin/entrypoint-rpm.sh
 RUN chmod +x /usr/local/bin/entrypoint-rpm.sh
 
+WORKDIR /src
 ENTRYPOINT ["/usr/local/bin/entrypoint-rpm.sh"]

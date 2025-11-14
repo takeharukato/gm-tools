@@ -5,7 +5,9 @@ cd /src
 
 ./autogen.sh
 ./configure
-make dist
+make
+cd po
+make update-po
 
 # Debian パッケージング:
 #  - debian/ ディレクトリを用意しておく場合:

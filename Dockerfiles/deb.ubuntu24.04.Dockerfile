@@ -20,16 +20,15 @@ RUN apt-get update && \
         autoconf \
         automake \
         gettext \
-        pkg-config && \
-    rm -rf /var/lib/apt/lists/*
-
-# ビルド用ユーザ
-RUN useradd -m builder
-USER builder
-WORKDIR /home/builder/build
+        autopoint \
+        pkg-config \
+        language-pack-en \
+        language-pack-ja \
+    && rm -rf /var/lib/apt/lists/*
 
 # /src: ソースツリー, /dist: 出力 .deb を置くディレクトリ をマウントする想定
 COPY entrypoint-deb.sh /usr/local/bin/entrypoint-deb.sh
 RUN chmod +x /usr/local/bin/entrypoint-deb.sh
 
+WORKDIR /src
 ENTRYPOINT ["/usr/local/bin/entrypoint-deb.sh"]

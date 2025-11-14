@@ -1,5 +1,5 @@
 ## -*- makefile -*-
-## Dockerfile/Makefile.am for gm-tools
+## Dockerfiles/Makefile.am for gm-tools
 ##
 ## ここでは Docker コンテナを使った RPM / DEB パッケージビルドのみ扱う。
 ## 通常のビルド (make, make install など) とは完全に独立。
@@ -22,7 +22,7 @@ DEB_IMAGE = gm-tools-deb-build
 ## ----------------------------------------
 rpm:
 	@mkdir -p "$(top_builddir)/dist"
-	$(DOCKER) build -f $(RPM_DOCKERFILE) -t $(RPM_IMAGE) "$(top_srcdir)"
+	$(DOCKER) build -f $(RPM_DOCKERFILE) -t $(RPM_IMAGE) .
 	$(DOCKER) run --rm \
 	  -v "$(top_srcdir)":/src \
 	  -v "$(top_builddir)/dist":/dist \
@@ -33,7 +33,7 @@ rpm:
 ## ----------------------------------------
 deb:
 	@mkdir -p "$(top_builddir)/dist"
-	$(DOCKER) build -f $(DEB_DOCKERFILE) -t $(DEB_IMAGE) "$(top_srcdir)"
+	$(DOCKER) build -f $(DEB_DOCKERFILE) -t $(DEB_IMAGE) .
 	$(DOCKER) run --rm \
 	  -v "$(top_srcdir)":/src \
 	  -v "$(top_builddir)/dist":/dist \
