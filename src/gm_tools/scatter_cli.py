@@ -9,6 +9,11 @@ import threading
 from argparse import BooleanOptionalAction, Namespace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Final, Sequence, Set
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # 型チェッカー向けのダミー定義（実行時には評価されない）
+    from gettext import gettext as _
 
 from .core_common import parse_hosts_file
 from .core_report import NullTransferReport
@@ -72,37 +77,37 @@ _NULL_REPORT: Final[NullTransferReport] = NullTransferReport()
 def build_parser() -> argparse.ArgumentParser:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog="gm-scatter",
-        description=_DESC,
+        description=_(_DESC),
         formatter_class=argparse.RawTextHelpFormatter,
     )
     # 位置引数: SRC ... DEST
-    parser.add_argument("src", nargs="+", help="Local SRC paths (abs or rel)")
-    parser.add_argument("dest", help="Remote DEST ( supports /abs, ~/, and relative-from-remote-home )")
+    parser.add_argument("src", nargs="+", help=_("Local SRC paths (abs or rel)"))
+    parser.add_argument("dest", help=_("Remote DEST ( supports /abs, ~/, and relative-from-remote-home )"))
 
     # SSH
     parser.add_argument(
-        "-H", "--hosts", default=DEFAULT_HOSTS_FILE, help=f"Hosts file. Default: {DEFAULT_HOSTS_FILE}."
+        "-H", "--hosts", default=DEFAULT_HOSTS_FILE, help=_("Hosts file. Default: %(default).")
     )
     parser.add_argument(
-        "-u", "--user", default=getpass.getuser(), help="Target account semantics on remote."
+        "-u", "--user", default=getpass.getuser(), help=_("Target account semantics on remote.")
     )
     parser.add_argument(
-        "-s", "--ssh-user", default=None, help="SSH login user. Default: same as --user."
+        "-s", "--ssh-user", default=None, help=_("SSH login user. Default: same as --user.")
     )
     parser.add_argument(
-        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=f"SSH port. Default: {DEFAULT_SSH_PORT}."
+        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: %(default).")
     )
-    parser.add_argument("-K", "--key", default=None, help="SSH private key file.")
-    parser.add_argument("-W", "--password", default=None, help="SSH password (not recommended).")
+    parser.add_argument("-K", "--key", default=None, help=_("SSH private key file."))
+    parser.add_argument("-W", "--password", default=None, help=_("SSH password (not recommended)."))
     parser.add_argument(
         "-T",
         "--timeout",
         type=float,
         default=DEFAULT_TIMEOUT,
-        help=f"SSH/command timeout seconds. Default: {DEFAULT_TIMEOUT}.",
+        help=_("SSH/command timeout seconds. Default: %(default)."),
     )
     parser.add_argument(
-        "-S", "--strict-host-key-checking", action="store_true", help="Enable strict host key checking."
+        "-S", "--strict-host-key-checking", action="store_true", help=_("Enable strict host key checking.")
     )
 
     # 実行
@@ -111,12 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--parallel",
         type=int,
         default=DEFAULT_PARALLEL_HOSTS,
-        help=f"Parallel hosts (not parallel per-host). Default: {DEFAULT_PARALLEL_HOSTS}.",
+        help=_("Parallel hosts (not parallel per-host). Default: %(default)."),
     )
-    parser.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not upload.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logs.")
-    parser.add_argument("--pack", action="store_true", help="Pack locally (tar.gz) then extract remotely.")
-    parser.add_argument("--follow-symlinks", action="store_true", help="When packing, dereference symlinks.")
+    parser.add_argument("-n", "--dry-run", action="store_true", help=_("Show plan only; do not upload."))
+    parser.add_argument("-v", "--verbose", action="store_true", help=_("Verbose logs."))
+    parser.add_argument("--pack", action="store_true", help=_("Pack locally (tar.gz) then extract remotely."))
+    parser.add_argument("--follow-symlinks", action="store_true", help=_("When packing, dereference symlinks."))
 
     # tri-state: True (--sudo-extract), False (--no-sudo-extract), None (auto)
     parser.add_argument(
@@ -124,14 +129,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--sudo-extract",
         action=BooleanOptionalAction,
         default=None,
-        help="Force sudo for remote mkdir/extract when packing (use --no-sudo-extract to force off). Omitted = auto.",
+        help=_("Force sudo for remote mkdir/extract when packing (use --no-sudo-extract to force off). Omitted = auto."),
     )
     # SELinux は pack 経路のみで使用
     parser.add_argument(
         "--selinux",
         choices=["auto", "policy", "ignore"],
         default="auto",
-        help="SELinux label restore policy (pack path only). Default: auto.",
+        help=_("SELinux label restore policy (pack path only). Default: %(default)."),
     )
     return parser
 
@@ -224,7 +229,7 @@ def _build_plan_for_host(
     dest_abs_root, dest_err = _resolve_remote_dest(dest_remote_raw, remote_home)
     if dest_err is not None:
         # 仕様に合わせて厳密な文言・終了コードで終了
-        print(dest_err, file=sys.stderr)
+        print(_(dest_err), file=sys.stderr)
         raise SystemExit(EXIT_ERR_ARGS)
 
     # sudo-extract ( 三値 None=auto ) : auto は (--pack かつ ssh_user != target_user) で True
@@ -235,7 +240,7 @@ def _build_plan_for_host(
     for s in srcs_raw:
         u: Optional[str] = tilde_username(s)
         if u is not None:
-            print(ERR_TILDE_USERNAME, file=sys.stderr)
+            print(_(ERR_TILDE_USERNAME), file=sys.stderr)
             raise SystemExit(EXIT_ERR_ARGS)
 
     # SRC を scatter 仕様に基づいて解決 ( ~/ は実行ユーザ HOME 展開、相対は cwd 起点 )
@@ -475,12 +480,12 @@ def main() -> None:
 
     # 位置引数検証 ( gather と同様の方針 )
     if len(args.src) < 1 or not args.dest:
-        print("At least one SRC and a DEST are required.", file=sys.stderr)
+        print(_("At least one SRC and a DEST are required."), file=sys.stderr)
         sys.exit(EXIT_ERR_ARGS)
 
     hosts: List[str] = parse_hosts_file(str(args.hosts))
     if len(hosts) == 0:
-        print("No hosts found in hosts file.", file=sys.stderr)
+        print(_("No hosts found in hosts file."), file=sys.stderr)
         sys.exit(EXIT_ERR_NO_HOSTS)
 
     # per-host の Plan/Meta 構築 ( 接続確立もここで実施し DI で渡す )

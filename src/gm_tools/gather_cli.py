@@ -15,6 +15,11 @@ import logging
 from argparse import BooleanOptionalAction
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # 型チェッカー向けのダミー定義（実行時には評価されない）
+    from gettext import gettext as _
 
 from .core_ssh import (
     SSHConfig,
@@ -65,8 +70,8 @@ _LOG = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
-        description=(
-            "gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
+        description=
+            _("gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
             "Usage: gm-gather [SRC ...] DEST\n"
             "  - SRC:\n"
             "      * '/...': absolute on remote (UNIX)\n"
@@ -76,8 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
             "                  HOME escape via '..' is rejected.\n"
             "    The portion after the root is treated as a regex path.\n"
             "    e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/.*', 'var/log/.*'.\n"
-            "  - DEST: local directory where files are stored as DEST/<HOST>/..."
-        ),
+            "  - DEST: local directory where files are stored as DEST/<HOST>/..."),
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
@@ -85,37 +89,37 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "src",
         nargs="+",
-        help="One or more SRC path patterns. Absolute ('/','X:/','~/') or HOME-relative.",
+        help=_("One or more SRC path patterns. Absolute ('/','X:/','~/') or HOME-relative."),
     )
-    parser.add_argument("dest", help="Local destination directory.")
+    parser.add_argument("dest", help=_("Local destination directory."))
 
     # SSH
     parser.add_argument(
         "-H",
         "--hosts",
         default=DEFAULT_HOSTS_FILE,
-        help=f"Hosts file. Default: {DEFAULT_HOSTS_FILE}.",
+        help=_("Hosts file. Default: %(default)."),
     )
     parser.add_argument(
-        "-u", "--user", default=getpass.getuser(), help="Target account on remote."
+        "-u", "--user", default=getpass.getuser(), help=_("Target account on remote %(default).")
     )
     parser.add_argument(
-        "-s", "--ssh-user", default=None, help="SSH login user. Default: same as --user."
+        "-s", "--ssh-user", default=None, help=_("SSH login user. Default: same as --user.")
     )
     parser.add_argument(
-        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=f"SSH port. Default: {DEFAULT_SSH_PORT}."
+        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: %(default).")
     )
-    parser.add_argument("-K", "--key", default=None, help="SSH private key file.")
-    parser.add_argument("-W", "--password", default=None, help="SSH password (not recommended).")
+    parser.add_argument("-K", "--key", default=None, help=_("SSH private key file."))
+    parser.add_argument("-W", "--password", default=None, help=_("SSH password (not recommended)."))
     parser.add_argument(
         "-T",
         "--timeout",
         type=float,
         default=DEFAULT_TIMEOUT,
-        help=f"SSH/command timeout seconds. Default: {DEFAULT_TIMEOUT}.",
+        help=_("SSH/command timeout seconds. Default: %(default)."),
     )
     parser.add_argument(
-        "-S", "--strict-host-key-checking", action="store_true", help="Enable strict host key checking."
+        "-S", "--strict-host-key-checking", action="store_true", help=_("Enable strict host key checking.")
     )
 
     # 実行
@@ -124,24 +128,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--parallel",
         type=int,
         default=DEFAULT_PARALLEL_HOSTS,
-        help=f"Parallel hosts (not parallel per-host). Default: {DEFAULT_PARALLEL_HOSTS}.",
+        help=_("Parallel hosts (not parallel per-host). Default: %(default)."),
     )
-    parser.add_argument("-n", "--dry-run", action="store_true", help="Show plan only; do not download.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logs.")
-    parser.add_argument("--pack", action="store_true", help="Pack on remote (tar.gz) and download once.")
+    parser.add_argument("-n", "--dry-run", action="store_true", help=_("Show plan only; do not download."))
+    parser.add_argument("-v", "--verbose", action="store_true", help=_("Verbose logs."))
+    parser.add_argument("--pack", action="store_true", help=_("Pack on remote (tar.gz) and download once."))
     # --follow-symlinksは, ファイルへのシンボリックリンクをたどることを指示する
     #  ディレクトリへのシンボリックリンクについては未対応
     parser.add_argument(
         "--follow-symlinks",
         action="store_true",
-        help="When used with --pack, dereference symlinks on remote.",
+        help=_("When used with --pack, dereference symlinks on remote."),
     )
     parser.add_argument(
         "-x",
         "--sudo-collect",
         action=BooleanOptionalAction,
         default=None,
-        help="Use sudo for remote packing/collection (pack path only). Omitted = auto (enabled when ssh-user != --user).",
+        help=_("Use sudo for remote packing/collection (pack path only). Omitted = auto (enabled when ssh-user != --user)."),
     )
 
     return parser
@@ -389,14 +393,17 @@ def main() -> None:
 
     # 位置引数の検証
     if len(args.src) < 1 or not args.dest:
-        print("At least one SRC and a DEST are required.", file=sys.stderr)
+        print(_("At least one SRC and a DEST are required."), file=sys.stderr)
         sys.exit(EXIT_ERR_ARGS)
 
     # DEST: '~user' は非対応なので明示エラー
     _dest_raw: str = str(args.dest)
     _dest_tilde_user: Optional[str] = tilde_username(_dest_raw)
     if _dest_tilde_user is not None:
-        print(f"Error: tilde with username is not supported in DEST: ~{_dest_tilde_user}", file=sys.stderr)
+        print(
+            _("Error: tilde with username is not supported in DEST: ~%(user)") % {"user": _dest_tilde_user},
+            file=sys.stderr,
+        )
         sys.exit(EXIT_ERR_TILDE_USER)
 
     # DEST: '~' をローカル実行ユーザの HOME で展開。相対ならカレント起点で絶対化。
@@ -410,12 +417,12 @@ def main() -> None:
     for s in srcs:
         u: Optional[str] = tilde_username(s)
         if u is not None:
-            print(f"Error: tilde with username is not supported in SRC: ~{u}", file=sys.stderr)
+            print(_("Error: tilde with username is not supported in SRC: ~%(user)") % {"user": u}, file=sys.stderr)
             sys.exit(EXIT_ERR_TILDE_USER)
 
     hosts: List[str] = parse_hosts_file(str(args.hosts))
     if len(hosts) == 0:
-        print("No hosts found in hosts file.", file=sys.stderr)
+        print(_("No hosts found in hosts file."), file=sys.stderr)
         sys.exit(EXIT_ERR_NO_HOSTS)
 
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)

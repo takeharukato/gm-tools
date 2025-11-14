@@ -90,6 +90,7 @@ AC_CONFIG_FILES([
   tests/Makefile
   debug-patches/Makefile
   scripts/Makefile
+  po/Makefile.in
   src/gm_tools/_config.py
 ])
 

@@ -14,6 +14,10 @@ import posixpath
 
 from dataclasses import dataclass
 from typing import Iterable, List, Tuple, Optional, Set, Dict
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    ############ 型チェッカー向けのダミー定義（実行時には評価されない） ############
+    from gettext import gettext as _
 
 from .core_ssh import SSHClientLike, SFTPClientLike, SFTPFileLike
 from .core_path_handling import dest_rel_from_abs
@@ -242,8 +246,8 @@ def local_pack_paths_to_tmp(
             seen_arc.add(na)
             kept_pairs.append((p, na))
         if kept_pairs:
-            plist = [p for p, _ in kept_pairs]
-            alist = [na for _, na in kept_pairs]
+            plist = [p for p, _tmp in kept_pairs]
+            alist = [na for _tmp2, na in kept_pairs]
         else:
             # 全て重複で消えた場合は, 両者とも空に揃える
             plist, alist = [], []
@@ -312,7 +316,7 @@ def write_members_file(
         f: SFTPFileLike = sftp.open(path, mode="wb")
         try:
             written: int = f.write(data)
-            _ = written
+            _rc = written
         finally:
             f.close()
 
@@ -373,7 +377,7 @@ def upload_pack_and_extract(
 
     # target_user の primary group
     if sudo_extract and target_user:
-        rc_gid, out_gid, _ = run_remote_cmd_capture(
+        rc_gid, out_gid, _err_gid = run_remote_cmd_capture(
             ssh, ["bash", "-lc", f"id -gn {shlex.quote(target_user)}"], timeout=CHECK_REGFILE_TIMEOUT
         )
         primary_group = out_gid.strip() if rc_gid == 0 else None
@@ -387,7 +391,7 @@ def upload_pack_and_extract(
         return
 
     # リモート一時ディレクトリ
-    rc_mk, out_mk, _ = run_remote_cmd_capture(
+    rc_mk, out_mk, _err_mk = run_remote_cmd_capture(
         ssh, ["bash", "-lc", "mktemp -d /tmp/gm-scatter.XXXXXXXX"], timeout=PREFLIGHT_TEST_TIMEOUT
     )
     rtmp: str = (out_mk.strip() if rc_mk == 0 else "/tmp")
@@ -398,17 +402,17 @@ def upload_pack_and_extract(
     # 一時物の一括掃除（存在しなくてもエラーにしない）
     def _cleanup_all() -> None:
         try:
-            run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -f {shlex.quote(remote_tar)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
+            _tmp_cleanup = run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -f {shlex.quote(remote_tar)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
             if members_file_new is not None:
-                run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -f {shlex.quote(members_file_new)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
+                _tmp_cleanup = run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -f {shlex.quote(members_file_new)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
             if members_file_exist is not None:
-                run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -f {shlex.quote(members_file_exist)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
+                _tmp_cleanup = run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -f {shlex.quote(members_file_exist)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
             if rtmp_exist is not None and rtmp_exist_created:
-                run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -rf {shlex.quote(rtmp_exist)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
+                _tmp_cleanup = run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -rf {shlex.quote(rtmp_exist)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
             if rtmp_meta is not None and rtmp_meta_created:
-                run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -rf {shlex.quote(rtmp_meta)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
+                _tmp_cleanup = run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -rf {shlex.quote(rtmp_meta)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
             if rtmp and rtmp_created:
-                run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -rf {shlex.quote(rtmp)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
+                _tmp_cleanup = run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -rf {shlex.quote(rtmp)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
         except Exception:
             pass
 
@@ -469,7 +473,7 @@ def upload_pack_and_extract(
         for _d in empty_dirs:
             _d_norm: str = _d.rstrip("/")
             _dst_dir: str = posixpath.join(dest_abs_root, _d_norm)
-            rc_pre, _, _ = run_remote_cmd_capture(
+            rc_pre, _out_pre, _err_pre = run_remote_cmd_capture(
                 ssh, ["bash", "-lc", f"test -d {shlex.quote(_dst_dir)}"], timeout=CHECK_REGFILE_TIMEOUT
             )
             preexists: bool = (rc_pre == 0)
@@ -538,7 +542,7 @@ def upload_pack_and_extract(
 
         # 8) EXIST を tmp に抽出 -> 中身上書き -> メタ復元
         if exist_list:
-            rc_mk2, out_mk2, _ = run_remote_cmd_capture(
+            rc_mk2, out_mk2, _err_mk2 = run_remote_cmd_capture(
                 ssh, ["bash","-lc","mktemp -d /tmp/gm-exist.XXXXXXXX"], timeout=PREFLIGHT_TEST_TIMEOUT)
             rtmp_exist = (out_mk2.strip() if rc_mk2 == 0 else "/tmp")
             rtmp_exist_created = (rc_mk2 == 0)
@@ -560,7 +564,7 @@ def upload_pack_and_extract(
                 report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_e))
                 return
 
-            rc_mkm, out_mkm, _ = run_remote_cmd_capture(
+            rc_mkm, out_mkm, _err_mkm = run_remote_cmd_capture(
                 ssh, ["bash","-lc","mktemp -d /tmp/gm-meta.XXXXXXXX"], timeout=PREFLIGHT_TEST_TIMEOUT)
             rtmp_meta = (out_mkm.strip() if rc_mkm == 0 else None)
             rtmp_meta_created = (rc_mkm == 0)
@@ -569,7 +573,7 @@ def upload_pack_and_extract(
             for rel_exist in exist_list:
                 src_tmp_chk: str = posixpath.join(rtmp_exist, rel_exist)
                 qsrc_chk: str = shlex.quote(src_tmp_chk)
-                rc_chk, _, _ = run_remote_cmd_capture(
+                rc_chk, _out_chk, _err_chk = run_remote_cmd_capture(
                     ssh,
                     ["bash", "-lc", f"test -f {qsrc_chk} || (echo '__MISSING__'; ls -ld {qsrc_chk} 2>/dev/null || true; echo '__PARENT__'; ls -ld $(dirname {qsrc_chk}) 2>/dev/null || true; exit 1)"],
                     timeout=CHECK_REGFILE_TIMEOUT,
@@ -606,10 +610,18 @@ def upload_pack_and_extract(
                     f"mv -f {shlex.quote(tmp_dest_raw)} {shlex.quote(dst_abs2)}"
                 ]
 
-                rc_w, _, err_w = run_remote_cmd_capture(ssh, overwrite_cmd, timeout=OVERWRITE_TIMEOUT)
+                rc_w, _out_w, err_w = run_remote_cmd_capture(ssh, overwrite_cmd, timeout=OVERWRITE_TIMEOUT)
                 if rc_w != 0:
                     report.add(host, TransferItem(host=host, remote_path=dst_abs2, phase="transfer", status="failed", reason=(err_w.strip() or "E_OVERWRITE")))
-                    _LOG.error(f"[overwrite error] host={host} dst={dst_abs2} rc={rc_w} err={err_w.strip()}")
+                    _LOG.error(
+                        _("[overwrite error] host=%(host)s dst=%(dst)s rc=%(rc)s err=%(err)s")
+                        % {
+                            "host": host,
+                            "dst": dst_abs2,
+                            "rc": rc_w,
+                            "err": err_w.strip(),
+                        }
+                    )
                     continue
 
                 if sudo_extract:
@@ -778,7 +790,7 @@ def sftp_put_one(
         return
     # sudo_mkdir 経路では SFTP 書込可否を事前検査（sudo できないため）
     if sudo_mkdir:
-        rc_w, _, _ = run_remote_cmd_capture(
+        rc_w, _out_w, _err_w = run_remote_cmd_capture(
            ssh, ["bash","-lc", f"test -w {shlex.quote(rdir)}"], timeout=CHECK_REGFILE_TIMEOUT
         )
         if rc_w != 0:
@@ -829,7 +841,7 @@ def sftp_put_one(
                 _cleanup_meta()
                 return
             if sudo_mkdir:
-                rc_w2, _, _ = run_remote_cmd_capture(
+                rc_w2, _out_w2, _err_w2 = run_remote_cmd_capture(
                     ssh, ["bash","-lc", f"test -w {shlex.quote(rr)}"], timeout=CHECK_REGFILE_TIMEOUT
                 )
                 if rc_w2 != 0:

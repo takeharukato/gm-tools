@@ -97,6 +97,9 @@ po/Makevars.template
 po/quot.sed
 po/remove-potcdate.sin
 po/Rules-quot
+po/remove-potcdate.sed
+po/*.gmo
+po/POTFILES
 
 # coverage output
 coverage/
