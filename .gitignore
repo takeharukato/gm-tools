@@ -86,10 +86,33 @@ ltmain.sh
 depcomp
 compile
 INSTALL
+m4/
+ABOUT-NLS
+po/boldquot.sed
+po/en@boldquot.header
+po/en@quot.header
+po/insert-header.sin
+po/Makefile.in.in
+po/Makevars.template
+po/quot.sed
+po/remove-potcdate.sin
+po/Rules-quot
+
+# coverage output
+coverage/
+*.gcov
+*.gcda
+*.gcovrc
+
+# virtualenv directory
+.venv/
+.env/
 
 # sphinx build directory
 docs/sphinx/_build/
+
 # test output directory / configuration files for testing
 dest/
 tests_env.sh
 hostfile
+src/gm_tools/_config.py

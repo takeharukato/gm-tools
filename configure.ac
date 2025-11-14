@@ -15,15 +15,13 @@ AC_CONFIG_MACRO_DIR([m4])
 
 dnl Automake 初期化
 dnl - foreign: GNU strict にはしない
-dnl - dist-xz: make dist で .tar.xz を生成
-dnl - no-subdir-objects: サブディレクトリごとの .o 生成を抑止
-AM_INIT_AUTOMAKE([foreign dist-xz no-subdir-objects])
+AM_INIT_AUTOMAKE([foreign])
 
 dnl C コンパイラは使わないが、gettext マクロが期待することもあるので念のため
 AC_PROG_CC
 
-dnl Python 検出 (最低 3.8 程度を想定。必要に応じて引数は調整)
-AM_PATH_PYTHON([3.8])
+dnl Python 検出 (最低 3.10 程度を想定)
+AM_PATH_PYTHON([3.10])
 
 dnl ----------------------------------------
 dnl Gettext / po/ の統合
@@ -32,14 +30,11 @@ dnl ----------------------------------------
 dnl gettext を外部ライブラリとして利用
 AM_GNU_GETTEXT([external])
 
-dnl 最小 gettext バージョン (必要に応じて変更)
-AM_GNU_GETTEXT_VERSION([0.22])
+dnl 最小 gettext バージョン
+AM_GNU_GETTEXT_VERSION([0.21])
 
 dnl gettext パッケージ名 (po/Makevars の DOMAIN とも一致させる)
 AC_SUBST([GETTEXT_PACKAGE], [gm-tools])
-
-dnl localedir は AM_GNU_GETTEXT により定義される:
-dnl   localedir = ${datarootdir}/locale
 
 dnl ----------------------------------------
 dnl 補完スクリプトのインストール先
@@ -95,11 +90,6 @@ AC_CONFIG_FILES([
   tests/Makefile
   debug-patches/Makefile
   scripts/Makefile
-  po/Makefile.in
-])
-
-dnl Python 側設定モジュール (LOCALEDIR, DOMAIN, VERSION 等を埋め込む)
-AC_CONFIG_FILES([
   src/gm_tools/_config.py
 ])
 
