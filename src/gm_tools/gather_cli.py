@@ -14,7 +14,7 @@ import threading
 import logging
 from argparse import BooleanOptionalAction
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple, Union
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -186,7 +186,7 @@ def _make_pull_one_pack(
     初回呼出しで pack+download+extract を実施。以降 no-op。
     Step4の権限/復元挙動 ( sudo指定時の権限復元含む ) を維持。
     """
-    state: Dict[str, int | bool] = {"ran": False, "extracted": 0}
+    state: Dict[str, Union[int, bool]] = {"ran": False, "extracted": 0}
 
     def _pull_one(_sftp: SFTPClientLike, _remote: str, _local: Path, _is_dir: bool) -> None:
 

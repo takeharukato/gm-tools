@@ -21,7 +21,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Callable, Mapping, Optional, Sequence, Tuple
+from typing import Callable, Mapping, Optional, Sequence, Tuple, Union
 
 from . import _config
 
@@ -99,8 +99,8 @@ def _compute_default_locale_dir() -> Path:
 
 def setup_gettext(
     *,
-    domain: str | None = None,
-    locale_dir: Path | str | None = None,
+    domain: Union[str, None] = None,
+    locale_dir: Union[Path, str, None] = None,
     languages: Optional[Sequence[str]] = None,
     install_into_builtins: bool = True,
 ) -> Tuple[Callable[[str], str], Callable[[str, str, int], str]]:
@@ -109,9 +109,9 @@ def setup_gettext(
 
     Parameters
     ----------
-    domain : str | None
+    domain : Union[str, None]
         gettext domain name (defaults to configured DOMAIN).
-    locale_dir : Path | str | None
+    locale_dir : Union[Path, str, None]
         Directory path that contains locale/<lang>/LC_MESSAGES/<domain>.mo.
         When None (default), this is derived from gm_tools._config
         (LOCALEDIR / DATAROOTDIR / PREFIX / EXEC_PREFIX).

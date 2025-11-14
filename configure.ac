@@ -20,8 +20,8 @@ AM_INIT_AUTOMAKE([foreign])
 dnl C コンパイラは使わないが、gettext マクロが期待することもあるので念のため
 AC_PROG_CC
 
-dnl Python 検出 (最低 3.10 程度を想定)
-AM_PATH_PYTHON([3.10])
+dnl Python 検出 (最低 3.9 程度を想定)
+AM_PATH_PYTHON([3.9])
 
 dnl ----------------------------------------
 dnl Gettext / po/ の統合

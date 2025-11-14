@@ -119,3 +119,5 @@ dest/
 tests_env.sh
 hostfile
 src/gm_tools/_config.py
+src/gm-gather
+src/gm-scatter

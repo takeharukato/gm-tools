@@ -28,7 +28,7 @@ import tempfile
 import logging
 from pathlib import Path
 from pathlib import PurePosixPath
-from typing import Callable, Dict, Iterable, List, Optional, Set, Literal, Tuple, TypeAlias
+from typing import Callable, Dict, Iterable, List, Optional, Set, Literal, Tuple
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     # 型チェッカー向けのダミー定義（実行時には評価されない）
@@ -48,9 +48,8 @@ from .core_path_handling import (
 )
 
 # ---- Typing helpers for tarfile modes ---------------------------------------
-
-TarWriteMode: TypeAlias = Literal['w', 'w:gz', 'w:bz2', 'w:xz']
-TarReadMode: TypeAlias = Literal['r', 'r:gz', 'r:bz2', 'r:xz']
+TarWriteMode = Literal['w', 'w:gz', 'w:bz2', 'w:xz']
+TarReadMode = Literal['r', 'r:gz', 'r:bz2', 'r:xz']
 
 _LOG = logging.getLogger(__name__)
 
