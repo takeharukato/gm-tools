@@ -19,8 +19,8 @@ SUBDIRS = \
 EXTRA_DIST = \
 	autogen.sh \
 	requirements.txt \
-	LICENSE \
-	docs/sphinx
+	LICENSE
+#	docs/sphinx
 
 ## ----------------------------------------
 ## Lines of Code 集計 (make cloc)

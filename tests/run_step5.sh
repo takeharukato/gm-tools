@@ -39,7 +39,6 @@ export GM_SCATTER="${GM_SCATTER_CMD:-gm-scatter}"              # 例: "python3 -
 export GM_GATHER="${GM_GATHER_CMD:-gm-gather}"                 # 例: "python3 -m gm_tools.gather_cli"
 export HOSTS="${HOSTS:-localhost,vmlinux4.local}"
 export DEST_BASE="${DEST_BASE:-/tmp/gmtools_step5_out}"
-export RESULTS_DIR="${RESULTS_DIR:-results/step5}"
 export GM_SCATTER_EXTRA_ARGS="${GM_SCATTER_EXTRA_ARGS:-}"     # 任意: "--ssh-config ~/.ssh/config" 等
 export GM_GATHER_EXTRA_ARGS="${GM_GATHER_EXTRA_ARGS:-}"       # 任意: "--ssh-config ~/.ssh/config" 等
 
@@ -50,11 +49,7 @@ echo "DATE        : $(date '+%Y-%m-%d %H:%M:%S %Z')"
 echo "GM_SCATTER  : ${GM_SCATTER}"
 echo "HOSTS       : ${HOSTS}"
 echo "DEST_BASE    : ${DEST_BASE}"
-echo "RESULTS_DIR  : ${RESULTS_DIR}"
 echo "EXTRA_ARGS   : ${GM_SCATTER_EXTRA_ARGS}"
-
-# 出力ディレクトリの作成
-mkdir -p "${RESULTS_DIR}"
 
 # 参考: gm-scatter コマンドの存在チェック（コマンド文字列対応）
 # 実際の疎通はテスト本体で行うため、ここでは help 実行を軽く試すのみ（失敗しても続行）
@@ -75,10 +70,4 @@ RC=$?
 set -e
 
 echo "=== Step5 tests finished: RC=${RC} ==="
-if [[ ${RC} -eq 0 ]]; then
-  echo "ALL TESTS PASSED"
-else
-  echo "SOME TESTS FAILED (see ${RESULTS_DIR}/summary.json and per-test details.json)"
-fi
-
 exit "${RC}"

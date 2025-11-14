@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gm-tools 0.1.0\n"
 "Report-Msgid-Bugs-To: tkato1219@gmail.com\n"
-"POT-Creation-Date: 2025-11-14 22:54+0900\n"
+"POT-Creation-Date: 2025-11-14 21:55+0000\n"
 "PO-Revision-Date: 2025-11-14 22:59+0900\n"
 "Last-Translator: Takeharu KATO <tkato1219@gmail.com>\n"
 "Language-Team: Japanese <translation-team-ja@lists.sourceforge.net>\n"
@@ -17,44 +17,44 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-#: src/gm_tools/core_archive.py:315
+#: src/gm_tools/core_archive.py:314
 msgid ""
 "remote_pack_paths: follow_symlinks requested but remote tar flavor is "
 "unknown;proceeding without dereference flag (symlinks will be archived as "
 "links)."
 msgstr ""
 
-#: src/gm_tools/core_archive.py:477
+#: src/gm_tools/core_archive.py:476
 #, python-format
 msgid "skip extracting directory due to symlinked parent: %s"
 msgstr ""
 
-#: src/gm_tools/core_archive.py:496
+#: src/gm_tools/core_archive.py:495
 #, python-format
 msgid "skip extracting file due to symlinked parent: %s"
 msgstr ""
 
-#: src/gm_tools/core_archive.py:526
+#: src/gm_tools/core_archive.py:525
 #, python-format
 msgid "skip extracting hardlink due to symlinked parent: %s -> %s"
 msgstr ""
 
-#: src/gm_tools/core_archive.py:551
+#: src/gm_tools/core_archive.py:550
 #, python-format
 msgid "failed to materialize hardlink from extracted source: %s -> %s (%s)"
 msgstr ""
 
-#: src/gm_tools/core_archive.py:576
+#: src/gm_tools/core_archive.py:575
 #, python-format
 msgid "failed to materialize hardlink from archive member: %s -> %s (%s)"
 msgstr ""
 
-#: src/gm_tools/core_archive.py:580
+#: src/gm_tools/core_archive.py:579
 #, python-format
 msgid "skip hardlink (unresolvable link target): %s -> %s"
 msgstr ""
 
-#: src/gm_tools/core_archive.py:590
+#: src/gm_tools/core_archive.py:589
 #, python-format
 msgid "[pack] downloaded %s -> extracted %d file(s) to %s"
 msgstr ""
@@ -120,11 +120,13 @@ msgid "Local destination directory."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:101 src/gm_tools/scatter_cli.py:89
-msgid "Hosts file. Default: %(default)."
+#, python-format
+msgid "Hosts file. Default: %(default)s."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:104
-msgid "Target account on remote %(default)."
+#, python-format
+msgid "Target account on remote %(default)s."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:107 src/gm_tools/scatter_cli.py:95
@@ -132,7 +134,8 @@ msgid "SSH login user. Default: same as --user."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:110 src/gm_tools/scatter_cli.py:98
-msgid "SSH port. Default: %(default)."
+#, python-format
+msgid "SSH port. Default: %(default)s."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:112 src/gm_tools/scatter_cli.py:100
@@ -144,7 +147,8 @@ msgid "SSH password (not recommended)."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:119 src/gm_tools/scatter_cli.py:107
-msgid "SSH/command timeout seconds. Default: %(default)."
+#, python-format
+msgid "SSH/command timeout seconds. Default: %(default)s."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:122 src/gm_tools/scatter_cli.py:110
@@ -152,7 +156,8 @@ msgid "Enable strict host key checking."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:131 src/gm_tools/scatter_cli.py:119
-msgid "Parallel hosts (not parallel per-host). Default: %(default)."
+#, python-format
+msgid "Parallel hosts (not parallel per-host). Default: %(default)s."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:133
@@ -182,11 +187,13 @@ msgid "At least one SRC and a DEST are required."
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:404
-msgid "Error: tilde with username is not supported in DEST: ~%(user)"
+#, python-format
+msgid "Error: tilde with username is not supported in DEST: ~%(user)s"
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:420
-msgid "Error: tilde with username is not supported in SRC: ~%(user)"
+#, python-format
+msgid "Error: tilde with username is not supported in SRC: ~%(user)s"
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:425 src/gm_tools/scatter_cli.py:488
@@ -224,5 +231,6 @@ msgid ""
 msgstr ""
 
 #: src/gm_tools/scatter_cli.py:139
-msgid "SELinux label restore policy (pack path only). Default: %(default)."
+#, python-format
+msgid "SELinux label restore policy (pack path only). Default: %(default)s."
 msgstr ""
