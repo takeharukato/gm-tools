@@ -5,9 +5,11 @@
 EXTRA_DIST = \
 	run_step4.sh \
 	run_step5.sh \
+	run_step6.sh \
 	tests_env.sh.sample \
 	tests_py/runner_step4.py \
-	tests_py/runner_step5.py
+	tests_py/runner_step5.py \
+	tests_py/runner_step6.py
 
 ## automake の標準 TESTS 機構は使わず、check-local で run_step*.sh を回す
 TESTS =
@@ -46,6 +48,8 @@ coverage:
 	    $(srcdir)/tests_py/runner_step4.py; \
 	  PYTHONPATH="$(top_srcdir)/src" $(PYTHON) -m coverage run --source=gm_tools --append \
 	    $(srcdir)/tests_py/runner_step5.py; \
+	  PYTHONPATH="$(top_srcdir)/src" $(PYTHON) -m coverage run --source=gm_tools --append \
+	    $(srcdir)/tests_py/runner_step6.py; \
 	  $(PYTHON) -m coverage report; \
 	else \
 	  echo "coverage module not available; skipping coverage"; \
