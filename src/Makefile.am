@@ -1,7 +1,7 @@
 ## src/Makefile.am
 
 ## Python モジュールのインストール先
-pythondir = @pythondir@
+pythondir = @pythondir@/gm_tools
 
 ## インストールする Python ファイル群
 ## gm_tools/*.py に合わせて一覧を調整。

@@ -2,7 +2,7 @@ dnl -*- Autoconf -*-
 dnl configure.ac for gm-tools
 
 AC_PREREQ([2.69])
-AC_INIT([gm-tools], [0.1.0], [bugs@example.invalid])
+AC_INIT([gm-tools], [0.1.0], [tkato1219@gmail.com])
 
 dnl このファイルが存在することでソースツリーであることを確認
 AC_CONFIG_SRCDIR([src/gm_tools/gather_cli.py])

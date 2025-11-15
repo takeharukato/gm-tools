@@ -1,0 +1,25 @@
+Source: gm-tools
+Section: utils
+Priority: optional
+Maintainer: Takeharu Kato <tkato1219@gmail.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-python,
+ python3-all,
+ python3-setuptools,
+ gettext,
+ autoconf,
+ automake,
+ pkg-config
+Standards-Version: 4.6.2
+Homepage: https://github.com/takeharukato/gm-tools
+
+Package: gm-tools
+Architecture: all
+Depends:
+ ${misc:Depends},
+ ${python3:Depends},
+ python3
+Description: gm-gather / gm-scatter file transfer tools with i18n
+ gm-tools provides gm-gather and gm-scatter commands for file collection
+ and distribution over SSH, with i18n support.

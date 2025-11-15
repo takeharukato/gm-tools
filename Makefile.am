@@ -19,8 +19,19 @@ SUBDIRS = \
 EXTRA_DIST = \
 	autogen.sh \
 	requirements.txt \
-	LICENSE
-#	docs/sphinx
+	Readme.md \
+	LICENSE	\
+	debian \
+	rpm/gm-tools.spec \
+	docs/sphinx
+
+# Dockerfiles
+EXTRA_DIST += \
+    Dockerfiles/Makefile.am \
+    Dockerfiles/rpm.almalinux9.Dockerfile \
+    Dockerfiles/deb.ubuntu24.04.Dockerfile \
+    Dockerfiles/entrypoint-rpm.sh \
+    Dockerfiles/entrypoint-deb.sh
 
 ## ----------------------------------------
 ## Lines of Code 集計 (make cloc)

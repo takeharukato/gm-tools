@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --with python3
+
+override_dh_auto_configure:
+	./autogen.sh
+	./configure PYTHON=python3
+
+override_dh_auto_build:
+	$(MAKE)
+
+override_dh_auto_install:
+	$(MAKE) DESTDIR=$(CURDIR)/debian/gm-tools install
