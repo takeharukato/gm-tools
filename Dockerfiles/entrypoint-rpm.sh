@@ -1,8 +1,13 @@
 #!/bin/sh
 set -eu
 
+
+WORKDIR=/tmp/gm-tools-build
+mkdir -p "${WORKDIR}"
+
 # /src に gm-tools ソースがマウントされている前提
-cd /src
+cp -a /src/. "${WORKDIR}/"
+cd "${WORKDIR}"
 
 echo "[entrypoint-rpm] autogen.sh / configure / update-po / dist / rpmbuild を実行します"
 

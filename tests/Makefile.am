@@ -22,7 +22,7 @@ check-local:
 	if ls $(srcdir)/run_step*.sh >/dev/null 2>&1; then \
 	  for t in $(srcdir)/run_step*.sh; do \
 	    echo "Running $$t"; \
-	    sh "$$t" || exit 1; \
+	    /usr/bin/env bash "$$t" || exit 1; \
 	  done; \
 	else \
 	  echo "No run_step*.sh tests found under $(srcdir)"; \
