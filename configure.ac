@@ -1,68 +1,97 @@
+dnl -*- Autoconf -*-
+dnl configure.ac for gm-tools
+
 AC_PREREQ([2.69])
 AC_INIT([gm-tools], [0.1.0], [tkato1219@gmail.com])
-AM_INIT_AUTOMAKE([foreign dist-xz no-dist-gzip subdir-objects])
-AC_CONFIG_SRCDIR([src/gm-gather.py])
-dnl AC_CONFIG_HEADERS([config.h])
 
-AC_PROG_INSTALL
-AM_PATH_PYTHON([3.8])  dnl 必要に応じて下限を調整
+dnl このファイルが存在することでソースツリーであることを確認
+AC_CONFIG_SRCDIR([src/gm_tools/gather_cli.py])
 
-dnl ---- pkg-config (bash-completion 検出に利用) ----
-PKG_PROG_PKG_CONFIG
+dnl 補助スクリプト(config.guess等)のディレクトリ
+AC_CONFIG_AUX_DIR([build-aux])
 
-dnl ---- ユーザー指定を受け付ける ----
+dnl m4 マクロディレクトリ（gettext等が追加される想定）
+AC_CONFIG_MACRO_DIR([m4])
+
+dnl Automake 初期化
+dnl - foreign: GNU strict にはしない
+AM_INIT_AUTOMAKE([foreign])
+
+dnl C コンパイラは使わないが、gettext マクロが期待することもあるので念のため
+AC_PROG_CC
+
+dnl Python 検出 (最低 3.9 程度を想定)
+AM_PATH_PYTHON([3.9])
+
+dnl ----------------------------------------
+dnl Gettext / po/ の統合
+dnl ----------------------------------------
+
+dnl gettext を外部ライブラリとして利用
+AM_GNU_GETTEXT([external])
+
+dnl 最小 gettext バージョン
+AM_GNU_GETTEXT_VERSION([0.21])
+
+dnl gettext パッケージ名 (po/Makevars の DOMAIN とも一致させる)
+AC_SUBST([GETTEXT_PACKAGE], [gm-tools])
+
+dnl ----------------------------------------
+dnl 補完スクリプトのインストール先
+dnl ----------------------------------------
+
+dnl bash completion のインストール先 (--with-bash-completion-dir=DIR で上書き可能)
 AC_ARG_WITH([bash-completion-dir],
   [AS_HELP_STRING([--with-bash-completion-dir=DIR],
-                  [install path for bash completions (override auto-detect)])],
-  [BASH_COMPLETION_DIR="$withval"],
-  [BASH_COMPLETION_DIR=""])
+                  [directory for bash completion scripts])],
+  [bash_completion_dir="$withval"],
+  [bash_completion_dir=""])
 
+if test "x$bash_completion_dir" = "x"; then
+  dnl デフォルト値: /usr/share/bash-completion/completions 相当
+  bash_completion_dir='${datarootdir}/bash-completion/completions'
+fi
+AC_SUBST([BASH_COMPLETION_DIR], [$bash_completion_dir])
+
+dnl zsh completion のインストール先 (--with-zsh-completion-dir=DIR で上書き可能)
 AC_ARG_WITH([zsh-completion-dir],
   [AS_HELP_STRING([--with-zsh-completion-dir=DIR],
-                  [install path for zsh completions (override auto-detect)])],
-  [ZSH_COMPLETION_DIR="$withval"],
-  [ZSH_COMPLETION_DIR=""])
+                  [directory for zsh completion scripts])],
+  [zsh_completion_dir="$withval"],
+  [zsh_completion_dir=""])
 
-dnl ---- bash-completion の自動検出 ----
-AS_IF([test -z "$BASH_COMPLETION_DIR"], [
-  AS_IF([test -n "$PKG_CONFIG" && $PKG_CONFIG --exists bash-completion], [
-    BASH_COMPLETION_DIR=`$PKG_CONFIG --variable=completionsdir bash-completion`
-  ], [
-    dnl フォールバック ( ディストリ一般 )
-    for d in \
-      /usr/share/bash-completion/completions \
-      /etc/bash_completion.d \
-      "${datarootdir}/bash-completion/completions"
-    do
-      test -d "$d" && BASH_COMPLETION_DIR="$d" && break
-    done
-    test -z "$BASH_COMPLETION_DIR" && BASH_COMPLETION_DIR='${datarootdir}/bash-completion/completions'
-  ])
-])
+if test "x$zsh_completion_dir" = "x"; then
+  dnl デフォルト値: /usr/share/zsh/site-functions 相当
+  zsh_completion_dir='${datarootdir}/zsh/site-functions'
+fi
+AC_SUBST([ZSH_COMPLETION_DIR], [$zsh_completion_dir])
 
-dnl ---- zsh completion の自動検出 ----
-AS_IF([test -z "$ZSH_COMPLETION_DIR"], [
-  for d in \
-    /usr/share/zsh/site-functions \
-    /usr/local/share/zsh/site-functions \
-    /usr/share/zsh/vendor-completions \
-    "${datarootdir}/zsh/site-functions"
-  do
-    test -d "$d" && ZSH_COMPLETION_DIR="$d" && break
-  done
-  test -z "$ZSH_COMPLETION_DIR" && ZSH_COMPLETION_DIR='${datarootdir}/zsh/site-functions'
-])
+dnl ----------------------------------------
+dnl 開発支援ツールの検出 (cloc, sphinx-build)
+dnl ----------------------------------------
 
-AC_SUBST([BASH_COMPLETION_DIR])
-AC_SUBST([ZSH_COMPLETION_DIR])
+dnl cloc: 無ければ ":" (no-op) にして make cloc を no-op にする
+AC_PATH_PROG([CLOC], [cloc], [:])
+
+dnl Sphinx: 無ければ ":" にして make docs を no-op にする
+AC_PATH_PROG([SPHINXBUILD], [sphinx-build], [:])
+
+dnl ----------------------------------------
+dnl 生成するファイルの一覧
+dnl ----------------------------------------
 
 AC_CONFIG_FILES([
   Makefile
   src/Makefile
   compl/Makefile
+  config/Makefile
+  Dockerfiles/Makefile
   docs/Makefile
-  samples/Makefile
+  tests/Makefile
+  debug-patches/Makefile
   scripts/Makefile
-  locale/Makefile
+  po/Makefile.in
+  src/gm_tools/_config.py
 ])
+
 AC_OUTPUT

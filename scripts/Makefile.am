@@ -1,2 +1,5 @@
-## 配布物
-EXTRA_DIST = gen-pot.sh
+## -*- makefile -*-
+## scripts/Makefile.am for gm-tools
+
+## 開発支援スクリプトは配布のみ、インストール無し
+dist_noinst_SCRIPTS =

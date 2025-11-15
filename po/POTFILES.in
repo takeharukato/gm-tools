@@ -1,0 +1,5 @@
+src/gm_tools/core_archive.py
+src/gm_tools/core_scatter.py
+src/gm_tools/core_select.py
+src/gm_tools/gather_cli.py
+src/gm_tools/scatter_cli.py

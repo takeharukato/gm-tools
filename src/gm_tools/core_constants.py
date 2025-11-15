@@ -12,8 +12,6 @@ Policy:
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 from typing import Tuple
 
 # ---------------------------------------------------------------------------
@@ -55,17 +53,6 @@ DEFAULT_PARALLEL_HOSTS: int = 4
 RE_SAFE_HOST_PTN: str = r"[^A-Za-z0-9._-]"
 
 # ---------------------------------------------------------------------------
-# Internationalization (i18n)
-# ---------------------------------------------------------------------------
-
-#: gettext domain name for gm-tools.
-LOG_DOMAIN: str = "gm_tools"
-
-#: Directory where compiled message catalogs (*.mo) are stored.
-#: By default, it expects "<package_root>/locale".
-LOCALE_DIR: Path = Path(__file__).resolve().parent / "locale"
-
-# ---------------------------------------------------------------------------
 # Logging keys and schema
 # ---------------------------------------------------------------------------
 
@@ -98,8 +85,6 @@ __all__ = [
     "DEFAULT_PARALLEL_HOSTS",
     "DEFAULT_HOSTS_FILE",
     "RE_SAFE_HOST_PTN",
-    "LOG_DOMAIN",
-    "LOCALE_DIR",
     "KEYS_PREFIX",
     "KEYS_OPTIONAL",
 ]

@@ -1,6 +1,11 @@
-# 文書ディレクトリへの格納対象物
-# Install the top-level license into $(docdir) (defaults to $(datarootdir)/doc/$(PACKAGE))
-dist_doc_DATA = gm-scatter-spec.md gm-gather-spec.md
+## -*- makefile -*-
+## docs/Makefile.am for gm-tools
 
-## インストールされない配布物
-EXTRA_DIST =
+## ドキュメント本体は docdir 直下に配置
+doc_DATA = \
+	gm-gather-spec.md \
+	gm-scatter-spec.md
+
+## 配布アーカイブに含めるファイル
+EXTRA_DIST = \
+	$(doc_DATA)

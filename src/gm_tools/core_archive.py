@@ -17,7 +17,6 @@ This module performs no side effects on import.
 
 from __future__ import annotations
 
-
 import threading
 import re
 import os
@@ -29,7 +28,11 @@ import tempfile
 import logging
 from pathlib import Path
 from pathlib import PurePosixPath
-from typing import Callable, Dict, Iterable, List, Optional, Set, Literal, Tuple, TypeAlias
+from typing import Callable, Dict, Iterable, List, Optional, Set, Literal, Tuple
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    # 型チェッカー向けのダミー定義（実行時には評価されない）
+    from gettext import gettext as _
 
 from .core_ssh import CancelledError, SSHClientLike, SFTPClientLike  # for consistent cancellation semantics
 from .core_cmd_flavor import (
@@ -45,9 +48,8 @@ from .core_path_handling import (
 )
 
 # ---- Typing helpers for tarfile modes ---------------------------------------
-
-TarWriteMode: TypeAlias = Literal['w', 'w:gz', 'w:bz2', 'w:xz']
-TarReadMode: TypeAlias = Literal['r', 'r:gz', 'r:bz2', 'r:xz']
+TarWriteMode = Literal['w', 'w:gz', 'w:bz2', 'w:xz']
+TarReadMode = Literal['r', 'r:gz', 'r:bz2', 'r:xz']
 
 _LOG = logging.getLogger(__name__)
 
@@ -308,9 +310,10 @@ def remote_pack_paths(
                 deref_flag = "-L"          # libarchive/bsdtar 系
             else:
                 # フレーバ不明: 警告しフラグ無しで続行（symlinkはリンクのまま保存される）
-                _LOG.warning(
-                    "remote_pack_paths: follow_symlinks requested but remote tar flavor is unknown; "
-                    "proceeding without dereference flag (symlinks will be archived as links)."
+                _LOG.warning(_(
+                                "remote_pack_paths: follow_symlinks requested but remote tar flavor is unknown;"
+                               "proceeding without dereference flag (symlinks will be archived as links)."
+                               )
                 )
 
         q_tarf = shlex.quote(tarf)
@@ -330,15 +333,14 @@ def remote_pack_paths(
             raise RuntimeError(f"gzip failed: {(err_g or '(no stderr)').strip()}")
     except Exception:
         # 失敗時の掃除 ( ベストエフォート )
-        _ = run_remote_cmd_capture(
+        _tmp_cleanup = run_remote_cmd_capture(
             ssh, ["bash", "-lc", f"rm -f {shlex.quote(tarf)} {shlex.quote(tgz)} {q_lst} || true"], timeout=timeout)
         raise
     finally:
         # 4) リスト削除
-        _ = run_remote_cmd_capture(ssh, ["bash", "-lc", f"rm -f {q_lst} || true"], timeout=timeout)
+        _tmp_cleanup = run_remote_cmd_capture(ssh, ["bash", "-lc", f"rm -f {q_lst} || true"], timeout=timeout)
 
     return tgz
-
 
 def _safe_members(base_dir: str, members: Iterable[tarfile.TarInfo]) -> List[tarfile.TarInfo]:
     """
@@ -386,7 +388,7 @@ def download_and_extract_tar(
 
     # [debug] 受信側：関数進入の観測
     if verbose:
-        _LOG.info("[debug][pack][receiver] enter remote_tar_gz=%s extract_base=%s subdir=%s verbose=%s",
+        _LOG.debug("[debug][pack][receiver] enter remote_tar_gz=%s extract_base=%s subdir=%s verbose=%s",
                 remote_tar_gz, extract_base, subdir, verbose)
 
     with tempfile.NamedTemporaryFile(prefix="gm_dl_", suffix=".tar.gz", delete=False) as tmpf:
@@ -471,7 +473,7 @@ def download_and_extract_tar(
             for d in dirs:
                 norm_dir = _normalize_archive_relpath_for_local(d.name)
                 if _parent_chain_has_symlink(dest_root, norm_dir):
-                    _LOG.warning("skip extracting directory due to symlinked parent: %s", norm_dir)
+                    _LOG.warning(_("skip extracting directory due to symlinked parent: %s") % norm_dir)
                     continue
                 target_dir = os.path.join(dest_root, norm_dir)
                 os.makedirs(target_dir, exist_ok=True)
@@ -490,7 +492,7 @@ def download_and_extract_tar(
             for m in files:
                 norm_rel = _normalize_archive_relpath_for_local(m.name)
                 if _parent_chain_has_symlink(dest_root, norm_rel):
-                    _LOG.warning("skip extracting file due to symlinked parent: %s", norm_rel)
+                    _LOG.warning(_("skip extracting file due to symlinked parent: %s") % norm_rel)
                     continue
                 abs_out = os.path.join(dest_root, norm_rel)
                 os.makedirs(os.path.dirname(abs_out), exist_ok=True)
@@ -520,8 +522,7 @@ def download_and_extract_tar(
                 norm_rel = _normalize_archive_relpath_for_local(m.name)
                 # 親チェーンに symlink があれば安全のため拒否
                 if _parent_chain_has_symlink(dest_root, norm_rel):
-                    _LOG.warning("skip extracting hardlink due to symlinked parent: %s -> %s",
-                                  norm_rel, m.linkname)
+                    _LOG.warning(_("skip extracting hardlink due to symlinked parent: %s -> %s") % (norm_rel, m.linkname))
                     continue
                 abs_out = os.path.join(dest_root, norm_rel)
                 os.makedirs(os.path.dirname(abs_out), exist_ok=True)
@@ -546,8 +547,8 @@ def download_and_extract_tar(
                         extracted_map[norm_rel] = abs_out
                         continue
                     except Exception as e:
-                        _LOG.warning("failed to materialize hardlink from extracted source: %s -> %s (%s)",
-                            norm_rel, norm_link, e)
+                        _LOG.warning(_("failed to materialize hardlink from extracted source: %s -> %s (%s)") % (
+                            norm_rel, norm_link, e))
 
                 # 3-2) 未抽出なら、アーカイブ内の同名メンバー（通常ファイル）から抽出・複製
                 src_member = members_map.get(norm_link)
@@ -571,11 +572,11 @@ def download_and_extract_tar(
                         extracted_map[norm_rel] = abs_out
                         continue
                     except Exception as e:
-                        _LOG.warning("failed to materialize hardlink from archive member: %s -> %s (%s)",
-                            norm_rel, norm_link, e)
+                        _LOG.warning(_("failed to materialize hardlink from archive member: %s -> %s (%s)") % (
+                            norm_rel, norm_link, e))
 
                 # 3-3) いずれも解決できなければ警告してスキップ
-                _LOG.warning("skip hardlink (unresolvable link target): %s -> %s", norm_rel, m.linkname)
+                _LOG.warning(_("skip hardlink (unresolvable link target): %s -> %s") % (norm_rel, m.linkname))
     finally:
         try:
             os.remove(tmp_path)
@@ -585,8 +586,8 @@ def download_and_extract_tar(
     # verbose 時のみログ出力（QueueHandler/QueueListener配下で直列化され行崩れ防止）
     if verbose:
         _LOG.info(
-            "[pack] downloaded %s -> extracted %d file(s) to %s",
-            remote_tar_gz, extracted, dest_root,
+            _("[pack] downloaded %s -> extracted %d file(s) to %s") % (
+                remote_tar_gz, extracted, dest_root )
         )
 
     return extracted, extracted_paths

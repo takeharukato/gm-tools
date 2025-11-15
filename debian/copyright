@@ -1,3 +1,11 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: gm-tools
+Source: https://example.com/gm-tools
+
+Files: *
+Copyright: 2025 Takeharu Kato
+License: BSD-2-Clause
+
 BSD 2-Clause License
 
 Copyright (c) 2025, TAKEHARU KATO

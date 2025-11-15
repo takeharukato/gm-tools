@@ -1,41 +1,76 @@
-## サブディレクトリのみ
-SUBDIRS = src compl scripts docs locale samples
-# 配布物
-EXTRA_DIST=requirements.txt LICENSE autogen.sh
+## -*- makefile -*-
+## Top-level Makefile.am for gm-tools
 
-# Install the top-level license into $(docdir) (defaults to $(datarootdir)/doc/$(PACKAGE))
-dist_doc_DATA = LICENSE
+.PHONY: cloc coverage docs rpm deb
 
+## ビルド対象のサブディレクトリ
+## gettext を含む po を先頭付近に置いておく
+SUBDIRS = \
+	po \
+	src \
+	compl \
+	config \
+	docs \
+	tests \
+	debug-patches \
+	scripts
 
+## 配布アーカイブに含めたい追加ファイル・ディレクトリ
+EXTRA_DIST = \
+	autogen.sh \
+	requirements.txt \
+	Readme.md \
+	LICENSE	\
+	debian \
+	rpm/gm-tools.spec \
+	docs/sphinx
 
-## 便利ターゲットを置きたい場合はここに追加できます。
-.PHONY: cloc gtags doxygen api-doc gen-pot
-CLOC               ?= cloc
-CLOC_EXCLUDE_DIRS  ?= .git,autom4te.cache,build-aux,.venv,.vscode
-CLOC_NOT_MATCH_F   ?= '(^|/)(configure|Makefile\.in|config\.h\.in|aclocal\.m4|ltmain\.sh|config\.guess|config\.sub|config\.status|compile|depcomp|install-sh|missing|stamp-h1|libtool)$$'
+# Dockerfiles
+EXTRA_DIST += \
+    Dockerfiles/Makefile.am \
+    Dockerfiles/rpm.almalinux9.Dockerfile \
+    Dockerfiles/deb.ubuntu24.04.Dockerfile \
+    Dockerfiles/entrypoint-rpm.sh \
+    Dockerfiles/entrypoint-deb.sh
 
-GTAGS ?= gtags
-RM    ?= rm -f
-
-# gettextのpotファイルを生成する
-gen-pot:
-	${top_srcdir}/scripts/gen-pot.sh
-
+## ----------------------------------------
+## Lines of Code 集計 (make cloc)
+## ----------------------------------------
 cloc:
-	$(CLOC) . --by-file \
-	  --exclude-dir=$(CLOC_EXCLUDE_DIRS) \
-	  --not-match-f=$(CLOC_NOT_MATCH_F) \
-	  --exclude-ext=md,pu,html \
-	  --exclude-lang=PlantUML,Markdown,make,html
+	@if test "x$(CLOC)" = "x:"; then \
+	  echo "cloc not found; skipping line count"; \
+	else \
+	  echo "Running cloc on src/ tests/ compl/ scripts/ ..."; \
+	  $(CLOC) src tests compl scripts; \
+	fi
 
-gtags:
-	$(RM) GPATH GRTAGS GSYMS GTAGS
-	$(GTAGS) -v
+## ----------------------------------------
+## Python coverage (make coverage)
+## 実処理は tests/Makefile.am の coverage ターゲットに委譲
+## ----------------------------------------
+coverage:
+	$(MAKE) -C tests coverage
 
-doxygen:
-	@$(MAKE) -C doxygen || true
+## ----------------------------------------
+## Sphinx ドキュメント生成 (make docs)
+## docs/sphinx 以下の Sphinx プロジェクトを HTML ビルドする
+## ----------------------------------------
+docs:
+	@if test "x$(SPHINXBUILD)" = "x:"; then \
+	  echo "sphinx-build not found; skipping Sphinx docs (docs/sphinx)"; \
+	else \
+	  echo "Building Sphinx docs under docs/sphinx/_build/html"; \
+	  $(SPHINXBUILD) -b html docs/sphinx docs/sphinx/_build/html; \
+	fi
 
-api-doc:
-	@mkdir -p sphinx
-	@sphinx-apidoc -F -o sphinx . || true
-	@$(MAKE) -C sphinx html || true
+## docker コマンド (必要なら環境変数で上書き可能)
+DOCKER ?= docker
+
+RPM_SUBDIR = Dockerfiles
+DEB_SUBDIR = Dockerfiles
+
+rpm:
+	$(MAKE) -C $(RPM_SUBDIR) rpm
+
+deb:
+	$(MAKE) -C $(DEB_SUBDIR) deb

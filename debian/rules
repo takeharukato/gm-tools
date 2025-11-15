@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --with python3
+
+override_dh_auto_configure:
+	./autogen.sh
+	./configure PYTHON=python3 --prefix=/usr
+
+override_dh_auto_build:
+	$(MAKE)
+
+# gm-tools パッケージ直下に直接インストールする
+override_dh_auto_install:
+	$(MAKE) DESTDIR=$(CURDIR)/debian/gm-tools install
+
+# dh_install は何もしない（すでに debian/gm-tools に入れているため）
+override_dh_install:
+	# Files already installed into debian/gm-tools; nothing to do.
+	:
+
+# 環境に依存するのでmake checkはスキップする
+override_dh_auto_test:
+	@echo "Skipping dh_auto_test: Step4/Step5 tests require sudo and external SSH hosts; run tests manually on real environment."
+	@# no-op
+	:

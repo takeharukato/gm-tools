@@ -6,7 +6,7 @@ import pwd
 import grp
 import stat
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 
 @dataclass(frozen=True)
@@ -42,7 +42,7 @@ def get_current_attrs(path: str) -> FileAttrs:
     return FileAttrs(mode=mode_now, uid=uid_now, gid=gid_now)
 
 
-def resolve_user(user: Optional[int | str | None]) -> Optional[int]:
+def resolve_user(user: Optional[Union[int, str, None]]) -> Optional[int]:
     """
     ユーザー指定 ( 数値UID or 名前 or None ) を数値UIDに解決。解決不可なら None。
     """
@@ -58,7 +58,7 @@ def resolve_user(user: Optional[int | str | None]) -> Optional[int]:
         return None
 
 
-def resolve_group(group: Optional[int | str | None]) -> Optional[int]:
+def resolve_group(group: Optional[Union[int, str, None]]) -> Optional[int]:
     """
     グループ指定 ( 数値GID or 名前 or None ) を数値GIDに解決。解決不可なら None。
     """

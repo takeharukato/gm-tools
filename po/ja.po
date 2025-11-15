@@ -1,0 +1,236 @@
+# Japanese translations for gm-tools package.
+# Copyright (C) 2025 Takeharu KATO
+# This file is distributed under the same license as the gm-tools package.
+# Takeharu KATO <tkato1219@gmail.com>, 2025.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: gm-tools 0.1.0\n"
+"Report-Msgid-Bugs-To: tkato1219@gmail.com\n"
+"POT-Creation-Date: 2025-11-14 21:55+0000\n"
+"PO-Revision-Date: 2025-11-14 22:59+0900\n"
+"Last-Translator: Takeharu KATO <tkato1219@gmail.com>\n"
+"Language-Team: Japanese <translation-team-ja@lists.sourceforge.net>\n"
+"Language: ja\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=ASCII\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: src/gm_tools/core_archive.py:314
+msgid ""
+"remote_pack_paths: follow_symlinks requested but remote tar flavor is "
+"unknown;proceeding without dereference flag (symlinks will be archived as "
+"links)."
+msgstr ""
+
+#: src/gm_tools/core_archive.py:476
+#, python-format
+msgid "skip extracting directory due to symlinked parent: %s"
+msgstr ""
+
+#: src/gm_tools/core_archive.py:495
+#, python-format
+msgid "skip extracting file due to symlinked parent: %s"
+msgstr ""
+
+#: src/gm_tools/core_archive.py:525
+#, python-format
+msgid "skip extracting hardlink due to symlinked parent: %s -> %s"
+msgstr ""
+
+#: src/gm_tools/core_archive.py:550
+#, python-format
+msgid "failed to materialize hardlink from extracted source: %s -> %s (%s)"
+msgstr ""
+
+#: src/gm_tools/core_archive.py:575
+#, python-format
+msgid "failed to materialize hardlink from archive member: %s -> %s (%s)"
+msgstr ""
+
+#: src/gm_tools/core_archive.py:579
+#, python-format
+msgid "skip hardlink (unresolvable link target): %s -> %s"
+msgstr ""
+
+#: src/gm_tools/core_archive.py:589
+#, python-format
+msgid "[pack] downloaded %s -> extracted %d file(s) to %s"
+msgstr ""
+
+#: src/gm_tools/core_scatter.py:617
+#, python-format
+msgid "[overwrite error] host=%(host)s dst=%(dst)s rc=%(rc)s err=%(err)s"
+msgstr ""
+
+#: src/gm_tools/core_select.py:263 src/gm_tools/core_select.py:361
+#, python-format
+msgid "reject SRC outside HOME (relative not confined): %s (%s)"
+msgstr ""
+
+#: src/gm_tools/core_select.py:268 src/gm_tools/core_select.py:365
+#, python-format
+msgid "skip non-absolute SRC after normalization (unexpected): %s"
+msgstr ""
+
+#: src/gm_tools/core_select.py:294
+#, python-format
+msgid "directory-SRC detection failed for %s (%s)"
+msgstr ""
+
+#: src/gm_tools/core_select.py:300 src/gm_tools/core_select.py:435
+#, python-format
+msgid "bad SRC pattern %s: %s"
+msgstr ""
+
+#: src/gm_tools/core_select.py:311
+#, python-format
+msgid "bad regex for %s: %s"
+msgstr ""
+
+#: src/gm_tools/core_select.py:418
+#, python-format
+msgid "directory-SRC sudo-walk failed at root=%s"
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:74
+msgid ""
+"gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
+"Usage: gm-gather [SRC ...] DEST\n"
+"  - SRC:\n"
+"      * '/...': absolute on remote (UNIX)\n"
+"      * 'X:/...': absolute on remote (Windows)\n"
+"      * '~/...': expanded by -u user's HOME on remote\n"
+"      * RELATIVE: treated as '-u' user's HOME-relative,\n"
+"                  HOME escape via '..' is rejected.\n"
+"    The portion after the root is treated as a regex path.\n"
+"    e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/.*', "
+"'var/log/.*'.\n"
+"  - DEST: local directory where files are stored as DEST/<HOST>/..."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:92
+msgid ""
+"One or more SRC path patterns. Absolute ('/','X:/','~/') or HOME-relative."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:94
+msgid "Local destination directory."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:101 src/gm_tools/scatter_cli.py:89
+#, python-format
+msgid "Hosts file. Default: %(default)s."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:104
+#, python-format
+msgid "Target account on remote %(default)s."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:107 src/gm_tools/scatter_cli.py:95
+msgid "SSH login user. Default: same as --user."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:110 src/gm_tools/scatter_cli.py:98
+#, python-format
+msgid "SSH port. Default: %(default)s."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:112 src/gm_tools/scatter_cli.py:100
+msgid "SSH private key file."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:113 src/gm_tools/scatter_cli.py:101
+msgid "SSH password (not recommended)."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:119 src/gm_tools/scatter_cli.py:107
+#, python-format
+msgid "SSH/command timeout seconds. Default: %(default)s."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:122 src/gm_tools/scatter_cli.py:110
+msgid "Enable strict host key checking."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:131 src/gm_tools/scatter_cli.py:119
+#, python-format
+msgid "Parallel hosts (not parallel per-host). Default: %(default)s."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:133
+msgid "Show plan only; do not download."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:134 src/gm_tools/scatter_cli.py:122
+msgid "Verbose logs."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:135
+msgid "Pack on remote (tar.gz) and download once."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:141
+msgid "When used with --pack, dereference symlinks on remote."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:148
+msgid ""
+"Use sudo for remote packing/collection (pack path only). Omitted = auto "
+"(enabled when ssh-user != --user)."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:396 src/gm_tools/scatter_cli.py:483
+msgid "At least one SRC and a DEST are required."
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:404
+#, python-format
+msgid "Error: tilde with username is not supported in DEST: ~%(user)s"
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:420
+#, python-format
+msgid "Error: tilde with username is not supported in SRC: ~%(user)s"
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:425 src/gm_tools/scatter_cli.py:488
+msgid "No hosts found in hosts file."
+msgstr ""
+
+#: src/gm_tools/scatter_cli.py:84
+msgid "Local SRC paths (abs or rel)"
+msgstr ""
+
+#: src/gm_tools/scatter_cli.py:85
+msgid "Remote DEST ( supports /abs, ~/, and relative-from-remote-home )"
+msgstr ""
+
+#: src/gm_tools/scatter_cli.py:92
+msgid "Target account semantics on remote."
+msgstr ""
+
+#: src/gm_tools/scatter_cli.py:121
+msgid "Show plan only; do not upload."
+msgstr ""
+
+#: src/gm_tools/scatter_cli.py:123
+msgid "Pack locally (tar.gz) then extract remotely."
+msgstr ""
+
+#: src/gm_tools/scatter_cli.py:124
+msgid "When packing, dereference symlinks."
+msgstr ""
+
+#: src/gm_tools/scatter_cli.py:132
+msgid ""
+"Force sudo for remote mkdir/extract when packing (use --no-sudo-extract to "
+"force off). Omitted = auto."
+msgstr ""
+
+#: src/gm_tools/scatter_cli.py:139
+#, python-format
+msgid "SELinux label restore policy (pack path only). Default: %(default)s."
+msgstr ""

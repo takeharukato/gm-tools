@@ -122,7 +122,7 @@ def init_logging(*, verbose: bool) -> None:
     queue_handler = logging.handlers.QueueHandler(_q)
 
     # Root logger
-    root = logging.getLogger("gm_tools")
+    root = logging.getLogger("gm-tools")
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
     root.handlers = []  # reset handlers
     root.propagate = False

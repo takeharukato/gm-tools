@@ -29,6 +29,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from typing import Callable, Iterable, Iterator, List, Optional, Sequence, Tuple, Set
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    ############ 型チェッカー向けのダミー定義（実行時には評価されない） ############
+    from gettext import gettext as _
 
 from .core_remote_fs import sftp_exists, sftp_isdir, sftp_isfile, sftp_islink
 from .core_ssh import DEFAULT_TIMEOUT, SSHClientLike, SFTPClientLike
@@ -256,12 +260,12 @@ def _enumerate_via_sftp_walk(
         try:
             abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
         except ValueError as e:
-            _LOG.warning("reject SRC outside HOME (relative not confined): %s (%s)", src, e)
+            _LOG.warning(_("reject SRC outside HOME (relative not confined): %s (%s)") % (src, e))
             continue
         # ここまでで相対はHOME基準に絶対化済
         is_abs = is_abs_path(abs_norm)
         if not is_abs:
-            _LOG.warning("skip non-absolute SRC after normalization (unexpected): %s", src)
+            _LOG.warning(_("skip non-absolute SRC after normalization (unexpected): %s") % (src) )
             continue
 
         # ------------------------------------------------------------------
@@ -287,13 +291,13 @@ def _enumerate_via_sftp_walk(
                     # この SRC については通常の正規表現ロジックには進まない
                     continue
             except Exception as e:
-                _LOG.warning("directory-SRC detection failed for %s (%s)", src, e)
+                _LOG.warning(_("directory-SRC detection failed for %s (%s)") % (src, e))
 
 
         try:
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
         except ValueError as e:
-            _LOG.warning("bad SRC pattern %s: %s", src, e)
+            _LOG.warning(_("bad SRC pattern %s: %s") % (src, e))
             continue
 
         if not sftp_exists(sftp_client, root) or not sftp_isdir(sftp_client, root):
@@ -304,7 +308,7 @@ def _enumerate_via_sftp_walk(
         try:
             rx = re.compile(pattern)
         except re.error as e:
-            _LOG.warning("bad regex for %s: %s", src, e)
+            _LOG.warning(_("bad regex for %s: %s") % (src, e))
             continue
 
         for ap in remote_walk_files(sftp_client, root, include_symlinks=include_symlinks):
@@ -354,11 +358,11 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
         try:
             abs_norm = normalize_src_abs(src, home_abs_for_tilde=home_abs)
         except ValueError as e:
-            _LOG.warning("reject SRC outside HOME (relative not confined): %s (%s)", src, e)
+            _LOG.warning(_("reject SRC outside HOME (relative not confined): %s (%s)") % (src, e))
             continue
         is_abs = is_abs_path(abs_norm)
         if not is_abs:
-            _LOG.warning("skip non-absolute SRC after normalization (unexpected): %s", src)
+            _LOG.warning(_("skip non-absolute SRC after normalization (unexpected): %s") % (src))
             continue
 
         # ------------------------------------------------------------------
@@ -411,7 +415,7 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
                         ssh, ["bash", "-lc", cmd_nonsudo], timeout=DEFAULT_TIMEOUT
                     )
                     if rc2 != 0:
-                        _LOG.warning("directory-SRC sudo-walk failed at root=%s", abs_norm)
+                        _LOG.warning(_("directory-SRC sudo-walk failed at root=%s") % (abs_norm))
                         continue
                     out = out2
 
@@ -428,7 +432,7 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
         try:
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
         except ValueError as e:
-            _LOG.warning("bad SRC pattern %s: %s", src, e)
+            _LOG.warning(_("bad SRC pattern %s: %s") % (src, e))
             continue
 
         # root ディレクトリの存在確認 ( sudo/非 sudo のどちらかで通ればOK )

@@ -1,0 +1,5 @@
+gm-tools (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian package for gm-tools.
+
+ -- Takeharu Kato <tkato1219@gmail.com>  Sat, 15 Nov 2025 00:00:00 +0900
