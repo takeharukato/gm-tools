@@ -5,7 +5,6 @@ import argparse
 import getpass
 import os
 import sys
-import threading
 from argparse import BooleanOptionalAction, Namespace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Final, Sequence, Set
@@ -58,6 +57,10 @@ from .core_ssh import (
 )
 from .scatter_parallel import execute as run_parallel
 from .core_i18n import setup_gettext
+from .core_signal_handling import (
+    GracefulStop,
+    register_signal_handlers,
+)
 
 # === Module-level constants ===
 _DESC: str = (
@@ -610,7 +613,9 @@ def main() -> None:
                 remote_rel_map=meta["remote_rel_map"],  # type: ignore[arg-type]
             )
 
-    # 並行実行: DEST/<local_abs_without_leading_slash> へ配置 ( Step4 のレイアウト規則を厳守 )
+    # 並行実行: DEST/<local_abs_without_leading_slash> へ配置
+    gs: GracefulStop = GracefulStop()
+    register_signal_handlers(gs)
     exit_code: int = run_parallel(
         hosts=hosts,
         plan_per_host=plan_per_host,
@@ -618,7 +623,7 @@ def main() -> None:
         src_root=Path("."),  # 未使用 ( PlanEntry.path を直接参照 )
         parallel=max(1, int(args.parallel)),
         verbose=bool(args.verbose),
-        abort_event=threading.Event(),
+        abort_event=None,  # run_parallel 側で GracefulStop を利用
         open_ssh=_open_ssh,       # type: SSHFactory
         open_sftp=_open_sftp,     # type: SFTPFactory
         push_one=lambda s, lp, rr, d: None,  # 既定は未使用 ( push_one_map を利用 )
@@ -627,6 +632,8 @@ def main() -> None:
         remote_removers=None,
         do_cleanup_local=False,
         do_cleanup_remote=False,
+        graceful_stop=gs,
+        register_signals=False,
     )
     sys.exit(exit_code)
 

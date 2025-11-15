@@ -10,7 +10,7 @@ import sys
 import shlex
 import argparse
 import getpass
-import threading
+
 import logging
 from argparse import BooleanOptionalAction
 from pathlib import Path
@@ -62,9 +62,17 @@ from .core_constants import (
     EXIT_ERR_TILDE_USER,
     RE_SAFE_HOST_PTN
 )
-from .core_logging import init_logging, shutdown_logging, HostLogAggregator
+from .core_logging import (
+    init_logging,
+    shutdown_logging,
+    HostLogAggregator,
+)
 from .core_constants import DEFAULT_HOSTS_FILE
 from .core_i18n import setup_gettext
+from .core_signal_handling import (
+    GracefulStop,
+    register_signal_handlers,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -498,6 +506,8 @@ def main() -> None:
             )
 
     # 並行実行 : ロギング初期化・集計は run_parallel 側が担当
+    gs: GracefulStop = GracefulStop()
+    register_signal_handlers(gs)
     exit_code: int = run_parallel(
         hosts=hosts,
         plan_per_host=plan_per_host,       # execute() の実シグネチャに合わせる
@@ -505,7 +515,7 @@ def main() -> None:
         dest_root=Path(dest_local),
         parallel=max(1, int(args.parallel)),
         verbose=bool(args.verbose),
-        abort_event=threading.Event(),
+        abort_event=None,  # run_parallel 側で GracefulStop を利用
         open_ssh=_open_ssh,
         open_sftp=_open_sftp,
         pull_one=pull_one,
@@ -514,6 +524,8 @@ def main() -> None:
         remote_removers=None,
         do_cleanup_local=False,
         do_cleanup_remote=False,
+        graceful_stop=gs,
+        register_signals=False,
      )
     sys.exit(exit_code)
 
