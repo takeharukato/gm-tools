@@ -7,8 +7,9 @@ from __future__ import annotations
 import json
 import threading
 import time
+import shutil
 from pathlib import Path as _Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 from ._local_types import Config
 from .config import load_config_from_env
@@ -69,7 +70,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
     """
     # 遅延 import としておくことで、ImportError もテスト結果として記録できるようにする。
     from gm_tools.core_signal_handling import GracefulStop
-    from gm_tools.core_ssh import CancelledError
+    from gm_tools.core_ssh import CancelledError, SSHClientLike, SFTPClientLike
     from gm_tools.core_pull import HostResult, OnProgress, SSHFactory, SFTPFactory, PullOne
     from gm_tools.core_select import Plan, PlanEntry
     import gm_tools.gather_parallel as gather_parallel
@@ -121,16 +122,18 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         result: HostResult = HostResult(warnings=0, errors=1, processed=0, trial=0)
         return result
 
-    def dummy_open_ssh(host: str) -> object:
+    def dummy_open_ssh(host: str) -> SSHClientLike:
         _host: str = host
-        return None
+        dummy: SSHClientLike = cast(SSHClientLike, object())
+        return dummy
 
-    def dummy_open_sftp(ssh: object) -> object:
-        _ssh: object = ssh
-        return None
+    def dummy_open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
+        _ssh: SSHClientLike = ssh
+        dummy: SFTPClientLike = cast(SFTPClientLike, object())
+        return dummy
 
-    def dummy_pull_one(sftp: object, remote: str, local: _Path, is_dir: bool) -> None:
-        _sftp: object = sftp
+    def dummy_pull_one(sftp: SFTPClientLike, remote: str, local: _Path, is_dir: bool) -> None:
+        _sftp: SFTPClientLike = sftp
         _remote: str = remote
         _local: _Path = local
         _is_dir: bool = is_dir
@@ -256,7 +259,7 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         - GracefulStop に登録した cleanup が一度だけ実行されること
     """
     from gm_tools.core_signal_handling import GracefulStop
-    from gm_tools.core_ssh import CancelledError
+    from gm_tools.core_ssh import CancelledError, SSHClientLike, SFTPClientLike
     from gm_tools.core_push import HostResult, OnProgress, SSHFactory, SFTPFactory, PushOne
     from gm_tools.core_select import Plan, PlanEntry
     import gm_tools.scatter_parallel as scatter_parallel
@@ -274,16 +277,18 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
     abort_seen_box: List[bool] = [False]
     host_calls_box: List[str] = []
 
-    def dummy_open_ssh(host: str) -> object:
+    def dummy_open_ssh(host: str) -> SSHClientLike:
         _host: str = host
-        return None
+        dummy: SSHClientLike = cast(SSHClientLike, object())
+        return dummy
 
-    def dummy_open_sftp(ssh: object) -> object:
-        _ssh: object = ssh
-        return None
+    def dummy_open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
+        _ssh: SSHClientLike = ssh
+        dummy: SFTPClientLike = cast(SFTPClientLike, object())
+        return dummy
 
-    def dummy_push_one(sftp: object, local: _Path, remote: str, is_dir: bool) -> None:
-        _sftp: object = sftp
+    def dummy_push_one(sftp: SFTPClientLike, local: _Path, remote: str, is_dir: bool) -> None:
+        _sftp: SFTPClientLike = sftp
         _local: _Path = local
         _remote: str = remote
         _is_dir: bool = is_dir
@@ -449,6 +454,21 @@ def main() -> None:
     print("STEP6 SUMMARY")
     print(summary)
 
+
+    # ---------------------------------------------------------
+    # Cleanup: Step6 テスト用ローカル作業ディレクトリの削除
+    # （Step4/Step5 と同じポリシーに合わせる）
+    # ---------------------------------------------------------
+
+    sandbox: _Path = _Path(cfg.local_work_root) / "_tmp_test_local"
+    try:
+        if sandbox.exists():
+            shutil.rmtree(sandbox, ignore_errors=True)
+    except Exception:
+        # Best-effort cleanup — テストの結果を壊さないため握りつぶす
+        pass
+
+    return None
 
 if __name__ == "__main__":
     main()

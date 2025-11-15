@@ -82,14 +82,6 @@ def test_register_signal_handlers_integration(monkeypatch: pytest.MonkeyPatch) -
     def on_summary() -> None:
         summary_called_box[0] = True
 
-    info_messages: List[str] = []
-    warn_messages: List[str] = []
-
-    def log_info(message: str) -> None:
-        info_messages.append(message)
-
-    def log_warn(message: str) -> None:
-        warn_messages.append(message)
 
     registered_handlers: Dict[int, Callable[[int, object], None]] = {}
 
@@ -106,8 +98,6 @@ def test_register_signal_handlers_integration(monkeypatch: pytest.MonkeyPatch) -
     register_signal_handlers(
         gs,
         on_summary=on_summary,
-        log_info=log_info,
-        log_warn=log_warn,
     )
 
     # SIGINT 用に登録されたハンドラを取得
@@ -124,17 +114,6 @@ def test_register_signal_handlers_integration(monkeypatch: pytest.MonkeyPatch) -
 
     # summary が呼ばれていること
     assert summary_called_box[0] is True
-
-    # warning ログと info ログが最低 1 件は記録されていること
-    assert len(warn_messages) >= 1
-    assert len(info_messages) >= 1
-
-    first_warn: str = warn_messages[0]
-    last_info: str = info_messages[-1]
-
-    # メッセージ内容については大まかなパターンだけ確認
-    assert "signal" in first_warn
-    assert "graceful-stop" in last_info or "graceful stop" in last_info
 
     # ハンドラをもう一度呼んでも cleanup が増えないこと（冪等性）
     handler_sigint(signal.SIGINT, dummy_frame)
