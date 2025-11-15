@@ -54,6 +54,7 @@ class GracefulStop:
     def request_stop(self) -> None:
         """Set the abort flag. Safe to call multiple times."""
         self.abort_event.set()
+        self.run_cleanups()
 
     def run_cleanups(self) -> None:
         """
