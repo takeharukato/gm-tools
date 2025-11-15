@@ -527,6 +527,14 @@ def main() -> None:
         graceful_stop=gs,
         register_signals=False,
      )
+
+    # ユーザ向けの中断メッセージ
+    if gs.abort_event.is_set():
+        logger: logging.Logger = logging.getLogger("gm_tools.gather_cli")
+        logger.warning(
+            _("Interrupt requested; cancelling remaining transfers (some hosts may have partial results).")
+        )
+
     sys.exit(exit_code)
 
 

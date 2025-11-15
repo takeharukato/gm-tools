@@ -79,8 +79,6 @@ def register_signal_handlers(
     gs: GracefulStop,
     *,
     on_summary: Optional[Callable[[], None]] = None,
-    log_info: Optional[Callable[[str], None]] = None,
-    log_warn: Optional[Callable[[str], None]] = None,
 ) -> None:
     """
     Register SIGINT/SIGTERM handlers that coordinate a graceful stop.
@@ -92,28 +90,17 @@ def register_signal_handlers(
     on_summary : Optional[Callable[[], None]]
         Callback invoked after cleanups to ensure a summary is printed.
         Should be idempotent and exception-safe.
-    log_info : Optional[Callable[[str], None]]
-        Optional logger for informational messages (e.g., core_logging.log_inf).
-    log_warn : Optional[Callable[[str], None]]
-        Optional logger for warning messages (e.g., core_logging.log_war).
     """
 
-    def _handler(signum: int, frame: object) -> None:  # frame is unused by design
-        name = signal.Signals(signum).name if signum in set(s.value for s in signal.Signals) else str(signum)
-        if log_warn is not None:
-            log_warn(f"signal received: {name}")
+    def _handler(signum: int, frame: object) -> None:
+        # ここではログを出さない（CLI 層がユーザ向けログを担当）
         gs.request_stop()
-        # Best-effort cleanup
         gs.run_cleanups()
-        # Ensure summary
         if on_summary is not None:
             try:
                 on_summary()
             except Exception:
-                # Never raise from a signal path
                 pass
-        if log_info is not None:
-            log_info("graceful-stop sequence completed")
 
     # Install handlers for SIGINT and SIGTERM
     signal.signal(signal.SIGINT, _handler)

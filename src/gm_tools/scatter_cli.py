@@ -5,6 +5,7 @@ import argparse
 import getpass
 import os
 import sys
+import logging
 from argparse import BooleanOptionalAction, Namespace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Final, Sequence, Set
@@ -635,6 +636,18 @@ def main() -> None:
         graceful_stop=gs,
         register_signals=False,
     )
+
+
+    # ユーザ向けの中断メッセージ
+    if gs.abort_event.is_set():
+        logger: logging.Logger = logging.getLogger("gm_tools.scatter_cli")
+        logger.warning(
+            _(
+                "Interrupt requested; cancelling remaining transfers "
+                "(some remote hosts may see partial files or directories)."
+            )
+        )
+
     sys.exit(exit_code)
 
 if __name__ == "__main__":
