@@ -30,6 +30,7 @@ from .core_push import SFTPFactory as _SFTPFactory
 from .core_push import PushOne as _PushOne
 from .core_push import run_host_scatter as _run_host_scatter
 
+from .core_signal_handling import GracefulStop
 
 def _clamp_parallel(n: int) -> int:
     return 1 if n <= 0 else n
@@ -44,26 +45,75 @@ def execute(
     src_root: _Path,
     parallel: int = DEFAULT_PARALLEL_HOSTS,
     verbose: bool = False,
-    # cooperative cancellation (must be created and wired by CLI)
-    abort_event: threading.Event,
+    # cooperative cancellation (legacy; Step6 では GracefulStop.abort_event を使用)
+    abort_event: Optional[threading.Event] = None,
     # injected factories (existing implementations from CLI)
     open_ssh: _SSHFactory,
     open_sftp: _SFTPFactory,
     push_one: _PushOne,
     push_one_map: Optional[Dict[str, _PushOne]] = None,
-    # destination layout: if True, place under remote_root/<HOST>, else remote_root
     join_host_dir: bool = True,
-    # cleanup policy
     remote_removers: Optional[Dict[str, RemoteRemover]] = None,
     do_cleanup_local: bool = False,
     do_cleanup_remote: bool = False,
+    # GracefulStop orchestration : optional external coordinator
+    graceful_stop: Optional[GracefulStop] = None,
+    # reserved for future use; signal handlers are registered by CLI side
+    register_signals: bool = False,
 ) -> int:
     """
     Run host-parallel scatter with logging aggregation and return process exit code.
     """
+    # logging (single consumer)
     init_logging(verbose=verbose)
     aggr = HostLogAggregator(op="scatter")
 
+    # ---- GracefulStop orchestration ----
+    gs: GracefulStop
+    if graceful_stop is not None:
+        gs = graceful_stop
+    else:
+        gs = GracefulStop()
+
+    # cooperative cancellation: always use GracefulStop.abort_event
+    abort_event_effective: threading.Event = gs.abort_event
+
+    # Cleanup callbacks (registered in reverse of desired execution order,
+    # because GracefulStop.run_cleanups() runs them in LIFO order).
+    def _cleanup_remote() -> None:
+        if do_cleanup_remote and remote_removers:
+            try:
+                cleanup_all_remote_temps(remote_removers)
+            except Exception:
+                # best-effort cleanup; never raise from here
+                pass
+
+    def _cleanup_local() -> None:
+        if do_cleanup_local:
+            try:
+                cleanup_all_local_temps()
+            except Exception:
+                pass
+
+    def _cleanup_close_all() -> None:
+        try:
+            close_all()
+        except Exception:
+            pass
+
+    def _cleanup_summary() -> None:
+        # Summary and logging shutdown
+        aggr.summary()
+        shutdown_logging()
+
+    # register in reverse of desired execution order
+    # desired runtime order:
+    #   remote cleanup -> local cleanup -> close_all -> summary+shutdown
+    # run_cleanups() uses reversed(self._cleanups), so register:
+    gs.register_cleanup(_cleanup_summary)
+    gs.register_cleanup(_cleanup_close_all)
+    gs.register_cleanup(_cleanup_local)
+    gs.register_cleanup(_cleanup_remote)
     def _make_on_progress(host: str, total: int) -> _OnProgress:
         def _on(seq: int, trial: int, processed: int, total_in: int) -> None:
             aggr.progress(host, seq=seq, trial=trial, processed=processed, total=total)
@@ -87,7 +137,7 @@ def execute(
                     _plan,
                     remote_root=_remote_root,
                     local_root=src_root,
-                    abort_event=abort_event,
+                    abort_event=abort_event_effective,
                     on_progress=_make_on_progress(host, len(_plan)),
                     open_ssh=open_ssh,
                     open_sftp=open_sftp,
@@ -108,21 +158,7 @@ def execute(
                     aggr.done_host(host, warnings=0, errors=1)
                     errors_any = True
     finally:
-        if do_cleanup_remote and remote_removers:
-            try:
-                cleanup_all_remote_temps(remote_removers)
-            except Exception:
-                pass
-        if do_cleanup_local:
-            try:
-                cleanup_all_local_temps()
-            except Exception:
-                pass
-        try:
-            close_all()
-        except Exception:
-            pass
-        aggr.summary()
-        shutdown_logging()
+        # Cleanup phase (idempotent best-effort, centralized via GracefulStop)
+        gs.run_cleanups()
 
     return EXIT_ERR_GENERIC if errors_any else EXIT_OK
