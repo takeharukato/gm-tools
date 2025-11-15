@@ -454,18 +454,19 @@ def main() -> None:
     print("STEP6 SUMMARY")
     print(summary)
 
-
     # ---------------------------------------------------------
     # Cleanup: Step6 テスト用ローカル作業ディレクトリの削除
-    # （Step4/Step5 と同じポリシーに合わせる）
+    #  - Config.local_work_root は tests_env.sh.sample で
+    #    "${PWD}/_tmp_test_local" に設定される想定。
+    #  - Step4/Step5 runner と同様に、runner 側が temp の寿命を持つ。
     # ---------------------------------------------------------
 
-    sandbox: _Path = _Path(cfg.local_work_root) / "_tmp_test_local"
+    local_root: _Path = _Path(cfg.local_work_root)
     try:
-        if sandbox.exists():
-            shutil.rmtree(sandbox, ignore_errors=True)
+        if local_root.exists():
+            shutil.rmtree(local_root, ignore_errors=True)
     except Exception:
-        # Best-effort cleanup — テストの結果を壊さないため握りつぶす
+        # Best-effort cleanup: テスト結果を壊さないため、例外は握りつぶす。
         pass
 
     return None
