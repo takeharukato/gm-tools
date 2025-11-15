@@ -47,8 +47,8 @@ def execute(
     dest_root: _Path,
     parallel: int = DEFAULT_PARALLEL_HOSTS,
     verbose: bool = False,
-    # cooperative cancellation (must be created and wired by CLI)
-    abort_event: threading.Event,
+    # cooperative cancellation (optional external event, GracefulStop.abort_event を使用)
+    abort_event: Optional[threading.Event] = None,
     # injected factories (existing implementations from gather_cli)
     open_ssh: _SSHFactory,
     open_sftp: _SFTPFactory,
