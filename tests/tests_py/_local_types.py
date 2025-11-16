@@ -23,6 +23,7 @@ class Config:
     host_alma: str
     ssh_port: int
     ssh_strict: str
+    ssh_strict_bool: bool
     remote_dest_root: str
     local_work_root: str
     gm_gather_cmd: List[str]

@@ -19,6 +19,8 @@ import fnmatch
 import pathlib
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, IO
+from ._local_types import Config as CommonConfig
+from .test_common_config import load_config_from_env as load_common_config
 
 
 def _safe_rmtree_abs(path_abs: str, *, ensure_under: Optional[str] = None) -> None:
@@ -258,23 +260,32 @@ def _walk_find_first(root: str, *, name: Optional[str] = None,
             return resolved
     return None
 
-def _split_cmd_env(env_key: str, default_val: str) -> List[str]:
-    raw: str = os.environ.get(env_key, default_val)
-    parts: List[str] = shlex.split(raw)
-    return parts
-
-
 def load_config_from_env() -> Config:
-    ssh_user: str = os.environ.get("SSH_USER", "ansible")
-    target_user: str = os.environ.get("TARGET_USER", ssh_user)
+    """
+    Step4 用の Config を環境変数から構築する。
 
-    ssh_port: int = int(os.environ.get("SSH_PORT", "22"))
-    ssh_strict: bool = (os.environ.get("SSH_STRICT", "no").lower() == "yes")
+    役割分担:
+      - ssh_user / target_user / ssh_port / remote_dest_root /
+        gm_gather_cmd / gm_scatter_cmd / local_work_root の解釈は
+        test_common_config.load_config_from_env() に委譲する。
+      - hosts_both / host_ubuntu / host_alma / verbose の扱いは、
+        現行 Step4 の実装と同じロジック・デフォルトを維持する。
+      - local_root は絶対パスとして扱う（従来通り）。
+    """
+    # 共通 Config（tests/tests_py/_local_types.Config）をまず取得。
+    # clear_local_root=True により、LOCAL_WORK_ROOT 相当ディレクトリは
+    # 一度削除されてから作り直される。
+    base_cfg: CommonConfig = load_common_config(clear_local_root=True)
 
-    remote_dest_root: str = os.environ.get("REMOTE_DEST_ROOT", "/tmp/gmtools_remote_dest")
-    local_root: str = os.environ.get("LOCAL_WORK_ROOT", os.path.join(os.getcwd(), "_tmp_test_local"))
-    _ = _clear_dir(local_root, ensure_under=os.getcwd())
+    # Step4 では local_root は絶対パスで扱う
+    local_root: str = os.path.abspath(base_cfg.local_work_root)
 
+    # ssh_strict は Step4 では bool で扱うので、"yes"/"no" 文字列から変換
+    ssh_strict_env: str = base_cfg.ssh_strict
+    ssh_strict: bool = (ssh_strict_env.lower() == "yes")
+
+    # hosts_both / host_ubuntu / host_alma / verbose は
+    # これまでの Step4 実装と同じロジックをそのまま維持する
     hosts_both_raw: List[str] = shlex.split(os.environ.get("HOSTS_BOTH", "localhost"))
     hosts_both: List[str] = []
     i: int = 0
@@ -288,27 +299,24 @@ def load_config_from_env() -> Config:
     host_ubuntu: str = os.environ.get("HOST_UBUNTU", "localhost")
     host_alma: str = os.environ.get("HOST_ALMA", "vmlinux4.local")
 
-    gm_gather_cmd: List[str] = _split_cmd_env("GM_GATHER_CMD", "python3 -m gm_tools.gather_cli")
-    gm_scatter_cmd: List[str] = _split_cmd_env("GM_SCATTER_CMD", "python3 -m gm_tools.scatter_cli")
-
+    # VERBOSE は "0"/"1" で解釈（デフォルト "0"）
     verbose: bool = (os.environ.get("VERBOSE", "0") == "1")
 
     cfg: Config = Config(
-        ssh_user=ssh_user,
-        target_user=target_user,
-        ssh_port=ssh_port,
+        ssh_user=base_cfg.ssh_user,
+        target_user=base_cfg.target_user,
+        ssh_port=base_cfg.ssh_port,
         ssh_strict=ssh_strict,
-        remote_dest_root=remote_dest_root,
+        remote_dest_root=base_cfg.remote_dest_root,
         local_root=local_root,
         hosts_both=hosts_both,
         host_ubuntu=host_ubuntu,
         host_alma=host_alma,
-        gm_gather_cmd=gm_gather_cmd,
-        gm_scatter_cmd=gm_scatter_cmd,
+        gm_gather_cmd=base_cfg.gm_gather_cmd,
+        gm_scatter_cmd=base_cfg.gm_scatter_cmd,
         verbose=verbose,
     )
     return cfg
-
 
 def print_env(cfg: Config) -> None:
     msg1: str = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)}"

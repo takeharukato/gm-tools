@@ -62,10 +62,13 @@ fi
 # Python 実行（runner_step5.py は必要な入出力を results/step5 配下に保存）
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 echo "PYTHON_BIN  : ${PYTHON_BIN}"
-export PYTHONPATH="${CWD}:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
-# 環境変数を runner に継承して実行
+
+# tests_py をパッケージとして認識させるため、SCRIPT_DIR を PYTHONPATH に載せる
+export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
+
+# モジュールとして実行（Step4 と同じスタイル）
 set +e
-"${PYTHON_BIN}" -u "${SCRIPT_DIR}/tests_py/runner_step5.py"
+"${PYTHON_BIN}" -m tests_py.runner_step5
 RC=$?
 set -e
 

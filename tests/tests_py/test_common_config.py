@@ -121,6 +121,7 @@ def load_config_from_env(*, clear_local_root: bool = True) -> Config:
         host_alma=host_alma,
         ssh_port=ssh_port,
         ssh_strict=ssh_strict_env,
+        ssh_strict_bool=(ssh_strict_env.lower() in ["yes", "true", "1"]),
         remote_dest_root=remote_dest_root,
         local_work_root=local_work_root,
         gm_gather_cmd=gm_gather_cmd,

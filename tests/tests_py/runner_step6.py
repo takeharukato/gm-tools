@@ -12,7 +12,32 @@ from pathlib import Path as _Path
 from typing import Any, Callable, Dict, List, Optional, cast
 
 from ._local_types import Config
-from .config import load_config_from_env
+from .test_common_config import load_config_from_env
+
+from gm_tools.core_signal_handling import GracefulStop
+from gm_tools.core_ssh import CancelledError, SSHClientLike, SFTPClientLike
+
+# gather_parallel（pull 側）用
+from gm_tools.core_pull import (
+    HostResult as PullHostResult,
+    OnProgress as PullOnProgress,
+    SSHFactory as PullSSHFactory,
+    SFTPFactory as PullSFTPFactory,
+    PullOne,
+)
+
+# scatter_parallel（push 側）用
+from gm_tools.core_push import (
+    HostResult as PushHostResult,
+    OnProgress as PushOnProgress,
+    SSHFactory as PushSSHFactory,
+    SFTPFactory as PushSFTPFactory,
+    PushOne,
+)
+
+from gm_tools.core_select import Plan, PlanEntry
+import gm_tools.gather_parallel as gather_parallel
+import gm_tools.scatter_parallel as scatter_parallel
 
 
 ResultDict = Dict[str, object]
@@ -68,13 +93,6 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         - fake_run_host_gather が abort_event を観測して CancelledError を送出すること
         - GracefulStop に登録した cleanup が一度だけ実行されること
     """
-    # 遅延 import としておくことで、ImportError もテスト結果として記録できるようにする。
-    from gm_tools.core_signal_handling import GracefulStop
-    from gm_tools.core_ssh import CancelledError, SSHClientLike, SFTPClientLike
-    from gm_tools.core_pull import HostResult, OnProgress, SSHFactory, SFTPFactory, PullOne
-    from gm_tools.core_select import Plan, PlanEntry
-    import gm_tools.gather_parallel as gather_parallel
-
     # GracefulStop と cleanup カウンタ
     gs: GracefulStop = GracefulStop()
     cleanup_calls_box: List[int] = [0]
@@ -97,11 +115,11 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         remote_root: str,
         local_root: _Path,
         abort_event: threading.Event,
-        on_progress: Optional[OnProgress],
-        open_ssh: SSHFactory,
-        open_sftp: SFTPFactory,
+        on_progress: Optional[PullOnProgress],
+        open_ssh: PullSSHFactory,
+        open_sftp: PullSFTPFactory,
         pull_one: PullOne,
-    ) -> HostResult:
+    ) -> PullHostResult:
         host_calls_box.append(host)
         # abort_event が set されるまで少しだけ待つ（無限ループ防止つき）
         spin_count: int = 0
@@ -119,7 +137,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         if abort_seen:
             raise CancelledError("fake_run_host_gather: observed abort_event and cancelled")
         # abort_event が set されなかった場合は「エラー 1 件」として返す。
-        result: HostResult = HostResult(warnings=0, errors=1, processed=0, trial=0)
+        result: PullHostResult = PullHostResult(warnings=0, errors=1, processed=0, trial=0)
         return result
 
     def dummy_open_ssh(host: str) -> SSHClientLike:
@@ -258,11 +276,6 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         - fake_run_host_scatter が abort_event を観測して CancelledError を送出すること
         - GracefulStop に登録した cleanup が一度だけ実行されること
     """
-    from gm_tools.core_signal_handling import GracefulStop
-    from gm_tools.core_ssh import CancelledError, SSHClientLike, SFTPClientLike
-    from gm_tools.core_push import HostResult, OnProgress, SSHFactory, SFTPFactory, PushOne
-    from gm_tools.core_select import Plan, PlanEntry
-    import gm_tools.scatter_parallel as scatter_parallel
 
     gs: GracefulStop = GracefulStop()
     cleanup_calls_box: List[int] = [0]
@@ -301,11 +314,11 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         remote_root: str,
         local_root: _Path,
         abort_event: threading.Event,
-        on_progress: Optional[OnProgress],
-        open_ssh: SSHFactory,
-        open_sftp: SFTPFactory,
+        on_progress: Optional[PushOnProgress],
+        open_ssh: PushSSHFactory,
+        open_sftp: PushSFTPFactory,
         push_one: PushOne,
-    ) -> HostResult:
+    ) -> PushHostResult:
         host_calls_box.append(host)
         spin_count: int = 0
         abort_seen: bool = False
@@ -321,7 +334,7 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         abort_seen_box[0] = abort_seen
         if abort_seen:
             raise CancelledError("fake_run_host_scatter: observed abort_event and cancelled")
-        result: HostResult = HostResult(warnings=0, errors=1, processed=0, trial=0)
+        result: PushHostResult = PushHostResult(warnings=0, errors=1, processed=0, trial=0)
         return result
 
     hosts: List[str] = ["hostA", "hostB"]

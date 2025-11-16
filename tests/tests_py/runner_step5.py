@@ -16,7 +16,8 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, IO, TypeAlias
-
+from ._local_types import Config as CommonConfig
+from .test_common_config import load_config_from_env as load_common_config
 
 # =========================
 # 型エイリアス
@@ -198,77 +199,49 @@ class Config:
     target_user: str
     ssh_port: int
     ssh_strict: bool
-
     remote_dest_root: str
     local_root: str
-
     hosts_both: List[str]
     host_ubuntu: str
     host_alma: str
-
     gm_scatter_cmd: List[str]
     gm_gather_cmd: List[str]
-
     verbose: bool
-
-
-def _split_cmd_env(env_key: str, default_val: str) -> List[str]:
-    raw: str = os.environ.get(env_key, default_val)
-    parts: List[str] = shlex.split(raw)
-    return parts
-
+    parallel: int
 
 def load_config_from_env() -> Config:
-    ssh_user: str = os.environ.get("SSH_USER", "ansible")
-    target_user: str = os.environ.get("TARGET_USER", ssh_user)
+    """
+    Step5 runner 用の設定読込。
+    - 実際の環境変数読み取り・デフォルト決定は test_common_config.load_config_from_env に委譲する。
+    - runner_step5 独自の Config との違いは、フィールド名の橋渡しだけ行う。
+    """
+    # 共通 Config（CommonConfig）を取得
+    # clear_local_root=True: 呼び出し毎に local_work_root 配下をクリアする運用
+    base: CommonConfig = load_common_config(clear_local_root=True)
 
-    ssh_port_str: str = os.environ.get("SSH_PORT", "22")
-    ssh_port: int = int(ssh_port_str)
-    ssh_strict: bool = (os.environ.get("SSH_STRICT", "no").lower() == "yes")
-
-    remote_dest_root: str = os.environ.get("REMOTE_DEST_ROOT", "/tmp/gmtools_remote_dest")
-    local_root: str = os.environ.get("LOCAL_WORK_ROOT", os.path.join(os.getcwd(), "_tmp_test_local"))
-
-    hosts_both_raw: str = os.environ.get("HOSTS_BOTH", "localhost")
-    hosts_both_list: List[str] = shlex.split(hosts_both_raw)
-    hosts_both: List[str] = []
-    i: int = 0
-    n: int = len(hosts_both_list)
-    while i < n:
-        h_item: str = hosts_both_list[i]
-        if h_item:
-            hosts_both.append(h_item)
-        i += 1
-
-    host_ubuntu: str = os.environ.get("HOST_UBUNTU", "localhost")
-    host_alma: str = os.environ.get("HOST_ALMA", "vmlinux4.local")
-
-    gm_scatter_cmd: List[str] = _split_cmd_env("GM_SCATTER_CMD", "python3 -m gm_tools.scatter_cli")
-    gm_gather_cmd: List[str] = _split_cmd_env("GM_GATHER_CMD", "python3 -m gm_tools.gather_cli")
-
-    verbose: bool = (os.environ.get("VERBOSE", "0") == "1")
-
+    # runner_step5 側の Config に詰め替え
     cfg: Config = Config(
-        ssh_user=ssh_user,
-        target_user=target_user,
-        ssh_port=ssh_port,
-        ssh_strict=ssh_strict,
-        remote_dest_root=remote_dest_root,
-        local_root=local_root,
-        hosts_both=hosts_both,
-        host_ubuntu=host_ubuntu,
-        host_alma=host_alma,
-        gm_scatter_cmd=gm_scatter_cmd,
-        gm_gather_cmd=gm_gather_cmd,
-        verbose=verbose,
+        ssh_user=base.ssh_user,
+        target_user=base.target_user,
+        ssh_port=base.ssh_port,
+        ssh_strict=base.ssh_strict_bool,
+        remote_dest_root=base.remote_dest_root,
+        # フィールド名が違う部分だけ橋渡し
+        local_root=base.local_work_root,
+        hosts_both=list(base.hosts_both),
+        host_ubuntu=base.host_ubuntu,
+        host_alma=base.host_alma,
+        gm_gather_cmd=list(base.gm_gather_cmd),
+        gm_scatter_cmd=list(base.gm_scatter_cmd),
+        verbose=base.verbose,
+        parallel=base.parallel,
     )
     return cfg
 
-
 def print_env(cfg: Config) -> None:
-    msg1: str = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)}"
-    msg2: str = f"[env] GM_SCATTER_CMD='{shlex.join(cfg.gm_scatter_cmd)}'"
-    msg3: str = f"[env] GM_GATHER_CMD='{shlex.join(cfg.gm_gather_cmd)}'"
+    msg1 = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)} PARALLEL={cfg.parallel}"
+    msg2 = f"[env] GM_GATHER_CMD='{shlex.join(cfg.gm_gather_cmd)}'"
+    msg3 = f"[env] GM_SCATTER_CMD='{shlex.join(cfg.gm_scatter_cmd)}'"
     print(msg1)
     print(msg2)
     print(msg3)
