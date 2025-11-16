@@ -6,10 +6,10 @@
 #   3) ./run_step5.sh
 set -Eeuo pipefail
 
-# スクリプトの所在ディレクトリ（テストアーカイブ直下想定）
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# tests_env.sh を読み込み（未存在ならエラー）
+# スクリプトの所在ディレクトリ（tests ディレクトリ想定）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# プロジェクトルート（tests の 1 つ上）を決定
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CWD="$(pwd)"
 
 # 1) 明示指定があれば最優先（例: ENV_FILE=./my.env ./run_step4.sh）
@@ -63,8 +63,10 @@ fi
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 echo "PYTHON_BIN  : ${PYTHON_BIN}"
 
-# tests_py をパッケージとして認識させるため、SCRIPT_DIR を PYTHONPATH に載せる
-export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
+# PYTHONPATH の設定:
+#  - ワークツリー直下の src を最優先に使う
+#  - tests_py（テストランナー）も解決可能にする
+export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
 
 # モジュールとして実行（Step4 と同じスタイル）
 set +e
