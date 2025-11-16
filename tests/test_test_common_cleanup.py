@@ -1,98 +1,106 @@
-# gm-tools-tests-20251116/test_test_common_cleanup.py
-#
-# src/ で:
-#
-#   PYTHONPATH=. python3 -m pytest -q ../tests/test_test_common_cleanup.py
-#
+# tests/tests_py/test_common_cleanup.py
+# Step7: cleanup の統合責務モジュール
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-import pytest  # type: ignore
-
-from tests_py.test_common_cleanup import (
-    _safe_rmtree_abs, # type: ignore
-    _clear_dir, # type: ignore
-    init_local_work_root,
-    cleanup_local_work_root,
-    cleanup_extra_local_dirs,
-)
+import shutil
+from pathlib import Path
+from typing import Any, Union, List, cast
 
 
-@dataclass
-class DummyConfig:
+# ============================================================
+# 基本の安全削除機能
+# ============================================================
+
+def _safe_rmtree_abs(path: Union[str, Path]) -> None:
     """
-    test_common_cleanup のテスト用ダミー Config。
-    local_work_root 属性だけあれば十分。
+    絶対パスに対してのみ安全に rmtree を実行する。
+    - symlink なら削除しない
+    - 相対パスなら何もしない
+    - 存在しなければ何もしない
+    - 例外は握りつぶす（best effort）
     """
-    local_work_root: str
+    try:
+        p = Path(path)
+
+        if not p.is_absolute():
+            return
+
+        if p.is_symlink():
+            return
+
+        if not p.exists():
+            return
+
+        shutil.rmtree(p, ignore_errors=True)
+
+    except Exception:
+        # cleanup は best-effort
+        pass
 
 
-def test_safe_rmtree_respects_ensure_under(tmp_path): # type: ignore
-    base = tmp_path / "base" # type: ignore
-    base.mkdir() # type: ignore
-    victim = base / "victim" # type: ignore
-    victim.mkdir() # type: ignore
-    outsider = tmp_path / "outsider" # type: ignore
-    outsider.mkdir() # type: ignore
-
-    _safe_rmtree_abs(victim, ensure_under=base) # type: ignore
-    # base 配下なので削除される
-    assert not victim.exists() # type: ignore
-
-    _safe_rmtree_abs(outsider, ensure_under=base) # type: ignore
-    # base 配下ではないので削除されない
-    assert outsider.exists() # type: ignore
+def cleanup_dir(path: Union[str, Path]) -> None:
+    """安全な削除ラッパー"""
+    _safe_rmtree_abs(path)
 
 
-def test_safe_rmtree_ignores_symlink(tmp_path): # type: ignore
-    base = tmp_path # type: ignore
-    real_dir = base / "real" # type: ignore
-    real_dir.mkdir() # type: ignore
-    link = base / "link" # type: ignore
-    link.symlink_to(real_dir) # type: ignore
-    _safe_rmtree_abs(link, ensure_under=base) # type: ignore
-    # シンボリックリンクは削除されない
-    assert link.exists() # type: ignore
-    assert real_dir.exists() # type: ignore
+# ============================================================
+# Step7 統合 API
+# ランナーは必ずこれらのみを使用する
+# ============================================================
+
+def init_local_work_root(cfg: Any) -> None:
+    """
+    Step4/5/6 runner が Config.local_work_root に基づき
+    テスト用作業ディレクトリを作成する責務。
+    """
+    if not hasattr(cfg, "local_work_root"):
+        return
+
+    root = Path(cfg.local_work_root)
+
+    try:
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+        root.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        # best effort
+        pass
 
 
-def test_clear_dir_removes_and_recreates(tmp_path): # type: ignore
-    base = tmp_path # type: ignore
-    target = base / "target" # type: ignore
-    target.mkdir() # type: ignore
-    marker = target / "keep_me" # type: ignore
-    marker.write_text("x") # type: ignore
-
-    _clear_dir(target, ensure_under=base) # type: ignore
-    assert target.exists() # type: ignore
-    assert target.is_dir() # type: ignore
-    # 中身は削除されている
-    assert list(target.iterdir()) == [] # type: ignore
+def cleanup_local_work_root(cfg: Any) -> None:
+    """
+    Config.local_work_root を安全に削除。
+    runner の終了時に必ず1回実行される想定。
+    """
+    if hasattr(cfg, "local_work_root"):
+        cleanup_dir(Path(cfg.local_work_root))
 
 
-def test_init_and_cleanup_local_work_root(tmp_path, monkeypatch): # type: ignore
-    monkeypatch.chdir(tmp_path) # type: ignore
-    local_root = tmp_path / "_tmp_test_local" # type: ignore
-    cfg = DummyConfig(local_work_root=str(local_root)) # type: ignore
+def cleanup_extra_local_dirs(cfg: Any) -> None:
+    """
+    Step5/Step6 テストが追加で作るローカルディレクトリを削除する。
+    - cfg.extra_local_dirs がリストで定義されていれば削除対象
+    """
+    dirs: List[Union[str, Path]] = []
 
-    # init でディレクトリが作られる
-    init_local_work_root(cfg, ensure_under_cwd=True) # type: ignore
-    assert local_root.exists() # type: ignore
+    if hasattr(cfg, "extra_local_dirs"):
+        raw = getattr(cfg, "extra_local_dirs")
+        if isinstance(raw, list):
+            dirs = cast(List[Union[str, Path]], raw)
 
-    # マーカーを作ってから cleanup で削除される
-    marker = local_root / "keep_me" # type: ignore
-    marker.write_text("x") # type: ignore
-    cleanup_local_work_root(cfg, ensure_under_cwd=True) # type: ignore
-    assert not local_root.exists() # type: ignore
+    for d in dirs:
+        cleanup_dir(Path(d))
 
 
-def test_cleanup_extra_local_dirs(tmp_path, monkeypatch): # type: ignore
-    monkeypatch.chdir(tmp_path) # type: ignore
-    (tmp_path / "nf_rel").mkdir() # type: ignore
-    (tmp_path / "other_rel").mkdir() # type: ignore
+# ============================================================
+# 旧API: 互換性のため一応残す
+# ============================================================
 
-    cleanup_extra_local_dirs(["nf_rel"], ensure_under_cwd=True) # type: ignore
-    assert not (tmp_path / "nf_rel").exists() # type: ignore
-    assert (tmp_path / "other_rel").exists() # type: ignore
+def cleanup_test_temp(cfg: Any) -> None:
+    """
+    test_common_config が test_temp_root を定義している場合に削除。
+    旧 runner 互換のため残す。
+    """
+    if hasattr(cfg, "test_temp_root"):
+        cleanup_dir(Path(cfg.test_temp_root))

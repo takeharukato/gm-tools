@@ -6,7 +6,8 @@ import os
 import shlex
 import shutil
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
+from dataclasses import is_dataclass, asdict
 
 from ._local_types import Config
 from .constants import (
@@ -130,3 +131,37 @@ def load_config_from_env(*, clear_local_root: bool = True) -> Config:
         parallel=parallel,
     )
     return cfg
+
+def snapshot_config(cfg: Any) -> Dict[str, Any]:
+    """
+    Config オブジェクトを JSON-safe な dict に変換する。
+      - dataclass インスタンス → asdict()
+      - dataclass クラス → スキップ（empty dict）
+      - __dict__ を持つ任意のクラス → shallow copy
+      - dict → shallow copy（手動）
+      - その他 → {}
+    """
+
+    # dataclass インスタンスなら asdict が安全
+    if is_dataclass(cfg) and not isinstance(cfg, type):
+        return asdict(cfg)
+
+    # 通常の Python object（__dict__ を shallow copy）
+    if hasattr(cfg, "__dict__"):
+        raw = cfg.__dict__
+        out_obj: Dict[str, Any] = {}
+        for k, v in raw.items():
+            if k.startswith("__"):
+                continue
+            out_obj[k] = v
+        return out_obj
+
+    # dict 自体の場合（手動 shallow copy）
+    if isinstance(cfg, dict):
+        out_dic: Dict[Any, Any] = {}
+        for k, v in cfg.items(): # type: ignore
+            out_dic[k] = v   # k,v は Any と推論される
+        return out_dic
+
+    # fallback
+    return {}
