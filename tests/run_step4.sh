@@ -34,6 +34,6 @@ echo "[env] GM_GATHER_CMD='${GM_GATHER_CMD}'"
 echo "[env] GM_SCATTER_CMD='${GM_SCATTER_CMD}'"
 
 # ワークツリー版 gm_tools と tests_py を解決できるよう PYTHONPATH を設定
-export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
+export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
 
 ${PYTHON_BIN:-python3} -m tests_py.runner_step4 "$@"
