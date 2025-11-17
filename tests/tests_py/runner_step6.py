@@ -4,18 +4,19 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import time
 import shutil
 from pathlib import Path as _Path
-from typing import Any, Callable, Dict, List, Optional, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
-from ._local_types import Config
+from ._local_types import Config, CaseResult
 from .test_common_config import load_config_from_env
+from .test_common_runner import run_cases
 
 from gm_tools.core_signal_handling import GracefulStop
 from gm_tools.core_ssh import CancelledError, SSHClientLike, SFTPClientLike
+
 
 # gather_parallel（pull 側）用
 from gm_tools.core_pull import (
@@ -40,9 +41,6 @@ import gm_tools.gather_parallel as gather_parallel
 import gm_tools.scatter_parallel as scatter_parallel
 
 
-ResultDict = Dict[str, object]
-
-
 def _make_case_result(
     name: str,
     *,
@@ -50,40 +48,20 @@ def _make_case_result(
     skipped: bool,
     reason: str,
     details: Dict[str, object],
-) -> ResultDict:
-    result: ResultDict = {
-        "name": name,
-        "passed": passed,
-        "skipped": skipped,
-        "reason": reason,
-        "details": details,
-    }
-    return result
+) -> CaseResult:
+    """
+    旧 ResultDict 互換の情報を持つ CaseResult を生成するヘルパ。
+    """
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=skipped,
+        reason=reason,
+        details=details,
+    )
 
 
-def _run_case_safely(
-    name: str,
-    cfg: Config,
-    func: Callable[[Config], ResultDict],
-    results: List[ResultDict],
-) -> None:
-    case_result: ResultDict
-    try:
-        case_result = func(cfg)
-    except Exception as e:
-        # どのような例外でも「テスト失敗」として記録し、runner 自体は落とさない。
-        details: Dict[str, object] = {"exception_repr": repr(e)}
-        case_result = _make_case_result(
-            name=name,
-            passed=False,
-            skipped=False,
-            reason="case raised an unexpected exception",
-            details=details,
-        )
-    results.append(case_result)
-
-
-def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
+def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
     """
     目的:
       gather_parallel.execute に GracefulStop を渡した場合の cooperative cancel 挙動を検証する。
@@ -192,7 +170,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         setattr(gather_parallel, "_run_host_gather", fake_run_host_gather)
         stopper_thread.start()
         try:
-            #   graceful_stop 引数を受け取る execute() を想定して呼び出す。
+            # graceful_stop 引数を受け取る execute() を想定して呼び出す。
             rc = gather_parallel.execute(
                 hosts=hosts,
                 plan=plan,
@@ -233,9 +211,11 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         "exc_repr": exc_repr,
     }
 
+    case_name: str = "gather_parallel_abort_via_graceful_stop"
+
     if api_mismatch:
         return _make_case_result(
-            name="gather_parallel_abort_via_graceful_stop",
+            name=case_name,
             passed=False,
             skipped=False,
             reason=api_mismatch_reason,
@@ -243,7 +223,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         )
     if exc_repr is not None:
         return _make_case_result(
-            name="gather_parallel_abort_via_graceful_stop",
+            name=case_name,
             passed=False,
             skipped=False,
             reason="unexpected exception during gather_parallel.execute",
@@ -258,7 +238,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
     reason: str = "" if passed else "abort_event/cleanup 挙動が期待と異なる（将来の仕様確認用）"
 
     return _make_case_result(
-        name="gather_parallel_abort_via_graceful_stop",
+        name=case_name,
         passed=passed,
         skipped=False,
         reason=reason,
@@ -266,7 +246,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
     )
 
 
-def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
+def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
     """
     目的:
       scatter_parallel.execute に GracefulStop を渡した場合の cooperative cancel 挙動を検証する。
@@ -407,9 +387,11 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         "exc_repr": exc_repr,
     }
 
+    case_name: str = "scatter_parallel_abort_via_graceful_stop"
+
     if api_mismatch:
         return _make_case_result(
-            name="scatter_parallel_abort_via_graceful_stop",
+            name=case_name,
             passed=False,
             skipped=False,
             reason=api_mismatch_reason,
@@ -417,7 +399,7 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
         )
     if exc_repr is not None:
         return _make_case_result(
-            name="scatter_parallel_abort_via_graceful_stop",
+            name=case_name,
             passed=False,
             skipped=False,
             reason="unexpected exception during scatter_parallel.execute",
@@ -431,7 +413,7 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
     reason: str = "" if passed else "abort_event/cleanup 挙動が期待と異なる（将来の仕様確認用）"
 
     return _make_case_result(
-        name="scatter_parallel_abort_via_graceful_stop",
+        name=case_name,
         passed=passed,
         skipped=False,
         reason=reason,
@@ -441,48 +423,33 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> ResultDict:
 
 def main() -> None:
     """
-    Config をロードし、Step6 用テストケース群を実行して結果を JSON で出力する。
+    Config をロードし、Step6 用テストケース群を共通ランナーで実行する。
     """
     cfg: Config = load_config_from_env()
-    results: List[ResultDict] = []
 
-    _run_case_safely(
-        name="gather_parallel_abort_via_graceful_stop",
-        cfg=cfg,
-        func=case_gather_parallel_abort_via_graceful_stop,
-        results=results,
-    )
-    _run_case_safely(
-        name="scatter_parallel_abort_via_graceful_stop",
-        cfg=cfg,
-        func=case_scatter_parallel_abort_via_graceful_stop,
-        results=results,
-    )
+    cases: List[Tuple[str, Callable[[Config], CaseResult]]] = [
+        ("gather_parallel_abort_via_graceful_stop", case_gather_parallel_abort_via_graceful_stop),
+        ("scatter_parallel_abort_via_graceful_stop", case_scatter_parallel_abort_via_graceful_stop),
+    ]
 
-    summary: str = json.dumps(
-        {"results": results},
-        indent=2,
-        ensure_ascii=False,
-    )
-    print("STEP6 SUMMARY")
-    print(summary)
-
-    # ---------------------------------------------------------
-    # Cleanup: Step6 テスト用ローカル作業ディレクトリの削除
-    #  - Config.local_work_root は tests_env.sh.sample で
-    #    "${PWD}/_tmp_test_local" に設定される想定。
-    #  - Step4/Step5 runner と同様に、runner 側が temp の寿命を持つ。
-    # ---------------------------------------------------------
-
-    local_root: _Path = _Path(cfg.local_work_root)
     try:
-        if local_root.exists():
-            shutil.rmtree(local_root, ignore_errors=True)
-    except Exception:
-        # Best-effort cleanup: テスト結果を壊さないため、例外は握りつぶす。
-        pass
+        # 共通フレームワークに実行と JSON summary 出力を委譲
+        _ = run_cases(step_number=6, cfg=cfg, cases=cases)
+    finally:
+        # ---------------------------------------------------------
+        # Cleanup: Step6 テスト用ローカル作業ディレクトリの削除
+        #  - Config.local_work_root は tests_env.sh.sample で
+        #    "${PWD}/_tmp_test_local" に設定される想定。
+        #  - Step4/Step5 runner と同様に、runner 側が temp の寿命を持つ。
+        # ---------------------------------------------------------
+        local_root: _Path = _Path(cfg.local_work_root)
+        try:
+            if local_root.exists():
+                shutil.rmtree(local_root, ignore_errors=True)
+        except Exception:
+            # Best-effort cleanup: テスト結果を壊さないため、例外は握りつぶす。
+            pass
 
-    return None
 
 if __name__ == "__main__":
     main()

@@ -38,7 +38,7 @@ class CaseResult:
     passed: bool
     skipped: bool = False
     reason: str = ""
-    details: Dict[str,str] = field(default_factory=dict) # type: ignore
+    details: Dict[str, Any] = field(default_factory=dict) # type: ignore
 
     def to_dict(self) -> Dict[str, Any]:
         """JSON 出力用の dict に変換する。"""

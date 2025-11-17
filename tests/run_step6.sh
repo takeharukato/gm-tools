@@ -34,7 +34,7 @@ echo "PYTHON_BIN  : ${PYTHON_BIN}"
 # ワークツリー版 gm_tools と tests_py を解決できるよう PYTHONPATH を設定
 #  - PROJECT_ROOT/src : gm_tools パッケージ
 #  - SCRIPT_DIR/tests_py: runner_step6 などテストモジュール
-export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
+export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
 
 set +e
 # runner_step6 を「tests_py パッケージ配下のモジュール」として起動する
