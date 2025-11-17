@@ -10,41 +10,24 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List
+from ._local_types import Config, CaseResult
+from .test_common_config import snapshot_config
 
-from test_common_config import snapshot_config
-
-# ---------------------------------------------------------
-# CaseResult dataclass
-# ---------------------------------------------------------
-
-@dataclass
-class CaseResult:
-    """
-    個々のテストケースの結果を保持する構造体。
-    runner 側ではなく、case_xxx 関数がこれを返す。
-    """
-    name: str
-    status: str            # "passed" | "failed" | "skipped"
-    reason: str = ""
-    details: Dict[str, Any] = field(default_factory=dict) # type: ignore
-
-
-# ---------------------------------------------------------
-# Summary 生成
-# ---------------------------------------------------------
 
 def _make_timestamp() -> str:
     """ISO-8601（TZ付き）で timestamp を生成"""
     return datetime.now(timezone.utc).astimezone().isoformat()
 
 
+# ---------------------------------------------------------
+# Summary 生成
+# ---------------------------------------------------------
 def make_summary(
     *,
     step_number: int,
-    cfg: Any,
+    cfg: Config,
     results: List[CaseResult],
     version: int = 1,
 ) -> Dict[str, Any]:
@@ -55,23 +38,14 @@ def make_summary(
     # Config snapshot → dict 化
     # dataclass の可能性が高いため asdict() は不要
     # __dict__ の shallow copy で十分
-    cfg_dict : Dict[str, Any] = snapshot_config(cfg)
-
+    cfg_dict: Dict[str, Any] = snapshot_config(cfg)
     # runner 全体の summary
     summary: Dict[str, Any] = {
         "version": version,
         "timestamp": _make_timestamp(),
         "step": step_number,
         "config": cfg_dict,
-        "results": [
-            {
-                "name": r.name,
-                "status": r.status,
-                "reason": r.reason,
-                "details": r.details,
-            }
-            for r in results
-        ],
+        "results": [r.to_dict() for r in results],
     }
 
     return summary

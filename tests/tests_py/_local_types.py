@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List, Dict, Any
 
 @dataclass
 class CommandResult:
@@ -26,6 +26,7 @@ class Config:
     ssh_strict_bool: bool
     remote_dest_root: str
     local_work_root: str
+    local_root: str
     gm_gather_cmd: List[str]
     gm_scatter_cmd: List[str]
     verbose: bool
@@ -38,3 +39,13 @@ class CaseResult:
     skipped: bool = False
     reason: str = ""
     details: Dict[str,str] = field(default_factory=dict) # type: ignore
+
+    def to_dict(self) -> Dict[str, Any]:
+        """JSON 出力用の dict に変換する。"""
+        return {
+            "name": self.name,
+            "passed": self.passed,
+            "skipped": self.skipped,
+            "reason": self.reason,
+            "details": self.details,
+        }

@@ -10,15 +10,22 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple, Any
 
-from .test_common_json import CaseResult, make_summary, print_summary
+from ._local_types import (
+    Config,
+    CaseResult
+)
+from .test_common_json import (
+    make_summary,
+    print_summary
+)
 from .test_common_cleanup import cleanup_test_temp
 
 def _run_case_safely(
     case_name: str,
-    cfg: Any,
-    case_func: Callable[[Any], CaseResult],
+    cfg: Config,
+    case_func: Callable[[Config], CaseResult],
 ) -> CaseResult:
     """
     テストケースを安全に実行し、例外も CaseResult として返す。
@@ -26,12 +33,15 @@ def _run_case_safely(
     try:
         result = case_func(cfg)
         # case_func が CaseResult を返さなかった場合の保険
-        if not isinstance(result, CaseResult): # type: ignore
+        if not isinstance(result, CaseResult):  # type: ignore
             return CaseResult(
                 name=case_name,
-                status="failed",
+                passed=False,
+                skipped=False,
                 reason=f"case returned non-CaseResult: {type(result)!r}",
-                details={},
+                details={
+                    "returned_type": type(result).__name__,
+                },
             )
         return result
 
@@ -39,7 +49,8 @@ def _run_case_safely(
         # 例外 → failed として CaseResult を構築
         return CaseResult(
             name=case_name,
-            status="failed",
+            passed=False,
+            skipped=False,
             reason=f"case raised exception: {e!r}",
             details={"exception_repr": repr(e)},
         )
@@ -48,8 +59,8 @@ def _run_case_safely(
 def run_cases(
     *,
     step_number: int,
-    cfg: Any,
-    cases: List[Tuple[str, Callable[[Any], CaseResult]]],
+    cfg: Config,
+    cases: List[Tuple[str, Callable[[Config], CaseResult]]],
 ) -> Dict[str, Any]:
     """
     Step4/5/6 runner の共通処理：
