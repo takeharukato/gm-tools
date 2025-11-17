@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # tests/tests_py/runner_step4.py
-# Step4 smoke/regression runner（自己完結版）
+# Step4 smoke/regression runner（共通フレームワーク統合版）
 # - ssh呼び出し順序は「ssh <opts> -- user@host <argv...>」で統一
 # - 「~」展開は使わず getent passwd で得た絶対パスを使用
 # - gather の SRC 相対解釈（-u のホーム相対）
@@ -9,7 +9,6 @@
 # - Alma 側は getenforce の結果を報告
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import shlex
@@ -18,9 +17,10 @@ import tempfile
 import fnmatch
 import pathlib
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, IO
-from ._local_types import Config as CommonConfig
+from typing import Dict, List, Optional, Tuple, IO, Callable, Any
+from ._local_types import Config, CaseResult
 from .test_common_config import load_config_from_env as load_common_config
+from .test_common_runner import run_cases
 
 
 def _safe_rmtree_abs(path_abs: str, *, ensure_under: Optional[str] = None) -> None:
@@ -59,25 +59,25 @@ def cleanup_local_temps(cfg: Config) -> None:
 
 def snapshot_scatter_dest_verbose(cfg: Config, host: str, dest_abs: str,
                                   expected_paths: Optional[List[str]] = None) -> Dict[str, str]:
-    """
-    /tmp/gm_scatter_layout_dest を **絶対パス固定** で観測し、
-    迷子を防ぐためのメタ情報も採取する。
-    """
-    parts:List[str] = []
+    """scatter DEST 観測 + メタ情報収集 (絶対パス固定)。"""
+    parts: List[str] = []
+
     # 1) 実行系メタ
-    meta_cmd = r'''
+    meta_cmd: str = r'''
 set -u
 echo "[whoami] $(whoami)"
 echo "[pwd]    $(pwd)"
 echo "[home]   $HOME"
 echo "[uname]  $(uname -a)"
 echo "[umask]  $(umask)"
-    '''.strip()
-    r_meta = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", meta_cmd)
+'''.strip()
+    r_meta: subprocess.CompletedProcess[str] = ssh_do(
+        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", meta_cmd
+    )
     parts.append(r_meta.stdout or "")
 
     # 2) DEST 自体の解決と stat
-    cmd2 = f'''
+    cmd2: str = f'''
 set -u
 DEST={shlex.quote(dest_abs)}
 echo "[dest.raw] $DEST"
@@ -87,40 +87,46 @@ if [ -e "$DEST" ]; then
 else
   echo "[dest.stat] (missing)"
 fi
-    '''.strip()
-    r2 = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd2)
+'''.strip()
+    r2: subprocess.CompletedProcess[str] = ssh_do(
+        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd2
+    )
     parts.append(r2.stdout or "")
 
     # 3) ツリーと find
-    cmd3 = f'''
+    cmd3: str = f'''
 set -u
 DEST={shlex.quote(dest_abs)}
 echo "[tree]"
 if command -v tree >/dev/null 2>&1; then tree -a "$DEST" || true; else echo "(tree not installed)"; fi
 echo "[find]"
-find "$DEST" -maxdepth 8 -printf '%y %p -> %l\\n' 2>&1 || true
-    '''.strip()
-    r3 = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd3)
+find "$DEST" -maxdepth 8 -printf '%y %p -> %l\n' 2>&1 || true
+'''.strip()
+    r3: subprocess.CompletedProcess[str] = ssh_do(
+        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd3
+    )
     parts.append(r3.stdout or "")
 
-    # 4) 期待パスの実在性チェック（任意）
-    check_block = ""
+    # 4) 期待パス存在チェック
+    check_block: str = ""
     if expected_paths:
-        q = " ".join(shlex.quote(p) for p in expected_paths)
-        cmd4 = f'''
+        q: str = " ".join(shlex.quote(p) for p in expected_paths)
+        cmd4: str = f'''
 set -u
 for P in {q}; do
     test -f "$P"; rc=$?; printf "[check] %s : rc=%d\n" "$P" "$rc"
 done
-        '''.strip()
-        r4 = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd4)
+'''.strip()
+        r4: subprocess.CompletedProcess[str] = ssh_do(
+            cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd4
+        )
         check_block = r4.stdout or ""
         parts.append(check_block)
 
-    out = {
-        "meta": parts[0],
-        "dest": parts[1],
-        "layout": parts[2],
+    out: Dict[str, str] = {
+        "meta": parts[0] if len(parts) > 0 else "",
+        "dest": parts[1] if len(parts) > 1 else "",
+        "layout": parts[2] if len(parts) > 2 else "",
         "checks": check_block,
     }
     return out
@@ -157,13 +163,19 @@ def _clear_dir(path: str, *, ensure_under: Optional[str] = None) -> None:
 
     os.makedirs(p, exist_ok=True)
 
-def _ssh_base_argv(port: int, strict: bool) -> List[str]:
-    """ssh のベース引数（オプションのみ）"""
-    argv: List[str] = ["ssh", "-p", str(port), "-o", f"StrictHostKeyChecking={'yes' if strict else 'no'}"]
+from typing import Union  # add Union for strict type flexibility
+
+def _ssh_base_argv(port: int, strict: Union[bool, str]) -> List[str]:
+    """ssh のベース引数（オプションのみ）; strict は bool か 'yes'/'no' 文字列。"""
+    if isinstance(strict, str):
+        s_val: bool = (strict.lower() == "yes")
+    else:
+        s_val: bool = bool(strict)
+    argv: List[str] = ["ssh", "-p", str(port), "-o", f"StrictHostKeyChecking={'yes' if s_val else 'no'}"]
     return argv
 
 
-def ssh_do(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str) -> subprocess.CompletedProcess[str]:
+def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str) -> subprocess.CompletedProcess[str]:
     """
     外側シェルを挟まず、リモートでコマンド＋引数のみ実行。
     形 : ssh <opts> -- user@host <argv...>
@@ -177,7 +189,7 @@ def ssh_do(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str)
     return completed
 
 
-def ssh_sudo(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str) -> subprocess.CompletedProcess[str]:
+def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str) -> subprocess.CompletedProcess[str]:
     """
     sudo -n を付与して実行。
     形 : ssh <opts> -- user@host sudo -n <argv...>
@@ -191,7 +203,7 @@ def ssh_sudo(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: st
     return completed
 
 
-def pipe_to_tee(ssh_user: str, host: str, port: int, strict: bool, path: str, *, content: str, sudo: bool) -> subprocess.CompletedProcess[str]:
+def pipe_to_tee(ssh_user: str, host: str, port: int, strict: Union[bool, str], path: str, *, content: str, sudo: bool) -> subprocess.CompletedProcess[str]:
     """
     標準入力で渡した content をリモートの tee に流し込む。
     形 : ssh <opts> -- user@host [sudo -n] tee -- <path>
@@ -212,24 +224,7 @@ def pipe_to_tee(ssh_user: str, host: str, port: int, strict: bool, path: str, *,
 # 設定読み込み
 # =========================
 
-@dataclass(frozen=True)
-class Config:
-    ssh_user: str
-    target_user: str
-    ssh_port: int
-    ssh_strict: bool
-
-    remote_dest_root: str
-    local_root: str
-
-    hosts_both: List[str]
-    host_ubuntu: str
-    host_alma: str
-
-    gm_gather_cmd: List[str]
-    gm_scatter_cmd: List[str]
-
-    verbose: bool
+# NOTE: Config は tests/tests_py/_local_types.py からインポートした共有定義を使用する。
 
 def _walk_find_first(root: str, *, name: Optional[str] = None,
                      pattern: Optional[str] = None) -> Optional[str]:
@@ -261,62 +256,9 @@ def _walk_find_first(root: str, *, name: Optional[str] = None,
     return None
 
 def load_config_from_env() -> Config:
-    """
-    Step4 用の Config を環境変数から構築する。
-
-    役割分担:
-      - ssh_user / target_user / ssh_port / remote_dest_root /
-        gm_gather_cmd / gm_scatter_cmd / local_work_root の解釈は
-        test_common_config.load_config_from_env() に委譲する。
-      - hosts_both / host_ubuntu / host_alma / verbose の扱いは、
-        現行 Step4 の実装と同じロジック・デフォルトを維持する。
-      - local_root は絶対パスとして扱う（従来通り）。
-    """
-    # 共通 Config（tests/tests_py/_local_types.Config）をまず取得。
-    # clear_local_root=True により、LOCAL_WORK_ROOT 相当ディレクトリは
-    # 一度削除されてから作り直される。
-    base_cfg: CommonConfig = load_common_config(clear_local_root=True)
-
-    # Step4 では local_root は絶対パスで扱う
-    local_root: str = os.path.abspath(base_cfg.local_work_root)
-
-    # ssh_strict は Step4 では bool で扱うので、"yes"/"no" 文字列から変換
-    ssh_strict_env: str = base_cfg.ssh_strict
-    ssh_strict: bool = (ssh_strict_env.lower() == "yes")
-
-    # hosts_both / host_ubuntu / host_alma / verbose は
-    # これまでの Step4 実装と同じロジックをそのまま維持する
-    hosts_both_raw: List[str] = shlex.split(os.environ.get("HOSTS_BOTH", "localhost"))
-    hosts_both: List[str] = []
-    i: int = 0
-    n: int = len(hosts_both_raw)
-    while i < n:
-        h_item: str = hosts_both_raw[i]
-        if h_item:
-            hosts_both.append(h_item)
-        i += 1
-
-    host_ubuntu: str = os.environ.get("HOST_UBUNTU", "localhost")
-    host_alma: str = os.environ.get("HOST_ALMA", "vmlinux4.local")
-
-    # VERBOSE は "0"/"1" で解釈（デフォルト "0"）
-    verbose: bool = (os.environ.get("VERBOSE", "0") == "1")
-
-    cfg: Config = Config(
-        ssh_user=base_cfg.ssh_user,
-        target_user=base_cfg.target_user,
-        ssh_port=base_cfg.ssh_port,
-        ssh_strict=ssh_strict,
-        remote_dest_root=base_cfg.remote_dest_root,
-        local_root=local_root,
-        hosts_both=hosts_both,
-        host_ubuntu=host_ubuntu,
-        host_alma=host_alma,
-        gm_gather_cmd=base_cfg.gm_gather_cmd,
-        gm_scatter_cmd=base_cfg.gm_scatter_cmd,
-        verbose=verbose,
-    )
-    return cfg
+        """共有ローダをそのまま利用して Config を取得 (Step4 用)。"""
+        cfg: Config = load_common_config(clear_local_root=True)
+        return cfg
 
 def print_env(cfg: Config) -> None:
     msg1: str = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)}"
@@ -485,7 +427,7 @@ def is_selinux_available(cfg: Config, host: str) -> Tuple[bool, str]:
     return (True, mode)
 
 
-def case_selinux_auto_ubuntu_skip(cfg: Config) -> Dict[str, object]:
+def case_selinux_auto_ubuntu_skip(cfg: Config) -> CaseResult:
     """
     Ubuntu 側（SELinux 非対応）で --selinux auto を指定した scatter の dry-run を成功として扱い、
     ただし「対応していないため skip」判定を併記する。
@@ -508,36 +450,36 @@ def case_selinux_auto_ubuntu_skip(cfg: Config) -> Dict[str, object]:
     run: LocalRun = _run_local_argv(argv)
     ok: bool = (run.rc == 0)
 
-    return {
-        "name": name,
-        "passed": ok,
-        "skipped": (not available[0]),
-        "reason": "" if ok else (run.stderr or "").strip(),
-        "details": {},
-    }
+    return CaseResult(
+        name=name,
+        passed=ok,
+        skipped=not available[0],
+        reason="" if ok else (run.stderr or "").strip(),
+        details={},
+    )
 
 
-def case_selinux_mode_alma(cfg: Config) -> Dict[str, object]:
+def case_selinux_mode_alma(cfg: Config) -> CaseResult:
     """
     AlmaLinux 側で getenforce のモードを報告する。
     """
     name: str = "selinux_mode_alma"
     available: Tuple[bool, str] = is_selinux_available(cfg, cfg.host_alma)
     ok: bool = available[0] and (available[1] != "")
-    return {
-        "name": name,
-        "passed": ok,
-        "skipped": False,
-        "reason": "" if ok else "getenforce not available",
-        "details": {"mode": available[1]},
-    }
+    return CaseResult(
+        name=name,
+        passed=ok,
+        skipped=False,
+        reason="" if ok else "getenforce not available",
+        details={"mode": available[1]},
+    )
 
 
 # =========================
 # パス解釈（roundtrip）ケース
 # =========================
 
-def case_path_semantics(cfg: Config) -> Dict[str, object]:
+def case_path_semantics(cfg: Config) -> CaseResult:
     """
     gather: (Ubuntu) ~/<rel_root>/src (ターゲットユーザのホームディレクトリ絶対パス)→ ローカル
     scatter: (Alma)   ローカル → /tmp/gm_step4_dest_round（絶対パス）
@@ -580,19 +522,19 @@ def case_path_semantics(cfg: Config) -> Dict[str, object]:
         "gather": {"rc": run_g.rc, "stdout": run_g.stdout, "stderr": run_g.stderr},
         "scatter": {"rc": run_s.rc, "stdout": run_s.stdout, "stderr": run_s.stderr},
     }
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": details,
-    }
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details=details,
+    )
 
 # ---------------------------------------------------------------------------
 # 1) gather の SRC が「/」始まりの絶対パスで受理される（dry-run）
 # ---------------------------------------------------------------------------
 
-def case_gather_src_abs_slash_ok(cfg: Config) -> Dict[str, object]:
+def case_gather_src_abs_slash_ok(cfg: Config) -> CaseResult:
     name: str = "gather_src_abs_slash_ok"
     ubuntu: str = cfg.host_ubuntu
     user: str = cfg.target_user
@@ -617,20 +559,20 @@ def case_gather_src_abs_slash_ok(cfg: Config) -> Dict[str, object]:
     run: LocalRun = _run_local_argv(argv)
     ok: bool = (run.rc == 0)
 
-    return {
-        "name": name,
-        "passed": ok,
-        "skipped": False,
-        "reason": "" if ok else run.stderr.strip(),
-        "details": {"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
-    }
+    return CaseResult(
+        name=name,
+        passed=ok,
+        skipped=False,
+        reason="" if ok else run.stderr.strip(),
+        details={"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
+    )
 
 
 # ---------------------------------------------------------------------------
 # 2) gather の SRC が「~/...」で受理され、ホームに展開される（dry-run）
 # ---------------------------------------------------------------------------
 
-def case_gather_src_abs_tilde_ok(cfg: Config) -> Dict[str, object]:
+def case_gather_src_abs_tilde_ok(cfg: Config) -> CaseResult:
     name: str = "gather_src_abs_tilde_ok"
     ubuntu: str = cfg.host_ubuntu
     user: str = cfg.target_user
@@ -656,20 +598,20 @@ def case_gather_src_abs_tilde_ok(cfg: Config) -> Dict[str, object]:
     run: LocalRun = _run_local_argv(argv)
     ok: bool = (run.rc == 0)
 
-    return {
-        "name": name,
-        "passed": ok,
-        "skipped": False,
-        "reason": "" if ok else run.stderr.strip(),
-        "details": {"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
-    }
+    return CaseResult(
+        name=name,
+        passed=ok,
+        skipped=False,
+        reason="" if ok else run.stderr.strip(),
+        details={"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
+    )
 
 
 # ---------------------------------------------------------------------------
 # 3) gather の SRC が 相対パスの場合、-u のホーム相対として解釈される
 # ---------------------------------------------------------------------------
 
-def case_gather_src_rel_home_ok(cfg: Config) -> Dict[str, object]:
+def case_gather_src_rel_home_ok(cfg: Config) -> CaseResult:
     """
     仕様: 相対SRCは -u のリモートHOME基準で受理される（HOME逸脱不可）。
     dry-runで rc==0 を確認する。
@@ -695,19 +637,19 @@ def case_gather_src_rel_home_ok(cfg: Config) -> Dict[str, object]:
     passed: bool = (run.rc == 0)
     reason: str = "" if passed else f"rc={run.rc}"
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr, "argv": " ".join(argv)},
-    }
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr, "argv": " ".join(argv)},
+    )
 
 # ---------------------------------------------------------------------------
 # 4) gather の SRC が ~user/...（他人のホーム相対）はエラー
 # ---------------------------------------------------------------------------
 
-def case_gather_src_tilde_user_error(cfg: Config) -> Dict[str, object]:
+def case_gather_src_tilde_user_error(cfg: Config) -> CaseResult:
     name: str = "gather_src_tilde_user_error"
     ubuntu: str = cfg.host_ubuntu
     user: str = cfg.target_user
@@ -727,20 +669,20 @@ def case_gather_src_tilde_user_error(cfg: Config) -> Dict[str, object]:
     run: LocalRun = _run_local_argv(argv)
     ok: bool = (run.rc != 0)
 
-    return {
-        "name": name,
-        "passed": ok,
-        "skipped": False,
-        "reason": "" if ok else "gather accepted ~user unexpectedly",
-        "details": {"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
-    }
+    return CaseResult(
+        name=name,
+        passed=ok,
+        skipped=False,
+        reason="" if ok else "gather accepted ~user unexpectedly",
+        details={"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
+    )
 
 
 # ---------------------------------------------------------------------------
 # 5) scatter の DEST 相対→remote_home 展開（--pack / 非dry-run）
 # ---------------------------------------------------------------------------
 
-def case_scatter_dest_relative_ok_to_home(cfg: Config) -> Dict[str, object]:
+def case_scatter_dest_relative_ok_to_home(cfg: Config) -> CaseResult:
     """
     目的:
       scatter の DEST が相対指定のとき、ターゲットユーザの remote_home 配下へ
@@ -786,24 +728,24 @@ def case_scatter_dest_relative_ok_to_home(cfg: Config) -> Dict[str, object]:
         f"rc={run.rc}, isfile_rc={r_isfile.returncode}, exp={expected_remote_x!r}, content={r_cat.stdout!r}"
     )
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
             "rc": run.rc,
             "expected_remote_x": expected_remote_x,
             "argv": " ".join(shlex.quote(a) for a in argv),
         },
-    }
+    )
 
 
 # ---------------------------------------------------------------------------
 # 6) scatter の DEST 絶対/~/Windows 変種（--pack / 非dry-run）
 # ---------------------------------------------------------------------------
 
-def case_scatter_dest_abs_variants(cfg: Config) -> Dict[str, object]:
+def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
     """
     仕様整合チェック:
       - /abs         : 絶対パス -> そのまま DEST 配下に展開される
@@ -870,12 +812,12 @@ def case_scatter_dest_abs_variants(cfg: Config) -> Dict[str, object]:
         f"win(rc={run_win.rc})"
     )
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
             "dest_ok_rc": run_ok.rc,
             "dest_tilde_rc": run_tilde.rc,
             "dest_win_rc": run_win.rc,
@@ -885,13 +827,13 @@ def case_scatter_dest_abs_variants(cfg: Config) -> Dict[str, object]:
             "stdout_tilde": run_tilde.stdout, "stderr_tilde": run_tilde.stderr,
             "stdout_win": run_win.stdout, "stderr_win": run_win.stderr,
         },
-    }
+    )
 
 # ---------------------------------------------------------------------------
 # 7) gather --follow-symlinks 有無で結果差（非dry-run）
 # ---------------------------------------------------------------------------
 
-def case_gather_follow_symlinks_files(cfg: Config) -> Dict[str, object]:
+def case_gather_follow_symlinks_files(cfg: Config) -> CaseResult:
     """
     仕様:
       --pack 時のみ有効。
@@ -1006,12 +948,12 @@ def case_gather_follow_symlinks_files(cfg: Config) -> Dict[str, object]:
         f"name={found_name!r}, content={found_content!r})"
     )
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
             "no_rc": run_no.rc, "yes_rc": run_yes.rc,
             "found_no_f": f_no, "found_no_l": l_no,
             "found_yes_f": f_yes, "found_yes_l": l_yes,
@@ -1022,12 +964,12 @@ def case_gather_follow_symlinks_files(cfg: Config) -> Dict[str, object]:
             "argv_no": " ".join(shlex.quote(a) for a in argv_no),
             "argv_yes": " ".join(shlex.quote(a) for a in argv_yes),
         },
-    }
+    )
 
 
 # 8) scatter --follow-symlinks 有無で結果差（--pack + 展開動作）
 
-def case_scatter_follow_symlinks_files(cfg: Config) -> Dict[str, object]:
+def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
     """
     仕様:
       non-follow: シンボリックリンクは展開しない（= l.txt は作られない）
@@ -1103,23 +1045,25 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> Dict[str, object]:
         f"content={r_yes_cat.stdout!r}, paths(no={remote_no_l}, yes={remote_yes_l})"
     )
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {
-            "no_rc": run_no.rc, "yes_rc": run_yes.rc,
-            "remote_no_l": remote_no_l, "remote_yes_l": remote_yes_l,
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
+            "no_rc": run_no.rc,
+            "yes_rc": run_yes.rc,
+            "remote_no_l": remote_no_l,
+            "remote_yes_l": remote_yes_l,
         },
-    }
+    )
 
 
 # ---------------------------------------------------------------------------
 # 11) scatter --pack + ユーザ展開（所有者がユーザ）
 # ---------------------------------------------------------------------------
 
-def case_scatter_pack_extract_user(cfg: Config) -> Dict[str, object]:
+def case_scatter_pack_extract_user(cfg: Config) -> CaseResult:
     name: str = "scatter_pack_extract_user"
     alma: str = cfg.host_alma
     user: str = cfg.target_user
@@ -1154,11 +1098,11 @@ def case_scatter_pack_extract_user(cfg: Config) -> Dict[str, object]:
     passed: bool = (run.rc == 0 and r_stat_u.returncode == 0 and owner == f"{user}:{user}")
     reason: str = "" if passed else f"rc={run.rc}, owner={owner!r}"
 
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason, "details": {"rc": run.rc, "owner": owner}}
+    return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={"rc": run.rc, "owner": owner})
 
 # 12) scatter --pack --sudo-extract（未存在 → ユーザ権限で作成される仕様）
 
-def case_scatter_pack_extract_sudo(cfg: Config) -> Dict[str, object]:
+def case_scatter_pack_extract_sudo(cfg: Config) -> CaseResult:
     """
     仕様（ご提示）:
       既存ファイルが『なければ』ユーザ権限で作成される。
@@ -1206,17 +1150,11 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> Dict[str, object]:
         f"rc={run.rc}, stat_rc={r_stat.returncode}, owner={owner!r}, path={remote_r}"
     )
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {"rc": run.rc, "owner": owner, "remote_r": remote_r},
-    }
+    return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={"rc": run.rc, "owner": owner, "remote_r": remote_r})
 
 # 12b) scatter --pack --sudo-extract（既存ファイルあり → root 展開されることを検証）
 
-def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> Dict[str, object]:
+def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> CaseResult:
     """
     追加ケース:
       既存ファイルが『ある』場合に --sudo-extract で root 展開されることを検証。
@@ -1276,19 +1214,13 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> Dict[str, objec
         f"rc={run.rc}, stat_rc={r_stat.returncode}, owner={owner!r}, content={content_after!r}, path={remote_r}"
     )
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {"rc": run.rc, "owner": owner, "remote_r": remote_r, "content_after": content_after},
-    }
+    return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={"rc": run.rc, "owner": owner, "remote_r": remote_r, "content_after": content_after})
 
 # ---------------------------------------------------------------------------
 # 13) Ubuntu: --selinux policy はエラー、--selinux ignore は成功（dry-run）
 # ---------------------------------------------------------------------------
 
-def case_selinux_policy_ignore_on_ubuntu(cfg: Config) -> Dict[str, object]:
+def case_selinux_policy_ignore_on_ubuntu(cfg: Config) -> CaseResult:
     """
     Ubuntu 側（SELinux 非対応）で --selinux {policy,ignore} を指定した scatter の dry-run は、
     いずれも rc=0 で成功扱い（実装準拠）。
@@ -1319,26 +1251,20 @@ def case_selinux_policy_ignore_on_ubuntu(cfg: Config) -> Dict[str, object]:
     passed: bool = (ok_policy and ok_ignore)
     reason: str = "" if passed else f"policy_rc={run_policy.rc}, ignore_rc={run_ignore.rc}"
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {
-            "policy_rc": run_policy.rc,
-            "ignore_rc": run_ignore.rc,
-            "policy_stdout": run_policy.stdout,
-            "policy_stderr": run_policy.stderr,
-            "ignore_stdout": run_ignore.stdout,
-            "ignore_stderr": run_ignore.stderr,
-        },
-    }
+    return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={
+        "policy_rc": run_policy.rc,
+        "ignore_rc": run_ignore.rc,
+        "policy_stdout": run_policy.stdout,
+        "policy_stderr": run_policy.stderr,
+        "ignore_stdout": run_ignore.stdout,
+        "ignore_stderr": run_ignore.stderr,
+    })
 
 # ---------------------------------------------------------------------------
 # 14) gather の二重ネスト回帰検証
 # ---------------------------------------------------------------------------
 
-def case_gather_double_nesting_regression(cfg: Config) -> Dict[str, object]:
+def case_gather_double_nesting_regression(cfg: Config) -> CaseResult:
     """
     目的:
       gather の展開先レイアウトが DEST/<HOST>/<abs_without_leading_slash>/... であることを検証し、
@@ -1449,12 +1375,12 @@ def case_gather_double_nesting_regression(cfg: Config) -> Dict[str, object]:
         f"double_nest_found={double_nest_found}, top_entries={top_entries}"
     )
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
             "rc": run.rc,
             "argv": " ".join(shlex.quote(a) for a in argv),
             "expected_a": exp_a,
@@ -1464,9 +1390,9 @@ def case_gather_double_nesting_regression(cfg: Config) -> Dict[str, object]:
             "snapshot_find": snap.get("find", ""),
             "snapshot_tree": snap.get("tree", ""),
         },
-    }
+    )
 
-def _remote_script_snapshot(ssh_user: str, host: str, port: int, strict: bool, base: str) -> Dict[str, str]:
+def _remote_script_snapshot(ssh_user: str, host: str, port: int, strict: Union[bool, str], base: str) -> Dict[str, str]:
     """
     リモート絶対パス base の実体を『base固定で』観測するスナップショット。
     - pwd（安全のため明示出力）
@@ -1488,7 +1414,7 @@ def _remote_script_snapshot(ssh_user: str, host: str, port: int, strict: bool, b
     snap["rc"] = str(p.returncode)
     return snap
 
-def case_scatter_src_path_layout_semantics(cfg: Config) -> Dict[str, object]:
+def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
     """
     目的:
       scatter のレイアウト仕様を検証する回帰テスト。
@@ -1592,12 +1518,12 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> Dict[str, object]:
         f"exp_rel_a={exp_rel_a}, exp_rel_b={exp_rel_b}"
     )
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
             "argv_abs": " ".join(shlex.quote(a) for a in argv_abs),
             "argv_rel": " ".join(shlex.quote(a) for a in argv_rel),
             "rc_abs": run_abs.rc,
@@ -1611,13 +1537,8 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> Dict[str, object]:
             "snapshot_dest_rc": snap_dest.get("rc", ""),
             "scatter_dest_verbose_snapshot": snap,
         },
-    }
-
-# =========================
-# 追加テスト（関数のみ）
-# =========================
-
-def case_scatter_dest_relative_to_remote_home(cfg: Config) -> Dict[str, object]:
+    )
+def case_scatter_dest_relative_to_remote_home(cfg: Config) -> CaseResult:
     """
     目的:
       scatter の DEST が「相対」のとき、ターゲットユーザの remote_home 配下に
@@ -1660,12 +1581,17 @@ def case_scatter_dest_relative_to_remote_home(cfg: Config) -> Dict[str, object]:
 
     passed: bool = (run.rc == 0 and r_isfile.returncode == 0 and (r_cat.stdout or "").strip() == "A")
     reason: str = "" if passed else f"rc={run.rc}, isfile_rc={r_isfile.returncode}, exp={exp!r}, content={r_cat.stdout!r}"
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
-            "details": {"rc": run.rc, "exp": exp, "argv": " ".join(shlex.quote(a) for a in argv)}}
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "exp": exp, "argv": " ".join(shlex.quote(a) for a in argv)},
+    )
 
 
 
-def case_scatter_dest_tilde_username_rejected(cfg: Config) -> Dict[str, object]:
+def case_scatter_dest_tilde_username_rejected(cfg: Config) -> CaseResult:
     """
     目的:
       scatter の DEST に ~user 形式が来た場合にエラー（rc!=0）になることを検証（dry-run）。
@@ -1698,12 +1624,17 @@ def case_scatter_dest_tilde_username_rejected(cfg: Config) -> Dict[str, object]:
 
     passed: bool = (run.rc != 0 and marker)
     reason: str = "" if passed else f"rc={run.rc}, marker={marker}, stderr+stdout={out_all!r}"
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
-            "details": {"rc": run.rc, "stderr_stdout": out_all, "argv": " ".join(shlex.quote(a) for a in argv)}}
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "stderr_stdout": out_all, "argv": " ".join(shlex.quote(a) for a in argv)},
+    )
 
 
 
-def case_scatter_nonpack_file_only_layout(cfg: Config) -> Dict[str, object]:
+def case_scatter_nonpack_file_only_layout(cfg: Config) -> CaseResult:
     """
     目的:
       非 pack（SFTP逐次PUT）のレイアウトと挙動を検証。
@@ -1761,13 +1692,18 @@ def case_scatter_nonpack_file_only_layout(cfg: Config) -> Dict[str, object]:
 
     passed: bool = (run.rc == 0 and r_abs.returncode == 0 and r_rel.returncode == 0 and r_ign.returncode != 0)
     reason: str = "" if passed else f"rc={run.rc}, abs={r_abs.returncode}, rel={r_rel.returncode}, ign_exists_rc={r_ign.returncode}"
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
-            "details": {"rc": run.rc, "exp_abs": exp_abs, "exp_rel": exp_rel, "exp_ign": exp_ign,
-                        "argv": " ".join(shlex.quote(a) for a in argv)}}
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "exp_abs": exp_abs, "exp_rel": exp_rel, "exp_ign": exp_ign,
+                 "argv": " ".join(shlex.quote(a) for a in argv)},
+    )
 
 
 
-def case_scatter_mixed_sources_two_hosts(cfg: Config) -> Dict[str, object]:
+def case_scatter_mixed_sources_two_hosts(cfg: Config) -> CaseResult:
     """
     目的:
       複数ホスト一括 scatter（--pack）の回帰。
@@ -1775,56 +1711,71 @@ def case_scatter_mixed_sources_two_hosts(cfg: Config) -> Dict[str, object]:
     """
     name: str = "scatter_mixed_sources_two_hosts"
 
+    ubuntu: str = cfg.host_ubuntu
+    alma: str = cfg.host_alma
+    user: str = cfg.target_user
+
     src_a: str = os.path.join(cfg.local_root, "mix_src_a")
-    src_a = src_a.rstrip(os.sep) + os.sep
     src_b: str = os.path.join(cfg.local_root, "mix_src_b")
+    src_a = src_a.rstrip(os.sep) + os.sep
     src_b = src_b.rstrip(os.sep) + os.sep
     _ = os.makedirs(src_a, exist_ok=True)
     _ = os.makedirs(src_b, exist_ok=True)
-    wf: IO[str]
     with open(os.path.join(src_a, "a.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("A\n")
     with open(os.path.join(src_b, "b.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("B\n")
 
-    hosts_path: str = _write_temp_hosts([cfg.host_ubuntu, cfg.host_alma])
+    hosts_path: str = _write_temp_hosts([ubuntu, alma])
     dest_abs: str = "/tmp/gm_scatter_mixed_hosts"
-    i: int = 0
-    targets: List[str] = [cfg.host_ubuntu, cfg.host_alma]
-    while i < len(targets):
-        h: str = targets[i]
+    for h in (ubuntu, alma):
         _ = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
         _ = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
         _ = ssh_sudo(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict,
-                     "chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", dest_abs)
-        i += 1
+                     "chown", "-R", "--", f"{user}:{user}", dest_abs)
 
     argv: List[str] = (
         cfg.gm_scatter_cmd
-        + ["-H", hosts_path, "-u", cfg.target_user, "--pack"]
+        + ["-H", hosts_path, "-u", user, "--pack"]
         + (["-v"] if cfg.verbose else [])
         + ["--", src_a, src_b, dest_abs]
     )
     run: LocalRun = _run_local_argv(argv)
 
-    def _ok_on(h: str) -> Tuple[bool, str]:
-        a_path: str = os.path.join(dest_abs, src_a.lstrip(os.sep), "a.txt")
-        b_path: str = os.path.join(dest_abs, src_b.lstrip(os.sep), "b.txt")
-        r1: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "test", "-f", a_path)
-        r2: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "test", "-f", b_path)
-        ok: bool = (r1.returncode == 0 and r2.returncode == 0)
-        return ok, f"{h}: a_rc={r1.returncode}, b_rc={r2.returncode}, a={a_path}, b={b_path}"
+    def _rel(src_dir: str) -> str:
+        return _as_posix_rel(os.path.abspath(src_dir))
 
-    ok_u: Tuple[bool, str] = _ok_on(cfg.host_ubuntu)
-    ok_a: Tuple[bool, str] = _ok_on(cfg.host_alma)
+    rel_a: str = _rel(src_a)
+    rel_b: str = _rel(src_b)
 
-    passed: bool = (run.rc == 0 and ok_u[0] and ok_a[0])
-    reason: str = "" if passed else f"rc={run.rc}; {ok_u[1]}; {ok_a[1]}"
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
-            "details": {"rc": run.rc, "rep_ubuntu": ok_u[1], "rep_alma": ok_a[1],
-                        "argv": " ".join(shlex.quote(a) for a in argv)}}
+    def _remote_path(src_rel: str, fname: str) -> str:
+        return os.path.join(dest_abs, src_rel, fname)
 
-def case_scatter_pack_dedup_roots(cfg: Config) -> Dict[str, object]:
+    ok_all: bool = True
+    for h in (ubuntu, alma):
+        for (src_rel, fname) in ((rel_a, "a.txt"), (rel_b, "b.txt")):
+            remote_path: str = _remote_path(src_rel, fname)
+            r: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict,
+                                                         "test", "-f", remote_path)
+            if r.returncode != 0:
+                ok_all = False
+
+    passed: bool = (run.rc == 0 and ok_all)
+    reason: str = "" if passed else f"rc={run.rc}, ok_all={ok_all}"
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
+            "rc": run.rc,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+            "rel_a": rel_a,
+            "rel_b": rel_b,
+        },
+    )
+
+def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
     """
     目的:
       --pack 時の _dedup_roots_for_pack による重複ルート除去を検証。
@@ -1908,12 +1859,12 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> Dict[str, object]:
         f"total_n_txt={cnt_total}, others_except_exp={cnt_others}, exp={exp}"
     )
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
             "rc": run.rc,
             "hosts_count": _hosts_cnt,
             "count_total_n_txt": cnt_total,
@@ -1925,10 +1876,10 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> Dict[str, object]:
             "snapshot_dest_stderr": snap_dest.get("stderr", ""),
             "snapshot_dest_rc": snap_dest.get("rc", ""),
         },
-    }
+    )
 
 
-def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> Dict[str, object]:
+def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> CaseResult:
     """
     目的:
       非 pack で、同名 basename のファイル（絶対/相対が混在）を同一 DEST に送っても
@@ -1980,11 +1931,16 @@ def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> Dict[str, 
     passed: bool = (run.rc == 0 and r1.returncode == 0 and r2.returncode == 0
               and (c1.stdout or "").strip() == "ABS" and (c2.stdout or "").strip() == "REL")
     reason: str = "" if passed else f"rc={run.rc}, r1={r1.returncode}, r2={r2.returncode}, c1={c1.stdout!r}, c2={c2.stdout!r}"
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
-            "details": {"rc": run.rc, "exp_abs": exp_abs, "exp_rel": exp_rel,
-                        "argv": " ".join(shlex.quote(a) for a in argv)}}
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "exp_abs": exp_abs, "exp_rel": exp_rel,
+                 "argv": " ".join(shlex.quote(a) for a in argv)},
+    )
 
-def case_gather_src_regex_absolute(cfg: Config) -> Dict[str, object]:
+def case_gather_src_regex_absolute(cfg: Config) -> CaseResult:
     """
     目的:
       gather の SRC を正規表現として解釈する（絶対パス）挙動の検証。
@@ -2033,12 +1989,17 @@ def case_gather_src_regex_absolute(cfg: Config) -> Dict[str, object]:
 
     passed: bool = (run.rc == 0 and b_ok and a_ng)
     reason: str = "" if passed else f"rc={run.rc}, b_ok={b_ok}, a_ng={a_ng}, exp_b={exp_b}, exp_a={exp_a}"
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
-            "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv),
-                        "exp_b": exp_b, "exp_a": exp_a}}
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv),
+                 "exp_b": exp_b, "exp_a": exp_a},
+    )
 
 
-def case_gather_src_regex_relative(cfg: Config) -> Dict[str, object]:
+def case_gather_src_regex_relative(cfg: Config) -> CaseResult:
     """
     目的:
       gather の SRC 正規表現（相対パス）挙動の検証（-u の HOME 相対）。
@@ -2086,12 +2047,17 @@ def case_gather_src_regex_relative(cfg: Config) -> Dict[str, object]:
 
     passed: bool = (run.rc == 0 and b_ok and a_ng)
     reason: str = "" if passed else f"rc={run.rc}, b_ok={b_ok}, a_ng={a_ng}, exp_b={exp_b}, exp_a={exp_a}"
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
-            "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv),
-                        "exp_b": exp_b, "exp_a": exp_a}}
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv),
+                 "exp_b": exp_b, "exp_a": exp_a},
+    )
 
 
-def case_gather_src_regex_negative(cfg: Config) -> Dict[str, object]:
+def case_gather_src_regex_negative(cfg: Config) -> CaseResult:
     """
     目的:
       誤マッチ防止（アンカー ^/$）の検証（絶対パス）。
@@ -2135,12 +2101,17 @@ def case_gather_src_regex_negative(cfg: Config) -> Dict[str, object]:
 
     passed: bool = (run.rc == 0 and ok_x and ng_bak)
     reason: str = "" if passed else f"rc={run.rc}, ok_x={ok_x}, ng_bak={ng_bak}, exp_x={exp_x}, exp_bak={exp_bak}"
-    return {"name": name, "passed": passed, "skipped": False, "reason": reason,
-            "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv),
-                        "exp_x": exp_x, "exp_bak": exp_bak}}
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv),
+                 "exp_x": exp_x, "exp_bak": exp_bak},
+    )
 
 
-def case_scatter_src_regex_absolute(cfg: Config) -> Dict[str, object]:
+def case_scatter_src_regex_absolute(cfg: Config) -> CaseResult:
     """
     目的:
       scatter の SRC を正規表現として解釈する（絶対パス）挙動の検証。
@@ -2187,15 +2158,15 @@ def case_scatter_src_regex_absolute(cfg: Config) -> Dict[str, object]:
     reason: str = "" if passed else (
         f"rc={run.rc}, b_rc={rb.returncode}, a_rc={ra.returncode}, exp_b={exp_b}, exp_a={exp_a}"
     )
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv)},
-    }
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv)},
+    )
 
-def case_scatter_src_regex_relative(cfg: Config) -> Dict[str, object]:
+def case_scatter_src_regex_relative(cfg: Config) -> CaseResult:
     """
     目的:
       scatter の SRC 正規表現（相対パス）挙動の検証。
@@ -2254,25 +2225,24 @@ def case_scatter_src_regex_relative(cfg: Config) -> Dict[str, object]:
     )
     # === ここまで追記 ===
 
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
             "rc": run.rc,
             "argv": " ".join(shlex.quote(a) for a in argv),
             "exp_b": exp_b,
             "exp_a": exp_a,
-            # 失敗時の深掘りに使えるスナップショット一式
             "snapshot_dest_stdout": snap_dest.get("stdout", ""),
             "snapshot_dest_stderr": snap_dest.get("stderr", ""),
             "snapshot_dest_rc": snap_dest.get("rc", ""),
             "scatter_dest_verbose_snapshot": snap_verbose,
         },
-    }
+    )
 
-def case_scatter_src_regex_negative(cfg: Config) -> Dict[str, object]:
+def case_scatter_src_regex_negative(cfg: Config) -> CaseResult:
     """
     目的:
       誤マッチ防止（アンカー ^/$）の検証。厳密一致のみ許容されること。
@@ -2318,63 +2288,59 @@ def case_scatter_src_regex_negative(cfg: Config) -> Dict[str, object]:
     reason: str = "" if passed else (
         f"rc={run.rc}, x_rc={r_x.returncode}, bak_rc={r_bak.returncode}, exp_x={exp_x}, exp_bak={exp_bak}"
     )
-    return {
-        "name": name,
-        "passed": passed,
-        "skipped": False,
-        "reason": reason,
-        "details": {"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv)},
-    }
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={"rc": run.rc, "argv": " ".join(shlex.quote(a) for a in argv)},
+    )
 
 # =========================
 # Main
 # =========================
 
-def main() -> None:
+def main() -> int:
     cfg: Config = load_config_from_env()
     _ = print_env(cfg)
-
-    results: List[Dict[str, object]] = []
-    try:
-        _ = _preflight(cfg)
-
-        results.append(case_path_semantics(cfg))
-
-        results.append(case_selinux_auto_ubuntu_skip(cfg))
-        results.append(case_selinux_mode_alma(cfg))
-        results.append(case_selinux_policy_ignore_on_ubuntu(cfg))
-        results.append(case_gather_src_abs_slash_ok(cfg))
-        results.append(case_gather_src_abs_tilde_ok(cfg))
-        results.append(case_gather_src_rel_home_ok(cfg))
-        results.append(case_gather_src_tilde_user_error(cfg))
-        results.append(case_scatter_dest_relative_ok_to_home(cfg))
-        results.append(case_scatter_dest_abs_variants(cfg))
-        results.append(case_gather_follow_symlinks_files(cfg))
-        results.append(case_scatter_follow_symlinks_files(cfg))
-        results.append(case_scatter_pack_extract_user(cfg))
-        results.append(case_scatter_pack_extract_sudo(cfg))
-        results.append(case_scatter_pack_extract_sudo_existing_root(cfg))
-        results.append(case_gather_double_nesting_regression(cfg))
-        results.append(case_scatter_src_path_layout_semantics(cfg))
-        results.append(case_scatter_dest_relative_to_remote_home(cfg))
-        results.append(case_scatter_dest_tilde_username_rejected(cfg))
-        results.append(case_scatter_nonpack_file_only_layout(cfg))
-        results.append(case_scatter_mixed_sources_two_hosts(cfg))
-        results.append(case_scatter_pack_dedup_roots(cfg))
-        results.append(case_scatter_nonpack_same_basename_collision_free(cfg))
-        results.append(case_gather_src_regex_absolute(cfg))
-        results.append(case_gather_src_regex_relative(cfg))
-        results.append(case_gather_src_regex_negative(cfg))
-        results.append(case_scatter_src_regex_absolute(cfg))
-        results.append(case_scatter_src_regex_relative(cfg))
-        results.append(case_scatter_src_regex_negative(cfg))
-
-        print("STEP4 SUMMARY")
-        summary: str = json.dumps({"results": results}, indent=2, ensure_ascii=False)
-        print(summary)
-    finally:
-        # 例外の有無に関わらずローカル一時ディレクトリを掃除
-        cleanup_local_temps(cfg)
+    _ = _preflight(cfg)
+    cases: List[Tuple[str, Callable[[Config], CaseResult]]] = [
+        ("path_semantics_roundtrip", case_path_semantics),
+        ("selinux_auto_ubuntu_skip", case_selinux_auto_ubuntu_skip),
+        ("selinux_mode_alma", case_selinux_mode_alma),
+        ("selinux_policy_ignore_on_ubuntu", case_selinux_policy_ignore_on_ubuntu),
+        ("gather_src_abs_slash_ok", case_gather_src_abs_slash_ok),
+        ("gather_src_abs_tilde_ok", case_gather_src_abs_tilde_ok),
+        ("gather_src_rel_home_ok", case_gather_src_rel_home_ok),
+        ("gather_src_tilde_user_error", case_gather_src_tilde_user_error),
+        ("scatter_dest_relative_ok_to_home", case_scatter_dest_relative_ok_to_home),
+        ("scatter_dest_abs_variants", case_scatter_dest_abs_variants),
+        ("gather_follow_symlinks_files", case_gather_follow_symlinks_files),
+        ("scatter_follow_symlinks_files", case_scatter_follow_symlinks_files),
+        ("scatter_pack_extract_user", case_scatter_pack_extract_user),
+        ("scatter_pack_extract_sudo", case_scatter_pack_extract_sudo),
+        ("scatter_pack_extract_sudo_existing_root", case_scatter_pack_extract_sudo_existing_root),
+        ("gather_double_nesting_regression", case_gather_double_nesting_regression),
+        ("scatter_src_path_layout_semantics", case_scatter_src_path_layout_semantics),
+        ("scatter_dest_relative_to_remote_home", case_scatter_dest_relative_to_remote_home),
+        ("scatter_dest_tilde_username_rejected", case_scatter_dest_tilde_username_rejected),
+        ("scatter_nonpack_file_only_layout", case_scatter_nonpack_file_only_layout),
+        ("scatter_mixed_sources_two_hosts", case_scatter_mixed_sources_two_hosts),
+        ("scatter_pack_dedup_roots", case_scatter_pack_dedup_roots),
+        ("scatter_nonpack_same_basename_collision_free", case_scatter_nonpack_same_basename_collision_free),
+        ("gather_src_regex_absolute", case_gather_src_regex_absolute),
+        ("gather_src_regex_relative", case_gather_src_regex_relative),
+        ("gather_src_regex_negative", case_gather_src_regex_negative),
+        ("scatter_src_regex_absolute", case_scatter_src_regex_absolute),
+        ("scatter_src_regex_relative", case_scatter_src_regex_relative),
+        ("scatter_src_regex_negative", case_scatter_src_regex_negative),
+    ]
+    summary: Dict[str, Any] = run_cases(step_number=4, cfg=cfg, cases=cases)
+    cleanup_local_temps(cfg)  # runner 固有クリーンアップ
+    # exit code: すべて passed か skipped なら 0、それ以外は 1
+    all_ok: bool = all(r["passed"] or r["skipped"] for r in summary.get("results", []))
+    return 0 if all_ok else 1
 
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+    _sys.exit(main())
