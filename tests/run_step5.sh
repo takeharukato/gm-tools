@@ -66,7 +66,7 @@ echo "PYTHON_BIN  : ${PYTHON_BIN}"
 # PYTHONPATH の設定:
 #  - ワークツリー直下の src を最優先に使う
 #  - tests_py（テストランナー）も解決可能にする
-export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
+export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
 
 # モジュールとして実行（Step4 と同じスタイル）
 set +e
