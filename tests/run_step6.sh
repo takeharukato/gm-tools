@@ -6,8 +6,10 @@
 #   3) ./run_step6.sh
 set -Eeuo pipefail
 
-# スクリプトの所在ディレクトリ（テストアーカイブ直下想定）
+# スクリプトの所在ディレクトリ（tests ディレクトリ想定）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# プロジェクトルート（tests の 1 つ上）を決定
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CWD="$(pwd)"
 
 # 1) 明示指定があれば最優先（例: ENV_FILE=./my.env ./run_step6.sh）
@@ -29,10 +31,10 @@ fi
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 echo "PYTHON_BIN  : ${PYTHON_BIN}"
 
-# tests_py をパッケージとして解決するため、tests ディレクトリ（SCRIPT_DIR）を
-# PYTHONPATH に含めれば十分です。
-# （SCRIPT_DIR/tests_py を残しても支障はありませんが、必須ではありません）
-export PYTHONPATH="${CWD}:${SCRIPT_DIR}:${PYTHONPATH:-}"
+# ワークツリー版 gm_tools と tests_py を解決できるよう PYTHONPATH を設定
+#  - PROJECT_ROOT/src : gm_tools パッケージ
+#  - SCRIPT_DIR/tests_py: runner_step6 などテストモジュール
+export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
 
 set +e
 # runner_step6 を「tests_py パッケージ配下のモジュール」として起動する

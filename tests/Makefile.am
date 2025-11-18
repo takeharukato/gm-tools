@@ -54,3 +54,12 @@ coverage:
 	else \
 	  echo "coverage module not available; skipping coverage"; \
 	fi
+
+#------------------------------------------------------
+# Clean up test logs (automake test harness + our logs)
+#------------------------------------------------------
+CLEANFILES = \
+       test-suite.log \
+       tests_py_step4.log \
+       tests_py_step5.log \
+       tests_py_step6.log

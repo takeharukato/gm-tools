@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+# スクリプトの所在ディレクトリ（tests ディレクトリ想定）
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# プロジェクトルート（tests の 1 つ上）を決定
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 CWD="$(pwd)"
 
 # 1) 明示指定があれば最優先（例: ENV_FILE=./my.env ./run_step4.sh）
@@ -28,4 +33,7 @@ echo "[env] SSH_USER=${SSH_USER} HOSTS_BOTH=${HOSTS_BOTH}"
 echo "[env] GM_GATHER_CMD='${GM_GATHER_CMD}'"
 echo "[env] GM_SCATTER_CMD='${GM_SCATTER_CMD}'"
 
-PYTHONPATH="${SCRIPT_DIR}" exec python3 -m tests_py.runner_step4
+# ワークツリー版 gm_tools と tests_py を解決できるよう PYTHONPATH を設定
+export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
+
+${PYTHON_BIN:-python3} -m tests_py.runner_step4 "$@"

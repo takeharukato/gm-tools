@@ -6,10 +6,10 @@
 #   3) ./run_step5.sh
 set -Eeuo pipefail
 
-# スクリプトの所在ディレクトリ（テストアーカイブ直下想定）
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# tests_env.sh を読み込み（未存在ならエラー）
+# スクリプトの所在ディレクトリ（tests ディレクトリ想定）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# プロジェクトルート（tests の 1 つ上）を決定
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CWD="$(pwd)"
 
 # 1) 明示指定があれば最優先（例: ENV_FILE=./my.env ./run_step4.sh）
@@ -62,10 +62,15 @@ fi
 # Python 実行（runner_step5.py は必要な入出力を results/step5 配下に保存）
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 echo "PYTHON_BIN  : ${PYTHON_BIN}"
-export PYTHONPATH="${CWD}:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
-# 環境変数を runner に継承して実行
+
+# PYTHONPATH の設定:
+#  - ワークツリー直下の src を最優先に使う
+#  - tests_py（テストランナー）も解決可能にする
+export PYTHONPATH="${PROJECT_ROOT}/src:${SCRIPT_DIR}:${SCRIPT_DIR}/tests_py:${PYTHONPATH:-}"
+
+# モジュールとして実行（Step4 と同じスタイル）
 set +e
-"${PYTHON_BIN}" -u "${SCRIPT_DIR}/tests_py/runner_step5.py"
+"${PYTHON_BIN}" -m tests_py.runner_step5
 RC=$?
 set -e
 

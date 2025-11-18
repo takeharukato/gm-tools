@@ -1,3 +1,6 @@
+"""
+テストで用いる環境依存のデフォルト定数を定義します（実行時に環境から評価）。
+"""
 from __future__ import annotations
 
 # SSH defaults

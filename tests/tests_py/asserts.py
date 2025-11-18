@@ -1,12 +1,21 @@
-
+"""
+テスト用のアサーションユーティリティ。終了コード検証と属性比較を提供します。
+"""
 from __future__ import annotations
 
 from typing import Dict, Iterable, Any, List
 
 def assert_rc(name: str, rc: int, expect_zero: bool = True) -> None:
-    """Assert return code according to expectation.
-    - If expect_zero is True (default), rc must be 0.
-    - If expect_zero is False, rc must be non-zero.
+    """
+    終了コードが期待条件に一致することを検証します。
+
+    Args:
+    - name (str): 対象名（エラーメッセージ用）。
+    - rc (int): 実際の終了コード。
+    - expect_zero (bool): True の場合 0 を期待、False の場合は非 0 を期待。
+
+    Raises:
+    - AssertionError: 期待と異なる場合。
     """
     if expect_zero and rc != 0:
         raise AssertionError(f"{name}: expected rc=0 but got {rc}")
@@ -14,7 +23,15 @@ def assert_rc(name: str, rc: int, expect_zero: bool = True) -> None:
         raise AssertionError(f"{name}: expected non-zero rc but got 0")
 
 def _norm_mode(m: Any) -> str:
-    """Normalize a mode value to 3-digit octal string (e.g., '640')."""
+    """
+    モード値を 3 桁の 8 進文字列（例: '640'）へ正規化します。
+
+    Args:
+    - m (Any): モード表現。
+
+    Returns:
+    - str: 正規化された 3 桁 8 進文字列（失敗時は入力の文字列表現）。
+    """
     if m is None:
         return ""
     try:
@@ -46,6 +63,15 @@ def _norm_mode(m: Any) -> str:
         return str(m)
 
 def _norm_owner(o: Any) -> str:
+    """
+    所有者表現を 'user:group' 形式へ正規化します。
+
+    Args:
+    - o (Any): 所有者表現。
+
+    Returns:
+    - str: 正規化後の所有者。
+    """
     if o is None:
         return ""
     s = str(o).strip()
@@ -59,10 +85,16 @@ def _norm_owner(o: Any) -> str:
 def compare_attr_maps(src: Dict[str, Any],
                       dst: Dict[str, Any],
                       keys: Iterable[str] = ("mode", "owner")) -> None:
-    """Compare attribute maps of two paths.
-    By default compares 'mode' and 'owner'. Extend `keys` to include 'acl', 'xattr', 'selinux' when desired.
+    """
+    2 つの属性マップを比較し、差異があれば詳細を含めて失敗させます。
 
-    Raises AssertionError with a detailed diff on mismatch.
+    Args:
+    - src (Dict[str, Any]): 期待側の属性マップ。
+    - dst (Dict[str, Any]): 実測側の属性マップ。
+    - keys (Iterable[str]): 比較対象キー（既定は 'mode' と 'owner'）。
+
+    Raises:
+    - AssertionError: 差分が検出された場合（詳細メッセージ付き）。
     """
     diffs: List[str] = []
     for k in keys:
