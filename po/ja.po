@@ -40,8 +40,7 @@ msgstr "親がシンボリックリンクのため, ファイルの展開をス�
 #: src/gm_tools/core_archive.py:525
 #, python-format
 msgid "skip extracting hardlink due to symlinked parent: %s -> %s"
-msgstr ""
-"親がシンボリックリンクのため, ハードリンクの展開をスキップします: %s -> %s"
+msgstr "親がシンボリックリンクのため, ハードリンクの展開をスキップします: %s -> %s"
 
 #: src/gm_tools/core_archive.py:550
 #, python-format
@@ -63,17 +62,6 @@ msgstr "リンク先を解決できないため, ハードリンクをスキッ�
 msgid "[pack] downloaded %s -> extracted %d file(s) to %s"
 msgstr "[pack] %s を取得しました -> %d 個のファイルを %s に展開しました"
 
-#: src/gm_tools/core_scatter.py:617
-#, python-format
-msgid "[overwrite error] host=%(host)s dst=%(dst)s rc=%(rc)s err=%(err)s"
-msgstr "[上書きエラー] host=%(host)s dst=%(dst)s rc=%(rc)s err=%(err)s"
-
-#: src/gm_tools/core_select.py:263 src/gm_tools/core_select.py:361
-#, python-format
-msgid "reject SRC outside HOME (relative not confined): %s (%s)"
-msgstr ""
-"HOME 外の取得元(SRC)のため拒否します ( 相対パスが HOME 内に制限されていませ"
-"ん ) : %s (%s)"
 
 #: src/gm_tools/core_select.py:268 src/gm_tools/core_select.py:365
 #, python-format
@@ -102,7 +90,20 @@ msgid "directory-SRC sudo-walk failed at root=%s"
 msgstr ""
 "ディレクトリ取得元(SRC)の管理者権限(sudo)での走査に失敗しました: root=%s"
 
-#: src/gm_tools/scatter_cli.py:73
+#: src/gm_tools/core_select.py:263 src/gm_tools/core_select.py:361
+#, python-format
+msgid "reject SRC outside HOME (relative not confined): %s (%s)"
+msgstr ""
+"HOME 外の取得元(SRC)のため拒否します ( 相対パスが HOME 内に制限されていません ) : %s (%s)"
+
+#: src/gm_tools/core_scatter.py:617
+#, python-format
+msgid "[overwrite error] host=%(host)s dst=%(dst)s rc=%(rc)s err=%(err)s"
+msgstr "[上書きエラー] host=%(host)s dst=%(dst)s rc=%(rc)s err=%(err)s"
+
+#: src/gm_tools/gather_cli.py:82
+#: src/gm_tools/gather_cli.py:112
+#, python-format
 msgid "Target account on remote %(default)s."
 msgstr "リモートホスト上の対象アカウントです ( 既定: %(default)s ) 。"
 
@@ -139,6 +140,98 @@ msgstr ""
 "ホスト単位の並列数です ( ホスト内の並列ではありません ) 。既定値: "
 "%(default)s。"
 
+#: src/gm_tools/gather_cli.py:82
+msgid ""
+"gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
+"Usage: gm-gather [SRC ...] DEST\n"
+"  - SRC:\n"
+"      * '/...': absolute on remote (UNIX)\n"
+"      * 'X:/...': absolute on remote (Windows)\n"
+"      * '~/...': expanded by -u user's HOME on remote\n"
+"      * RELATIVE: treated as '-u' user's HOME-relative,\n"
+"                  HOME escape via '..' is rejected.\n"
+"    The portion after the root is treated as a regex path.\n"
+"    e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/.*', 'var/log/.*'.\n"
+"  - DEST: local directory where files are stored as DEST/<HOST>/..."
+msgstr ""
+"gm-gather: リモートホスト上のファイルを SFTP ( またはリモートでの tar ) でローカルの格納先(DEST)へダウンロードします。\n"
+"Usage: gm-gather [SRC ...] DEST\n"
+"  - 取得元(SRC):\n"
+"      * '/...': リモートホスト上の絶対パス ( UNIX )\n"
+"      * 'X:/...': リモートホスト上の絶対パス ( Windows )\n"
+"      * '~/...': `-u` ユーザーの HOME に展開されます ( リモート )\n"
+"      * RELATIVE: `-u` ユーザーの HOME 相対として扱われ,\n"
+"                  '..' による HOME からの脱出は拒否されます。\n"
+"    ルートディレクトリより後ろの部分は正規表現パスとして扱います。\n"
+"    例: '/etc/hosts' ( リテラル ) , '/var/log/.*\\.log' ( 正規表現 ) , '~/foo/.*', 'var/log/.*'\n"
+"  - 格納先(DEST): ファイルはローカルディレクトリに DEST/<HOST>/... として保存されます"
+
+#: src/gm_tools/gather_cli.py:100
+msgid ""
+"One or more SRC path patterns. Absolute ('/','X:/','~/') or HOME-relative."
+msgstr "1 つ以上の取得元(SRC)パスパターンです。'/'・'X:/'・'~/' の絶対パスまたは HOME 相対を指定します。"
+
+#: src/gm_tools/gather_cli.py:102
+msgid "Local destination directory."
+msgstr "ローカルの格納先ディレクトリです。"
+
+#: src/gm_tools/gather_cli.py:109 src/gm_tools/scatter_cli.py:94
+#, python-format
+msgid "Hosts file. Default: %(default)s."
+msgstr "ホストファイルです。既定値: %(default)s。"
+
+#: src/gm_tools/gather_cli.py:141
+msgid "Show plan only; do not download."
+msgstr "計画のみ表示し, ダウンロードしません。"
+
+#: src/gm_tools/gather_cli.py:142 src/gm_tools/scatter_cli.py:127
+msgid "Verbose logs."
+msgstr "詳細ログを出力します。"
+
+#: src/gm_tools/gather_cli.py:143
+msgid "Pack on remote (tar.gz) and download once."
+msgstr "リモートホスト上で tar.gz にパックして一度でダウンロードします。"
+
+#: src/gm_tools/gather_cli.py:149
+msgid "When used with --pack, dereference symlinks on remote."
+msgstr "`--pack` を使用する場合, リモートホスト上でシンボリックリンクを参照解決(dereference)します。"
+
+#: src/gm_tools/gather_cli.py:156
+msgid ""
+"Use sudo for remote packing/collection (pack path only). Omitted = auto "
+"(enabled when ssh-user != --user)."
+msgstr ""
+"リモートホスト上でのパック/収集 ( pack 対象パスのみ ) に管理者権限(sudo)を使用します。"
+"省略時は自動 ( ssh-user != --user の場合に有効化 ) 。"
+
+#: src/gm_tools/gather_cli.py:404 src/gm_tools/scatter_cli.py:488
+msgid "At least one SRC and a DEST are required."
+msgstr "少なくとも 1 つの取得元(SRC)と格納先(DEST)が必要です。"
+
+#: src/gm_tools/gather_cli.py:412
+#, python-format
+msgid "Error: tilde with username is not supported in DEST: ~%(user)s"
+msgstr "エラー: 格納先(DEST)でユーザー名付きチルダはサポートされていません: ~%(user)s"
+
+#: src/gm_tools/gather_cli.py:428
+#, python-format
+msgid "Error: tilde with username is not supported in SRC: ~%(user)s"
+msgstr "エラー: 取得元(SRC)でユーザー名付きチルダはサポートされていません: ~%(user)s"
+
+#: src/gm_tools/gather_cli.py:433 src/gm_tools/scatter_cli.py:493
+msgid "No hosts found in hosts file."
+msgstr "ホストファイルにホストが見つかりません。"
+
+#: src/gm_tools/gather_cli.py:535
+msgid ""
+"Interrupt requested; cancelling remaining transfers (some hosts may have "
+"partial results)."
+msgstr ""
+"割り込み要求を受信しました。残りの転送をキャンセルします ( 一部のホストで部分的な結果が残る可能性があります ) 。"
+
+
+
+#: src/gm_tools/scatter_cli.py:73
 msgid ""
 "gm-scatter: upload local files to remote DEST.\n"
 "Usage: gm-scatter [SRC ...] DEST\n"
