@@ -101,6 +101,7 @@ po/remove-potcdate.sed
 po/*.gmo
 po/POTFILES
 po/stamp-po
+messages.mo
 
 # coverage output
 coverage/

@@ -63,17 +63,6 @@ from .core_signal_handling import (
     register_signal_handlers,
 )
 
-# === Module-level constants ===
-_DESC: str = (
-    "gm-scatter: upload local files to remote DEST.\n"
-    "Usage: gm-scatter [SRC ...] DEST\n"
-    "Remote layout: DEST/<rel>/...  where rel =\n"
-    "  - for absolute SRC: <local_abs_without_leading_slash>\n"
-    "  - for relative SRC: the original relative path"
-)
-ERR_TILDE_USERNAME: Final[str] = "tilde with username is not supported"
-ERR_BARE_TILDE: Final[str] = "bare tilde is not allowed"
-
 # Null Object: 読み捨て用のレポートシンク
 # None は使わず常に TransferReport を渡す
 _NULL_REPORT: Final[NullTransferReport] = NullTransferReport()
@@ -81,7 +70,19 @@ _NULL_REPORT: Final[NullTransferReport] = NullTransferReport()
 def build_parser() -> argparse.ArgumentParser:
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog="gm-scatter",
-        description=_(_DESC),
+        description=_("gm-scatter: upload local files to remote DEST.\n"
+        "Usage: gm-scatter [SRC ...] DEST\n"
+        "  - SRC:\n"
+        "      * '/...': absolute on local (UNIX)\n"
+        "      * 'X:/...': absolute on local (Windows)\n"
+        "      * '~/...': expanded by current user's HOME on local\n"
+        "      * RELATIVE: relative path from current directory\n"
+        "    The portion after the root is treated as a regex path.\n"
+        "    e.g., '/etc/hosts' (literal), '/var/log/.*\\.log' (regex), '~/foo/.*', 'var/log/.*'.\n"
+        "  - DEST: remote directory where files are stored as DEST/...\n"
+        "Remote layout: DEST/<rel>/...  where rel =\n"
+        "  - for absolute SRC: <local_abs_without_leading_slash>\n"
+        "  - for relative SRC: the original relative path"),
         formatter_class=argparse.RawTextHelpFormatter,
     )
     # 位置引数: SRC ... DEST
@@ -166,10 +167,10 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
     u: Optional[str] = tilde_username(d)
     if u is not None:
         # "~user/..." は非対応
-        return "", ERR_TILDE_USERNAME
+        return "", _("tilde with username is not supported")
     if d == "~":
         # 素の "~" は非対応
-        return "", ERR_BARE_TILDE
+        return "", _("bare tilde is not allowed")
     if d.startswith("~/"):
         tail: str = d[1:].lstrip("/\\")
         return (remote_home if not tail else f"{remote_home}/{tail}"), None
@@ -244,7 +245,7 @@ def _build_plan_for_host(
     for s in srcs_raw:
         u: Optional[str] = tilde_username(s)
         if u is not None:
-            print(_(ERR_TILDE_USERNAME), file=sys.stderr)
+            print(_("tilde with username is not supported"), file=sys.stderr)
             raise SystemExit(EXIT_ERR_ARGS)
 
     # SRC を scatter 仕様に基づいて解決 ( ~/ は実行ユーザ HOME 展開、相対は cwd 起点 )
