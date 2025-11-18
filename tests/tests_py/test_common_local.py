@@ -1,3 +1,6 @@
+"""
+ローカル一時ディレクトリのクリーンアップと、ローカル実行の薄いラッパを提供します。
+"""
 # tests/tests_py/test_common_local.py
 from __future__ import annotations
 
@@ -11,9 +14,15 @@ from ._local_types import LocalRun
 
 def cleanup_local_temps(cfg: Config, rel_dirs: Optional[List[str]] = None) -> None:
     """
-    共通のローカル一時ディレクトリクリーンアップ。
-      - cfg.local_root を安全に削除
-      - rel_dirs が与えられた場合、カレント配下の相対ディレクトリについても安全に削除
+    共通のローカル一時ディレクトリクリーンアップを行います。
+
+    Args:
+    - cfg (Config): 実行時構成（`local_root` を参照）。
+    - rel_dirs (Optional[List[str]]): カレント配下の相対ディレクトリ群。
+
+    Notes:
+    - `cfg.local_root` を安全に削除します。
+    - `rel_dirs` が与えられた場合、それらも安全に削除します。
     """
     cwd: str = os.getcwd()
     safe_rmtree_abs(cfg.local_root, ensure_under=cwd)
@@ -24,8 +33,13 @@ def cleanup_local_temps(cfg: Config, rel_dirs: Optional[List[str]] = None) -> No
 
 def run_local_with_argv(argv: List[str]) -> LocalRun:
     """
-    公開ローカル実行ヘルパ。
-      - gmwrap 公開関数を使用してコマンドを実行し、rc/stdout/stderr を返す。
+    公開ローカル実行ヘルパ。`gmwrap` の公開関数で実行し、結果を `LocalRun` として返します。
+
+    Args:
+    - argv (List[str]): 実行するコマンドライン。
+
+    Returns:
+    - LocalRun: 実行結果（rc/stdout/stderr）。
     """
     res: Any = _gm_run_local_argv_public(argv)
     return LocalRun(int(getattr(res, "rc", 0)), str(getattr(res, "stdout", "")), str(getattr(res, "stderr", "")))

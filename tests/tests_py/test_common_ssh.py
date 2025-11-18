@@ -1,3 +1,6 @@
+"""
+SSH 実行ラッパと Step6 向けのダミーオープナー。
+"""
 # gm-tools-tests-20251116/tests_py/test_common_ssh.py
 
 from __future__ import annotations
@@ -12,14 +15,30 @@ from gm_tools.core_ssh import SSHClientLike, SFTPClientLike
 
 def ssh_run(cfg: Config, host: str, argv: Sequence[str]) -> CommandResult:
     """
-    非 sudo の SSH 実行ラッパ。
+    非 sudo の SSH 実行ラッパです。
+
+    Args:
+    - cfg (Config): 実行時構成。
+    - host (str): 対象ホスト。
+    - argv (Sequence[str]): 実行するコマンド引数列。
+
+    Returns:
+    - CommandResult: 実行結果（rc/stdout/stderr）。
     """
     return sshexec.run_remote(cfg, host, list(argv))
 
 
 def ssh_run_sudo(cfg: Config, host: str, argv: Sequence[str]) -> CommandResult:
     """
-    sudo 経由の SSH 実行ラッパ。
+    sudo 経由の SSH 実行ラッパです。
+
+    Args:
+    - cfg (Config): 実行時構成。
+    - host (str): 対象ホスト。
+    - argv (Sequence[str]): 実行するコマンド引数列。
+
+    Returns:
+    - CommandResult: 実行結果（rc/stdout/stderr）。
     """
     return sshexec.run_sudo(cfg, host, list(argv))
 
@@ -33,16 +52,35 @@ def ssh_pipe_to_tee(
     sudo: bool = False,
 ) -> CommandResult:
     """
-    tee を使ってリモートの path に content を流し込むラッパ。
+    `tee` を使ってリモートの `path` に `content` を流し込みます。
+
+    Args:
+    - cfg (Config): 実行時構成。
+    - host (str): 対象ホスト。
+    - path (str): 書き込み先のパス。
+    - content (str): 書き込む内容。
+    - sudo (bool): sudo 経由で実行する場合は True。
+
+    Returns:
+    - CommandResult: 実行結果（rc/stdout/stderr）。
     """
     return sshexec.pipe_to_tee(cfg, host, path, content, sudo=sudo)
 
 
 def ssh_get_remote_home(cfg: Config, host: str, user: str) -> str:
     """
-    リモートのユーザーの HOME を `getent passwd <user>` から取得するユーティリティ。
-    - 成功時は絶対パスの HOME を文字列で返す
-    - 失敗や不正な形式の場合は AssertionError を送出
+    `getent passwd <user>` からリモートユーザの HOME を取得します。
+
+    Args:
+    - cfg (Config): 実行時構成。
+    - host (str): 対象ホスト。
+    - user (str): 対象ユーザ。
+
+    Returns:
+    - str: 絶対パスの HOME。
+
+    Raises:
+    - AssertionError: コマンド失敗/エントリ不正/絶対パスでない場合。
     """
     r: CommandResult = ssh_run(cfg, host, ["getent", "passwd", user])
     if r.rc != 0:
@@ -66,17 +104,45 @@ def ssh_run_raw(
     strict: Union[bool, str],
     *remote_argv: str,
 ) -> subprocess.CompletedProcess[str]:
-    """素の SSH 実行の実装層に委譲"""
+    """
+    素の SSH 実行の実装層に委譲します。
+
+    Args:
+    - ssh_user (str): SSH ユーザ。
+    - host (str): 対象ホスト。
+    - port (int): ポート番号。
+    - strict (Union[bool, str]): StrictHostKeyChecking 設定。
+    - remote_argv (str): リモートに渡す引数列。
+
+    Returns:
+    - subprocess.CompletedProcess[str]: 実行結果。
+    """
     return sshexec.ssh_run_raw(ssh_user, host, port, strict, *remote_argv)
 
 
 def dummy_open_ssh(host: str) -> SSHClientLike:
-    """テスト用のダミー SSH オープナー（Step6 用ユーティリティ）。"""
+    """
+    テスト用のダミー SSH オープナー（Step6 用）。
+
+    Args:
+    - host (str): 対象ホスト。
+
+    Returns:
+    - SSHClientLike: ダミーオブジェクト。
+    """
     _ = host
     return cast(SSHClientLike, object())
 
 
 def dummy_open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
-    """テスト用のダミー SFTP オープナー（Step6 用ユーティリティ）。"""
+    """
+    テスト用のダミー SFTP オープナー（Step6 用）。
+
+    Args:
+    - ssh (SSHClientLike): ダミー SSH クライアント。
+
+    Returns:
+    - SFTPClientLike: ダミーオブジェクト。
+    """
     _ = ssh
     return cast(SFTPClientLike, object())

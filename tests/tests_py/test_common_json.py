@@ -1,11 +1,12 @@
+"""
+JSON summary の統一実装。
+
+Version: 1 (2025-11-16)
+
+Step4/5/6 runner に共通の JSON 形式 (schema version 1) を生成・出力します。
+"""
 # tests/tests_py/test_common_json.py
 # JSON summary の統一実装
-#
-# Version: 1 (2025-11-16)
-#
-# このモジュールは Step4/5/6 runner に共通の
-# JSON 形式 (schema version 1) を生成する責務を持つ。
-#
 
 from __future__ import annotations
 
@@ -17,7 +18,12 @@ from .test_common_config import snapshot_config
 
 
 def _make_timestamp() -> str:
-    """ISO-8601（TZ付き）で timestamp を生成"""
+    """
+    ISO-8601（タイムゾーン付き）のタイムスタンプを生成します。
+
+    Returns:
+    - str: ローカルタイムゾーン付き ISO-8601 文字列。
+    """
     return datetime.now(timezone.utc).astimezone().isoformat()
 
 
@@ -32,7 +38,16 @@ def make_summary(
     version: int = 1,
 ) -> SummaryDict:
     """
-    統一 JSON summary (v1) を dict として構築する。
+    統一 JSON summary (v1) を辞書として構築します。
+
+    Args:
+    - step_number (int): 実行ステップ番号。
+    - cfg (Config): 実行時構成。
+    - results (List[CaseResult]): ケース結果の配列。
+    - version (int): スキーマバージョン（既定: 1）。
+
+    Returns:
+    - SummaryDict: サマリ辞書（JSON シリアライズ可能）。
     """
 
     # Config snapshot → dict 化
@@ -57,8 +72,13 @@ def make_summary(
 
 def serialize_summary(summary: SummaryDict) -> str:
     """
-    JSON テキストとしてエンコードする。
-    ランナーはこの JSON テキストを print するだけ。
+    サマリを JSON テキストにエンコードします。
+
+    Args:
+    - summary (SummaryDict): サマリ辞書。
+
+    Returns:
+    - str: 整形（インデント付き）の JSON 文字列。
     """
     return json.dumps(
         summary,
@@ -69,15 +89,26 @@ def serialize_summary(summary: SummaryDict) -> str:
 
 def print_summary(summary: SummaryDict) -> None:
     """
-    標準出力に JSON summary を出す（runner 用）。
+    標準出力に JSON summary を出力します（runner 用）。
+
+    Args:
+    - summary (SummaryDict): サマリ辞書。
     """
     print(serialize_summary(summary))
 
 
 def write_summary_file(summary: SummaryDict, step: int, directory: str = ".") -> str:
     """
-    summary_step<step>.json という固定名で JSON ファイルに書き出す。
+    `summary_step<step>.json` という固定名で JSON ファイルに書き出します。
     失敗しても例外は伝播させずパスを返す（best-effort）。
+
+    Args:
+    - summary (SummaryDict): サマリ辞書。
+    - step (int): ステップ番号。
+    - directory (str): 出力ディレクトリ（既定: '.'）。
+
+    Returns:
+    - str: 書き出し先のファイルパス。
     """
     import os
     path: str = os.path.join(directory, f"summary_step{step}.json")
@@ -92,10 +123,16 @@ def write_summary_file(summary: SummaryDict, step: int, directory: str = ".") ->
 
 def print_human_summary(summary: SummaryDict) -> None:
     """
-    人間可読の英語テーブル形式で結果一覧を表示し、失敗ケースは details を JSON で全出力する。
+    人間可読のテーブル形式で結果一覧を表示し、失敗ケースは details を JSON で出力します。
+
+    Args:
+    - summary (SummaryDict): サマリ辞書。
+
+    Notes:
     - Header: Step / counts
-    - Table: NAME | RESULT | SKIP | REASON (reason は 80 文字で切り詰め)
+    - Table: NAME | RESULT | SKIP | REASON（reason は 80 文字で切り詰め）
     - Fail 詳細: 全 details を pretty-print
+    - `xskip`（意図的スキップ）/ `untested` をカウントに反映します。
     """
     results: List[SummaryResultEntry] = summary["results"]
     step: Any = summary["step"]
