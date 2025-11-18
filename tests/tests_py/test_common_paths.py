@@ -9,21 +9,21 @@ from typing import Optional
 
 
 def as_posix_rel(path_abs: str) -> str:
-        """
-        絶対パスをリモート展開用の相対表記へ正規化する:
-            - OS 区切りを '/' に統一
-            - 先頭の '/' はすべて除去
-            - 末尾のスラッシュ有無は入力を尊重（存在すれば保持）
-                例:
-                    '/tmp/a/b/'        -> 'tmp/a/b/'
-                    'C:\\work\\x\\y'   -> 'C/work/x/y'
-        """
-        s0: str = path_abs.replace("\\", "/")
-        had_trailing: bool = s0.endswith("/")
-        s: str = s0.lstrip("/")
-        if had_trailing and not s.endswith("/"):
-                s = s + "/"
-        return s
+    """
+    絶対パスをリモート展開用の相対表記へ正規化する:
+        - OS 区切りを '/' に統一
+        - 先頭の '/' はすべて除去
+        - 末尾のスラッシュ有無は入力を尊重（存在すれば保持）
+            例:
+                '/tmp/a/b/'        -> 'tmp/a/b/'
+                'C:\\work\\x\\y'   -> 'C/work/x/y'
+    """
+    s0: str = path_abs.replace("\\", "/")
+    had_trailing: bool = s0.endswith("/")
+    s: str = s0.lstrip("/")
+    if had_trailing and not s.endswith("/"):
+            s = s + "/"
+    return s
 
 
 def ensure_under(base: str, path_abs: str) -> bool:
