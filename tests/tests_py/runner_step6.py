@@ -9,7 +9,7 @@ import time
 from pathlib import Path as _Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from ._local_types import Config, CaseResult
+from ._local_types import Config, CaseResult, SummaryDict, SummaryResultEntry
 from .test_common_config import load_config_from_env, print_env
 from .test_common_ssh import dummy_open_ssh, dummy_open_sftp
 from .test_common_runner import run_cases
@@ -194,14 +194,23 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
         setattr(gather_parallel, "_run_host_gather", orig_run_host_gather)
         stopper_thread.join(timeout=1.0)
 
+    api_call: str = (
+        "gather_parallel.execute(hosts=%r, remote_root=%r, dest_root=%r, parallel=%d, "
+        "verbose=%r, graceful_stop=GracefulStop, open_ssh=dummy_open_ssh, open_sftp=dummy_open_sftp, "
+        "pull_one=dummy_pull_one)" % (hosts, "/remote", str(_Path("/local/dest")), 2, False)
+    )
+
     details: Dict[str, object] = {
         "rc": rc if rc is not None else -1,
         "abort_seen": abort_seen_box[0],
         "cleanup_calls": cleanup_calls_box[0],
         "host_calls": list(host_calls_box),
+        "hosts": list(hosts),
         "api_mismatch": api_mismatch,
         "api_mismatch_reason": api_mismatch_reason,
         "exc_repr": exc_repr,
+        "api_call": api_call,
+        "plan_entries": [e.relpath for e in plan.entries],
     }
 
     case_name: str = "gather_parallel_abort_via_graceful_stop"
@@ -362,14 +371,23 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
         setattr(scatter_parallel, "_run_host_scatter", orig_run_host_scatter)
         stopper_thread.join(timeout=1.0)
 
+    api_call: str = (
+        "scatter_parallel.execute(hosts=%r, remote_root=%r, src_root=%r, parallel=%d, "
+        "verbose=%r, graceful_stop=GracefulStop, open_ssh=dummy_open_ssh, open_sftp=dummy_open_sftp, "
+        "push_one=dummy_push_one)" % (hosts, "/remote", str(_Path("/local/src")), 2, False)
+    )
+
     details: Dict[str, object] = {
         "rc": rc if rc is not None else -1,
         "abort_seen": abort_seen_box[0],
         "cleanup_calls": cleanup_calls_box[0],
         "host_calls": list(host_calls_box),
+        "hosts": list(hosts),
         "api_mismatch": api_mismatch,
         "api_mismatch_reason": api_mismatch_reason,
         "exc_repr": exc_repr,
+        "api_call": api_call,
+        "plan_entries": [e.relpath for e in plan.entries],
     }
 
     case_name: str = "scatter_parallel_abort_via_graceful_stop"
@@ -406,7 +424,7 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
     )
 
 
-def main() -> None:
+def main() -> int:
     """
     Config をロードし、Step6 用テストケース群を共通ランナーで実行する。
     """
@@ -418,9 +436,13 @@ def main() -> None:
         ("scatter_parallel_abort_via_graceful_stop", case_scatter_parallel_abort_via_graceful_stop),
     ]
 
+    exit_code: int = 1
     try:
         # 共通フレームワークに実行と JSON summary 出力を委譲
-        _ = run_cases(step_number=6, cfg=cfg, cases=cases)
+        _summary: SummaryDict = run_cases(step_number=6, cfg=cfg, cases=cases)
+        results: List[SummaryResultEntry] = _summary["results"]
+        all_ok: bool = all(r["passed"] or r["skipped"] for r in results)
+        exit_code = 0 if all_ok else 1
     finally:
         # ---------------------------------------------------------
         # Cleanup: Step6 テスト用ローカル作業ディレクトリの削除（共有実装）
@@ -436,6 +458,8 @@ def main() -> None:
             # Best-effort cleanup: テスト結果を壊さないため、例外は握りつぶす。
             pass
 
+    return exit_code
 
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+    _sys.exit(main())

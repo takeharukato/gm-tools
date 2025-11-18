@@ -6,9 +6,9 @@ import os
 import shlex
 import shutil
 from pathlib import Path
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Tuple, Optional
 
-from ._local_types import Config
+from ._local_types import Config, ConfigSnapshot
 from .constants import (
     SSH_PORT_DEFAULT,
     SSH_STRICT_DEFAULT,
@@ -133,7 +133,7 @@ def load_config_from_env(*, clear_local_root: bool = True) -> Config:
 
     return cfg
 
-def snapshot_config(cfg: Config) -> Dict[str, Any]:
+def snapshot_config(cfg: Config) -> ConfigSnapshot:
     """
     Config を JSON 互換の dict[str, Any] としてスナップショットするヘルパー。
 
@@ -141,7 +141,7 @@ def snapshot_config(cfg: Config) -> Dict[str, Any]:
     - list や dict フィールドは shallow copy しておく
     - 将来 Config にフィールドが増えた場合は、ここをメンテナンスする
     """
-    result: Dict[str, Any] = {
+    result: ConfigSnapshot = {
         "ssh_user": cfg.ssh_user,
         "target_user": cfg.target_user,
         "hosts_both": list(cfg.hosts_both),

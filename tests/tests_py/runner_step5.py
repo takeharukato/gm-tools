@@ -17,7 +17,7 @@ from typing import Dict, List, Tuple, IO, TypeAlias, Callable
 # =========================
 
 
-from ._local_types import Config, CaseResult, CommandResult, LocalRun
+from ._local_types import Config, CaseResult, CommandResult, LocalRun, SummaryDict, SummaryResultEntry
 from .asserts import assert_rc
 from .test_common_config import load_config_from_env, print_env, resolve_parallel_pair_from_env
 from .test_common_runner import run_cases
@@ -105,13 +105,33 @@ def _preflight(cfg: Config) -> None:
             "chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", cfg.remote_dest_root
         ])
         assert_rc(f"{host}: chown remote_dest_root", r_chown.rc, expect_zero=True)
-
+        # 収集（ベストエフォート）
+        try:
+            pf: List[str] = getattr(cfg, "extra_preflight_cmds", [])  # type: ignore
+            pf.extend([
+                f"{host}: sudo -V",
+                f"{host}: sudo -n true",
+                f"{host}: sudo mkdir -p -- {cfg.remote_dest_root}",
+                f"{host}: sudo chown -R -- {cfg.target_user}:{cfg.target_user} {cfg.remote_dest_root}",
+            ])
+            setattr(cfg, "extra_preflight_cmds", pf)
+        except Exception:
+            pass
         i += 1
 
     # ローカル作業ルートをクリア
     cwd: str = os.getcwd()
     safe_rmtree_abs(cfg.local_root, ensure_under=cwd)
     os.makedirs(cfg.local_root, exist_ok=True)
+    try:
+        prep: List[str] = getattr(cfg, "extra_prep_cmds", [])  # type: ignore
+        prep.extend([
+            f"local: rm -rf -- {cfg.local_root}",
+            f"local: mkdir -p -- {cfg.local_root}",
+        ])
+        setattr(cfg, "extra_prep_cmds", prep)
+    except Exception:
+        pass
 
 
 # =========================
@@ -145,6 +165,20 @@ def _prepare_local_parallel_sources(cfg: Config) -> List[str]:
         _ = wf.write("C\n")
 
     src_files: List[str] = [file1, file2, file3]
+    # 準備コマンド（擬似）を cfg に収集（ベストエフォート）
+    try:
+        prep: List[str] = getattr(cfg, "extra_prep_cmds", [])  # type: ignore
+        prep.extend([
+            f"local: rm -rf -- {src_root}",
+            f"local: mkdir -p -- {dir1}",
+            f"local: mkdir -p -- {dir2}",
+            f"local: printf 'A\\n' > {file1}",
+            f"local: printf 'B\\n' > {file2}",
+            f"local: printf 'C\\n' > {file3}",
+        ])
+        setattr(cfg, "extra_prep_cmds", prep)
+    except Exception:
+        pass
     return src_files
 
 
@@ -167,6 +201,17 @@ def _prepare_remote_dest_for_all_hosts(cfg: Config, dest_rel: str) -> str:
             cfg, host, ["chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", dest_abs]
         )
         assert_rc(f"{host}: chown dest_abs", r_chown.rc, expect_zero=True)
+        # 収集
+        try:
+            prep: List[str] = getattr(cfg, "extra_prep_cmds", [])  # type: ignore
+            prep.extend([
+                f"{host}: sudo rm -rf -- {dest_abs}",
+                f"{host}: sudo mkdir -p -- {dest_abs}",
+                f"{host}: sudo chown -R -- {cfg.target_user}:{cfg.target_user} {dest_abs}",
+            ])
+            setattr(cfg, "extra_prep_cmds", prep)
+        except Exception:
+            pass
         i += 1
     return dest_abs
 
@@ -211,6 +256,18 @@ def _prepare_remote_parallel_sources(cfg: Config) -> str:
             cfg, host, ["bash", "-lc", script]
         )
         assert_rc(f"{host}: populate remote_src_root", r_populate.rc, expect_zero=True)
+        # 収集
+        try:
+            prep: List[str] = getattr(cfg, "extra_prep_cmds", [])  # type: ignore
+            prep.extend([
+                f"{host}: sudo rm -rf -- {remote_src_root}",
+                f"{host}: sudo mkdir -p -- {remote_src_root}",
+                f"{host}: sudo chown -R -- {cfg.target_user}:{cfg.target_user} {remote_src_root}",
+                f"{host}: bash -lc <populate script>",
+            ])
+            setattr(cfg, "extra_prep_cmds", prep)
+        except Exception:
+            pass
 
         i += 1
 
@@ -392,7 +449,7 @@ def _run_scatter_parallel(
     *,
     pack: bool,
     parallel: int,
-) -> Tuple[LocalRun, AllHostsState]:
+) -> Tuple[LocalRun, AllHostsState, str, str]:
     """
     指定 SRC 一覧を指定 DEST に scatter し、その後 DEST の状態を採取して返す。
       - pack=True の場合は --pack を付与
@@ -428,7 +485,8 @@ def _run_scatter_parallel(
     assert_rc("scatter run", run.rc, expect_zero=True)
 
     states: AllHostsState = _collect_remote_state_all_hosts(cfg, dest_abs)
-    return run, states
+    argv_str: str = " ".join(shlex.quote(a) for a in argv)
+    return run, states, argv_str, hosts_path
 
 
 # =========================
@@ -442,7 +500,7 @@ def _run_gather_parallel(
     *,
     pack: bool,
     parallel: int,
-) -> Tuple[LocalRun, AllHostsState]:
+) -> Tuple[LocalRun, AllHostsState, str, str]:
     """
     指定リモート SRC ルートをローカル DEST に gather し、その後 DEST の状態を採取して返す。
       - pack=True の場合は --pack を付与
@@ -481,7 +539,8 @@ def _run_gather_parallel(
     assert_rc("gather run", run.rc, expect_zero=True)
 
     states: AllHostsState = _collect_local_state_all_hosts(dest_abs, cfg.hosts_both)
-    return run, states
+    argv_str: str = " ".join(shlex.quote(a) for a in argv)
+    return run, states, argv_str, hosts_path
 
 
 # =========================
@@ -507,13 +566,17 @@ def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
 
     run_j1: LocalRun
     state_j1: AllHostsState
-    run_j1, state_j1 = _run_scatter_parallel(
+    argv_j1: str
+    hosts_file_j1: str
+    run_j1, state_j1, argv_j1, hosts_file_j1 = _run_scatter_parallel(
         cfg, src_files, dest_rel_j1, pack=False, parallel=j1
     )
 
     run_j2: LocalRun
     state_j2: AllHostsState
-    run_j2, state_j2 = _run_scatter_parallel(
+    argv_j2: str
+    hosts_file_j2: str
+    run_j2, state_j2, argv_j2, hosts_file_j2 = _run_scatter_parallel(
         cfg, src_files, dest_rel_j2, pack=False, parallel=j2
     )
 
@@ -546,9 +609,14 @@ def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
         "run_j1_rc": run_j1.rc,
         "run_j1_stdout": run_j1.stdout,
         "run_j1_stderr": run_j1.stderr,
+        "run_j1_argv": argv_j1,
+        "run_j1_hosts_file": hosts_file_j1,
         "run_j2_rc": run_j2.rc,
         "run_j2_stdout": run_j2.stdout,
         "run_j2_stderr": run_j2.stderr,
+        "run_j2_argv": argv_j2,
+        "run_j2_hosts_file": hosts_file_j2,
+        "src_files": src_files,
         "dest_j1_verbose_snapshot": dest_j1_verbose,
         "dest_j2_verbose_snapshot": dest_j2_verbose,
     }
@@ -580,13 +648,17 @@ def case_scatter_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
 
     run_j1: LocalRun
     state_j1: AllHostsState
-    run_j1, state_j1 = _run_scatter_parallel(
+    argv_j1: str
+    hosts_file_j1: str
+    run_j1, state_j1, argv_j1, hosts_file_j1 = _run_scatter_parallel(
         cfg, src_files, dest_rel_j1, pack=True, parallel=j1
     )
 
     run_j2: LocalRun
     state_j2: AllHostsState
-    run_j2, state_j2 = _run_scatter_parallel(
+    argv_j2: str
+    hosts_file_j2: str
+    run_j2, state_j2, argv_j2, hosts_file_j2 = _run_scatter_parallel(
         cfg, src_files, dest_rel_j2, pack=True, parallel=j2
     )
 
@@ -618,9 +690,14 @@ def case_scatter_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
         "run_j1_rc": run_j1.rc,
         "run_j1_stdout": run_j1.stdout,
         "run_j1_stderr": run_j1.stderr,
+        "run_j1_argv": argv_j1,
+        "run_j1_hosts_file": hosts_file_j1,
         "run_j2_rc": run_j2.rc,
         "run_j2_stdout": run_j2.stdout,
         "run_j2_stderr": run_j2.stderr,
+        "run_j2_argv": argv_j2,
+        "run_j2_hosts_file": hosts_file_j2,
+        "src_files": src_files,
         "dest_j1_verbose_snapshot": dest_j1_verbose,
         "dest_j2_verbose_snapshot": dest_j2_verbose,
     }
@@ -664,13 +741,17 @@ def case_gather_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
 
     run_j1: LocalRun
     state_j1: AllHostsState
-    run_j1, state_j1 = _run_gather_parallel(
+    argv_j1: str
+    hosts_file_j1: str
+    run_j1, state_j1, argv_j1, hosts_file_j1 = _run_gather_parallel(
         cfg, remote_src_root, dest_rel_j1, pack=False, parallel=j1
     )
 
     run_j2: LocalRun
     state_j2: AllHostsState
-    run_j2, state_j2 = _run_gather_parallel(
+    argv_j2: str
+    hosts_file_j2: str
+    run_j2, state_j2, argv_j2, hosts_file_j2 = _run_gather_parallel(
         cfg, remote_src_root, dest_rel_j2, pack=False, parallel=j2
     )
 
@@ -699,9 +780,13 @@ def case_gather_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
         "run_j1_rc": run_j1.rc,
         "run_j1_stdout": run_j1.stdout,
         "run_j1_stderr": run_j1.stderr,
+        "run_j1_argv": argv_j1,
+        "run_j1_hosts_file": hosts_file_j1,
         "run_j2_rc": run_j2.rc,
         "run_j2_stdout": run_j2.stdout,
         "run_j2_stderr": run_j2.stderr,
+        "run_j2_argv": argv_j2,
+        "run_j2_hosts_file": hosts_file_j2,
     }
 
     return CaseResult(
@@ -739,13 +824,17 @@ def case_gather_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
 
     run_j1: LocalRun
     state_j1: AllHostsState
-    run_j1, state_j1 = _run_gather_parallel(
+    argv_j1: str
+    hosts_file_j1: str
+    run_j1, state_j1, argv_j1, hosts_file_j1 = _run_gather_parallel(
         cfg, remote_src_root, dest_rel_j1, pack=True, parallel=j1
     )
 
     run_j2: LocalRun
     state_j2: AllHostsState
-    run_j2, state_j2 = _run_gather_parallel(
+    argv_j2: str
+    hosts_file_j2: str
+    run_j2, state_j2, argv_j2, hosts_file_j2 = _run_gather_parallel(
         cfg, remote_src_root, dest_rel_j2, pack=True, parallel=j2
     )
 
@@ -774,9 +863,13 @@ def case_gather_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
         "run_j1_rc": run_j1.rc,
         "run_j1_stdout": run_j1.stdout,
         "run_j1_stderr": run_j1.stderr,
+        "run_j1_argv": argv_j1,
+        "run_j1_hosts_file": hosts_file_j1,
         "run_j2_rc": run_j2.rc,
         "run_j2_stdout": run_j2.stdout,
         "run_j2_stderr": run_j2.stderr,
+        "run_j2_argv": argv_j2,
+        "run_j2_hosts_file": hosts_file_j2,
     }
 
     return CaseResult(
@@ -791,13 +884,14 @@ def case_gather_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
 # Main
 # =========================
 
-def main() -> None:
+def main() -> int:
     # 共通 Config を使用する。Step5 では local_work_root を毎回クリアしたいので
     # clear_local_root=True を指定する。
     cfg: Config = load_config_from_env(clear_local_root=True)
 
     _ = print_env(cfg)
 
+    exit_code: int = 1
     try:
         _preflight_result = _preflight(cfg)
 
@@ -809,10 +903,15 @@ def main() -> None:
         ]
 
         # 共通ランナーに実行と JSON summary 出力を委譲
-        _run_case_results = run_cases(step_number=5, cfg=cfg, cases=cases)
+        _run_case_results: SummaryDict = run_cases(step_number=5, cfg=cfg, cases=cases)
+        results: List[SummaryResultEntry] = _run_case_results["results"]
+        all_ok: bool = all(r["passed"] or r["skipped"] for r in results)
+        exit_code = 0 if all_ok else 1
     finally:
         # Step5 ではローカル一時ディレクトリを runner 側で確実に削除する
         cleanup_local_temps(cfg)
+    return exit_code
 
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+    _sys.exit(main())

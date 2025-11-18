@@ -7,6 +7,8 @@ import os
 import tempfile
 from typing import IO, List
 
+_CREATED_HOSTS_FILES: List[str] = []
+
 
 def write_temp_hosts(hosts: List[str]) -> str:
     """
@@ -26,4 +28,11 @@ def write_temp_hosts(hosts: List[str]) -> str:
             h: str = hosts[i]
             _ = f.write(h + "\n")
             i += 1
+    try:
+        _CREATED_HOSTS_FILES.append(path)
+    except Exception:
+        pass
     return path
+
+def get_created_hosts_files() -> List[str]:
+    return list(_CREATED_HOSTS_FILES)

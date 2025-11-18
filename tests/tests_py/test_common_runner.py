@@ -10,22 +10,26 @@
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Tuple, Any
+from typing import Callable, List, Tuple, Any
 
 from ._local_types import (
     Config,
-    CaseResult
+    CaseResult,
+    SummaryDict,
 )
 from .test_common_json import (
     make_summary,
-    print_summary
+    print_summary,
+    write_summary_file,
+    print_human_summary,
 )
 from .test_common_cleanup import cleanup_test_temp
+from . import test_common_hosts as _hosts_mod
 
 def _run_case_safely(
     case_name: str,
     cfg: Config,
-    case_func: Callable[[Config], CaseResult],
+    case_func: Callable[[Config], Any],
 ) -> CaseResult:
     """
     テストケースを安全に実行し、例外も CaseResult として返す。
@@ -33,7 +37,7 @@ def _run_case_safely(
     try:
         result = case_func(cfg)
         # case_func が CaseResult を返さなかった場合の保険
-        if not isinstance(result, CaseResult):  # type: ignore
+        if not isinstance(result, CaseResult):
             return CaseResult(
                 name=case_name,
                 passed=False,
@@ -61,7 +65,7 @@ def run_cases(
     step_number: int,
     cfg: Config,
     cases: List[Tuple[str, Callable[[Config], CaseResult]]],
-) -> Dict[str, Any]:
+) -> SummaryDict:
     """
     Step4/5/6 runner の共通処理：
 
@@ -74,10 +78,27 @@ def run_cases(
 
     for case_name, case_func in cases:
         r = _run_case_safely(case_name, cfg, case_func)
+        # 追加メタ: preflight / preparation コマンドを各ケース details に付与
+        try:
+            pf = getattr(cfg, "extra_preflight_cmds", None)
+            if pf:
+                r.details.setdefault("preflight_cmds", list(pf))
+            prep = getattr(cfg, "extra_prep_cmds", None)
+            if prep:
+                r.details.setdefault("prep_cmds", list(prep))
+            try:
+                hosts_files = _hosts_mod.get_created_hosts_files()
+                if hosts_files:
+                    r.details.setdefault("hosts_files", list(hosts_files))
+            except Exception:
+                pass
+        except Exception:
+            # details 付与はベストエフォート
+            pass
         results.append(r)
 
     # summary を生成
-    summary = make_summary(
+    summary: SummaryDict = make_summary(
         step_number=step_number,
         cfg=cfg,
         results=results,
@@ -88,5 +109,8 @@ def run_cases(
 
     # Runner は print だけ行う
     print_summary(summary)
+    written_path: str = write_summary_file(summary, step=step_number)
+    print(f"[summary-file] path={written_path}")
+    print_human_summary(summary)
 
     return summary

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import shlex
-from typing import Dict, List, Optional, Tuple, IO, Callable, Any, Union
+from typing import Dict, List, Optional, Tuple, IO, Callable, Union
 from ._local_types import Config, CaseResult, CommandResult, LocalRun
 from .asserts import assert_rc  # 共有のassertを使用
 from .test_common_config import load_config_from_env as load_common_config, print_env
@@ -34,24 +34,12 @@ from .test_common_paths import walk_find_first, as_posix_rel
 
 from .test_common_hosts import write_temp_hosts as _write_temp_hosts
 
+# 収集用グローバル（ベストエフォート）
+_STEP4_PREFLIGHT_CMDS: List[str] = []
+
 def cleanup_local_temps(cfg: Config) -> None:
     # 共有のクリーンアップ関数に委譲（Step4は相対作業ディレクトリも併せて削除）
     _cleanup_local_temps(cfg, rel_dirs=["nf_rel", "nonpack_rel_dir", "sc_layout_rel_src"])
-
-
-## moved to test_common_snapshot.snapshot_scatter_dest_verbose
-
-# =========================
-# 共有ヘルパ（外部モジュール不要）
-# =========================
-
-# asserts.assert_rc を使用するためローカル定義を削除
-
-
-## moved to test_common_cleanup.create_clean_dir
-
-## 共有 SSH ラッパを直接使用する。
-
 
 
 # =========================
@@ -60,21 +48,14 @@ def cleanup_local_temps(cfg: Config) -> None:
 
 # NOTE: Config は tests/tests_py/_local_types.py からインポートした共有定義を使用する。
 
-## _walk_find_first は test_common_paths.walk_find_first を使用
-
 def load_config_from_env() -> Config:
         """共有ローダをそのまま利用して Config を取得 (Step4 用)。"""
         cfg: Config = load_common_config(clear_local_root=True)
         return cfg
 
-## moved to test_common_config.print_env
-
 # =========================
 # 前処理と素材作成
 # =========================
-
-## moved to test_common_ssh.ssh_get_remote_home
-
 
 def _prepare_remote_sample_tree(cfg: Config, host: str, user: str, rel_root_name: str) -> None:
     """
@@ -101,6 +82,22 @@ def _prepare_remote_sample_tree(cfg: Config, host: str, user: str, rel_root_name
     r6: CommandResult = _ssh_pipe_to_tee_common(cfg, host, b_txt, "B\n", sudo=False)
     assert_rc(f"{host}: tee {b_txt}", r6.rc, expect_zero=True)
 
+    # 準備コマンドを cfg に収集
+    cmd_list: List[str] = [
+        f"{host}: mkdir -p -- {src_dir}",
+        f"{host}: sudo chown -R -- {user}:{user} {abs_root}",
+        f"{host}: mkdir -p -- {dir1}",
+        f"{host}: sudo chown -R -- {user}:{user} {dir1}",
+        f"{host}: tee {a_txt}",
+        f"{host}: tee {b_txt}",
+    ]
+    try:
+        prev: List[str] = getattr(cfg, "extra_prep_cmds", [])  # type: ignore
+        prev.extend(cmd_list)
+        setattr(cfg, "extra_prep_cmds", prev)
+    except Exception:
+        pass
+
 
 def _preflight(cfg: Config) -> None:
     """
@@ -124,6 +121,14 @@ def _preflight(cfg: Config) -> None:
             ["chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", cfg.remote_dest_root]
         )
         assert_rc(f"{h}: chown remote_dest_root", r4.rc, expect_zero=True)
+        # 収集（ベストエフォート）
+        try:
+            _STEP4_PREFLIGHT_CMDS.append(f"{h}: sudo -V")
+            _STEP4_PREFLIGHT_CMDS.append(f"{h}: sudo -n true")
+            _STEP4_PREFLIGHT_CMDS.append(f"{h}: sudo mkdir -p -- {cfg.remote_dest_root}")
+            _STEP4_PREFLIGHT_CMDS.append(f"{h}: sudo chown -R -- {cfg.target_user}:{cfg.target_user} {cfg.remote_dest_root}")
+        except Exception:
+            pass
         i += 1
 
     i2: int = 0
@@ -143,7 +148,19 @@ def _preflight(cfg: Config) -> None:
             ["ln", "-sf", "--", "/tmp/gm_pack_case/secret.txt", "/tmp/gm_pack_case/secret.link"]
         )
         assert_rc(f"{h2}: ln secret.link", r3.rc, expect_zero=True)
+        try:
+            _STEP4_PREFLIGHT_CMDS.append(f"{h2}: sudo rm -rf -- /tmp/gm_pack_case")
+            _STEP4_PREFLIGHT_CMDS.append(f"{h2}: sudo mkdir -p -- /tmp/gm_pack_case")
+            _STEP4_PREFLIGHT_CMDS.append(f"{h2}: sudo tee /tmp/gm_pack_case/secret.txt")
+            _STEP4_PREFLIGHT_CMDS.append(f"{h2}: sudo ln -sf -- /tmp/gm_pack_case/secret.txt /tmp/gm_pack_case/secret.link")
+        except Exception:
+            pass
         i2 += 1
+    # cfg にエクスポート
+    try:
+        setattr(cfg, "extra_preflight_cmds", list(_STEP4_PREFLIGHT_CMDS))
+    except Exception:
+        pass
 
 
 # =========================
@@ -188,12 +205,19 @@ def case_selinux_auto_ubuntu_skip(cfg: Config) -> CaseResult:
     run: LocalRun = _run_local_argv(argv)
     ok: bool = (run.rc == 0)
 
+    details: Dict[str, object] = {
+        "argv": " ".join(shlex.quote(a) for a in argv),
+    }
+    if not available[0]:
+        details["xskip"] = True
+        details["skip_cause"] = "selinux_not_available_on_ubuntu"
+
     return CaseResult(
         name=name,
         passed=ok,
         skipped=not available[0],
         reason="" if ok else (run.stderr or "").strip(),
-        details={},
+        details=details,
     )
 
 
@@ -257,8 +281,14 @@ def case_path_semantics(cfg: Config) -> CaseResult:
     reason: str = "" if passed else f"gather_rc={run_g.rc}, scatter_rc={run_s.rc}"
 
     details: Dict[str, object] = {
-        "gather": {"rc": run_g.rc, "stdout": run_g.stdout, "stderr": run_g.stderr},
-        "scatter": {"rc": run_s.rc, "stdout": run_s.stdout, "stderr": run_s.stderr},
+        "gather": {
+            "rc": run_g.rc, "stdout": run_g.stdout, "stderr": run_g.stderr,
+            "argv": " ".join(shlex.quote(a) for a in argv_g),
+        },
+        "scatter": {
+            "rc": run_s.rc, "stdout": run_s.stdout, "stderr": run_s.stderr,
+            "argv": " ".join(shlex.quote(a) for a in argv_s),
+        },
     }
     return CaseResult(
         name=name,
@@ -302,7 +332,10 @@ def case_gather_src_abs_slash_ok(cfg: Config) -> CaseResult:
         passed=ok,
         skipped=False,
         reason="" if ok else run.stderr.strip(),
-        details={"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
+        details={
+            "rc": run.rc, "stdout": run.stdout, "stderr": run.stderr,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+        },
     )
 
 
@@ -341,7 +374,10 @@ def case_gather_src_abs_tilde_ok(cfg: Config) -> CaseResult:
         passed=ok,
         skipped=False,
         reason="" if ok else run.stderr.strip(),
-        details={"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
+        details={
+            "rc": run.rc, "stdout": run.stdout, "stderr": run.stderr,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+        },
     )
 
 
@@ -412,7 +448,10 @@ def case_gather_src_tilde_user_error(cfg: Config) -> CaseResult:
         passed=ok,
         skipped=False,
         reason="" if ok else "gather accepted ~user unexpectedly",
-        details={"rc": run.rc, "stdout": run.stdout, "stderr": run.stderr},
+        details={
+            "rc": run.rc, "stdout": run.stdout, "stderr": run.stderr,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+        },
     )
 
 
@@ -567,6 +606,9 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
             "stdout_ok": run_ok.stdout, "stderr_ok": run_ok.stderr,
             "stdout_tilde": run_tilde.stdout, "stderr_tilde": run_tilde.stderr,
             "stdout_win": run_win.stdout, "stderr_win": run_win.stderr,
+            "argv_ok": " ".join(shlex.quote(a) for a in argv_ok),
+            "argv_tilde": " ".join(shlex.quote(a) for a in argv_tilde),
+            "argv_win": " ".join(shlex.quote(a) for a in argv_win),
         },
     )
 
@@ -785,6 +827,8 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
             "yes_rc": run_yes.rc,
             "remote_no_l": remote_no_l,
             "remote_yes_l": remote_yes_l,
+            "argv_no": " ".join(shlex.quote(a) for a in argv_no),
+            "argv_yes": " ".join(shlex.quote(a) for a in argv_yes),
         },
     )
 
@@ -830,7 +874,10 @@ def case_scatter_pack_extract_user(cfg: Config) -> CaseResult:
     passed: bool = (run.rc == 0 and r_stat_u.rc == 0 and owner == f"{user}:{user}")
     reason: str = "" if passed else f"rc={run.rc}, owner={owner!r}"
 
-    return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={"rc": run.rc, "owner": owner})
+    return CaseResult(
+        name=name, passed=passed, skipped=False, reason=reason,
+        details={"rc": run.rc, "owner": owner, "argv": " ".join(shlex.quote(a) for a in argv)}
+    )
 
 # 12) scatter --pack --sudo-extract（未存在 → ユーザ権限で作成される仕様）
 
@@ -884,7 +931,11 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> CaseResult:
         f"rc={run.rc}, stat_rc={r_stat.rc}, owner={owner!r}, path={remote_r}"
     )
 
-    return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={"rc": run.rc, "owner": owner, "remote_r": remote_r})
+    return CaseResult(
+        name=name, passed=passed, skipped=False, reason=reason,
+        details={"rc": run.rc, "owner": owner, "remote_r": remote_r,
+                 "argv": " ".join(shlex.quote(a) for a in argv)}
+    )
 
 # 12b) scatter --pack --sudo-extract（既存ファイルあり → root 展開されることを検証）
 
@@ -950,7 +1001,11 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> CaseResult:
         f"rc={run.rc}, stat_rc={r_stat.rc}, owner={owner!r}, content={content_after!r}, path={remote_r}"
     )
 
-    return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={"rc": run.rc, "owner": owner, "remote_r": remote_r, "content_after": content_after})
+    return CaseResult(
+        name=name, passed=passed, skipped=False, reason=reason,
+        details={"rc": run.rc, "owner": owner, "remote_r": remote_r, "content_after": content_after,
+                 "argv": " ".join(shlex.quote(a) for a in argv)}
+    )
 
 # ---------------------------------------------------------------------------
 # 13) Ubuntu: --selinux policy はエラー、--selinux ignore は成功（dry-run）
@@ -994,6 +1049,8 @@ def case_selinux_policy_ignore_on_ubuntu(cfg: Config) -> CaseResult:
         "policy_stderr": run_policy.stderr,
         "ignore_stdout": run_ignore.stdout,
         "ignore_stderr": run_ignore.stderr,
+        "argv_policy": " ".join(shlex.quote(a) for a in argv_policy),
+        "argv_ignore": " ".join(shlex.quote(a) for a in argv_ignore),
     })
 
 # ---------------------------------------------------------------------------
@@ -2041,10 +2098,12 @@ def main() -> int:
         ("scatter_src_regex_relative", case_scatter_src_regex_relative),
         ("scatter_src_regex_negative", case_scatter_src_regex_negative),
     ]
-    summary: Dict[str, Any] = run_cases(step_number=4, cfg=cfg, cases=cases)
+    from ._local_types import SummaryDict, SummaryResultEntry
+    summary: SummaryDict = run_cases(step_number=4, cfg=cfg, cases=cases)
     cleanup_local_temps(cfg)  # runner 固有クリーンアップ
     # exit code: すべて passed か skipped なら 0、それ以外は 1
-    all_ok: bool = all(r["passed"] or r["skipped"] for r in summary.get("results", []))
+    results: List[SummaryResultEntry] = summary["results"]
+    all_ok: bool = all(r["passed"] or r["skipped"] for r in results)
     return 0 if all_ok else 1
 
 if __name__ == "__main__":
