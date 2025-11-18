@@ -10,7 +10,7 @@ from pathlib import Path as _Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from ._local_types import Config, CaseResult
-from .test_common_config import load_config_from_env
+from .test_common_config import load_config_from_env, print_env
 from .test_common_runner import run_cases
 from .test_common_cleanup import cleanup_dir
 
@@ -426,6 +426,7 @@ def main() -> None:
     Config をロードし、Step6 用テストケース群を共通ランナーで実行する。
     """
     cfg: Config = load_config_from_env()
+    _ = print_env(cfg)
 
     cases: List[Tuple[str, Callable[[Config], CaseResult]]] = [
         ("gather_parallel_abort_via_graceful_stop", case_gather_parallel_abort_via_graceful_stop),

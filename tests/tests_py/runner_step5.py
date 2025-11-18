@@ -47,19 +47,6 @@ def cleanup_local_temps(cfg: Config) -> None:
     _cleanup_local_temps(cfg)
 
 
-# =========================
-
-
-
-## run_local_with_argv/LocalRun は共有実装を使用
-
-
-# _write_temp_hosts は共有実装に委譲（互換エイリアス）
-
-
-## moved to test_common_config.resolve_parallel_pair_from_env
-
-
 def _hash_file_sha256(path: str) -> str:
     """
     ローカルファイル path の sha256 ハッシュ値（16進文字列）を返す。
@@ -89,10 +76,6 @@ def _all_hosts_state_snapshot(states: AllHostsState) -> Dict[str, List[str]]:
         lines.sort()
         snapshot[host] = lines
     return snapshot
-
-
-## moved to test_common_config.print_env
-
 
 # =========================
 # 前処理
