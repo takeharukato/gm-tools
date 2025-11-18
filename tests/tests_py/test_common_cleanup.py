@@ -1,7 +1,28 @@
+from typing import Optional
+import os
+from .test_common_paths import ensure_under as _ensure_under
+ 
+
+def create_clean_dir(path: str, *, ensure_under: Optional[str] = None) -> None:
+    """
+    ディレクトリ内容を安全にクリア（存在しなければ作成）。
+    - ensure_under が与えられた場合は、その配下のみ動作。
+    - 共有 cleanup_dir に委譲して削除後、空ディレクトリを再作成。
+    """
+    try:
+        p: str = os.path.abspath(path)
+        if ensure_under is not None and not _ensure_under(ensure_under, p):
+            return
+        if os.path.exists(p):
+            cleanup_dir(p)
+        os.makedirs(p, exist_ok=True)
+    except Exception:
+        # テストユーティリティのため、失敗時は握りつぶす
+        pass
 # tests/tests_py/test_common_cleanup.py
 # Step7: cleanup の統合責務モジュール
 
-from __future__ import annotations
+ 
 
 import shutil
 from pathlib import Path

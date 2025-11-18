@@ -9,6 +9,13 @@ def _run_local_argv(argv: List[str]) -> CommandResult:
     p = subprocess.run(argv, capture_output=True, text=True)
     return CommandResult(p.returncode, p.stdout, p.stderr)
 
+def gm_run_local_with_argv(argv: List[str]) -> CommandResult:
+        """
+        公開API: gmツールのローカル実行を行い、rc/stdout/stderr を返す。
+        既存の _run_local_argv を安定インターフェースとしてエクスポートする。
+        """
+        return _run_local_argv(argv)
+
 def run_gather(cfg: Config, host: str, user: str, src: str, dest: str, extra: List[str]) -> CommandResult:
     argv: List[str] = list(cfg.gm_gather_cmd) + ["-u", user, "-n"]
     argv: List[str] = list(cfg.gm_scatter_cmd) + ["-u", user, "-n"]

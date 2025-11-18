@@ -12,10 +12,12 @@ import hashlib
 import os
 import shlex
 import subprocess
-import tempfile
 from dataclasses import dataclass
-from types import SimpleNamespace as _CPShim
-from typing import Dict, List, Optional, Tuple, IO, TypeAlias, Callable, Union
+from typing import Dict, List, Optional, Tuple, IO, TypeAlias, Callable, Union, Any
+# =========================
+# 型エイリアス
+# =========================
+
 
 from ._local_types import Config, CaseResult
 from .asserts import assert_rc
@@ -26,8 +28,13 @@ from .test_common_ssh import (
     ssh_run as _ssh_run_common,
     ssh_run_sudo as _ssh_run_sudo_common,
 )
-from .gmwrap import _run_local_argv as _gm_run_local_argv
+from .test_common_snapshot import (
+    snapshot_scatter_dest_verbose as _snapshot_scatter_dest_verbose,
+)
+from .test_common_local import cleanup_local_temps as _cleanup_local_temps
+from .gmwrap import gm_run_local_with_argv as _gm_run_local_argv_public
 from .test_common_hosts import write_temp_hosts as _write_temp_hosts
+from .test_common_paths import ensure_under as _ensure_under
 
 # =========================
 # 型エイリアス
@@ -48,10 +55,8 @@ def _safe_rmtree_abs(path_abs: str, *, ensure_under: Optional[str] = None) -> No
     """
     try:
         p: str = os.path.abspath(path_abs)
-        if ensure_under is not None:
-            base: str = os.path.abspath(ensure_under)
-            if not (p == base or p.startswith(base + os.sep)):
-                return
+        if ensure_under is not None and not _ensure_under(ensure_under, p):
+            return
         if not os.path.isabs(p):
             return
         if os.path.islink(p):
@@ -63,28 +68,24 @@ def _safe_rmtree_abs(path_abs: str, *, ensure_under: Optional[str] = None) -> No
 
 
 def cleanup_local_temps(cfg: Config) -> None:
-    """
-    テストで作成するローカル一時ディレクトリを削除する。
-      - cfg.local_root (= _tmp_test_local/)
-    """
-    cwd: str = os.getcwd()
-    _safe_rmtree_abs(cfg.local_root, ensure_under=cwd)
+    # Step5 は local_root のみ対象
+    _cleanup_local_temps(cfg)
 
 
 # =========================
 # 共有ヘルパ
 # =========================
 
-_CFG_FOR_SSH: Optional[Config] = None
+_cfg_for_ssh: Optional[Config] = None
 
 def _set_cfg_for_ssh(cfg: Config) -> None:
-    global _CFG_FOR_SSH
-    _CFG_FOR_SSH = cfg
+    global _cfg_for_ssh
+    _cfg_for_ssh = cfg
 
 def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
-    if _CFG_FOR_SSH is not None:
-        r = _ssh_run_common(_CFG_FOR_SSH, host, list(remote_argv))
-        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    if _cfg_for_ssh is not None:
+        r = _ssh_run_common(_cfg_for_ssh, host, list(remote_argv))
+        return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
     argv: List[str] = [
         "ssh",
         "-p",
@@ -95,12 +96,12 @@ def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remot
         f"{ssh_user}@{host}",
     ] + list(remote_argv)
     p = subprocess.run(argv, capture_output=True, text=True)
-    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
+    return p
 
 def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
-    if _CFG_FOR_SSH is not None:
-        r = _ssh_run_sudo_common(_CFG_FOR_SSH, host, list(remote_argv))
-        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    if _cfg_for_ssh is not None:
+        r = _ssh_run_sudo_common(_cfg_for_ssh, host, list(remote_argv))
+        return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
     argv: List[str] = [
         "ssh",
         "-p",
@@ -113,7 +114,7 @@ def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *rem
         "-n",
     ] + list(remote_argv)
     p = subprocess.run(argv, capture_output=True, text=True)
-    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
+    return p
 
 
 @dataclass(frozen=True)
@@ -124,8 +125,8 @@ class LocalRun:
 
 
 def _run_local_argv(argv: List[str]) -> LocalRun:
-    r = _gm_run_local_argv(argv)
-    return LocalRun(r.rc, r.stdout, r.stderr)
+    res: Any = _gm_run_local_argv_public(argv)
+    return LocalRun(int(getattr(res, "rc", 0)), str(getattr(res, "stdout", "")), str(getattr(res, "stderr", "")))
 
 
 # _write_temp_hosts は共有実装に委譲（互換エイリアス）
@@ -179,7 +180,9 @@ def _all_hosts_state_snapshot(states: AllHostsState) -> Dict[str, List[str]]:
 
 
 def print_env(cfg: Config) -> None:
-    msg1 = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)} PARALLEL={cfg.parallel}"
+    # Pylance: cfg.parallel が型未定義の環境でも警告にならないよう、自前で解決して表示
+    j1, j2 = _resolve_parallel_pair_from_env()
+    msg1 = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)} PARALLEL={j1}/{j2}"
     msg2 = f"[env] GM_GATHER_CMD='{shlex.join(cfg.gm_gather_cmd)}'"
     msg3 = f"[env] GM_SCATTER_CMD='{shlex.join(cfg.gm_scatter_cmd)}'"
     print(msg1)
@@ -664,11 +667,23 @@ def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
     passed: bool = same
     reason: str = "" if passed else f"layout/content differs between j={j1} and j={j2}: {reason_diff}"
 
+    # 参考: DEST 側の詳細スナップショット（1ホスト分、診断用。合否には影響しない）
+    ref_host: str = cfg.hosts_both[0] if cfg.hosts_both else "localhost"
+    dest_abs_j1: str = os.path.join(cfg.remote_dest_root, dest_rel_j1)
+    dest_abs_j2: str = os.path.join(cfg.remote_dest_root, dest_rel_j2)
+    # 共有の詳細スナップショット（whoami/stat/find/tree/存在チェックは find/tree のみ）
+    dest_j1_verbose = _snapshot_scatter_dest_verbose(
+        cfg.ssh_user, ref_host, cfg.ssh_port, cfg.ssh_strict_bool, dest_abs_j1, maxdepth=6
+    )
+    dest_j2_verbose = _snapshot_scatter_dest_verbose(
+        cfg.ssh_user, ref_host, cfg.ssh_port, cfg.ssh_strict_bool, dest_abs_j2, maxdepth=6
+    )
+
     details: Dict[str, object] = {
         "j1": j1,
         "j2": j2,
-        "dest_j1": os.path.join(cfg.remote_dest_root, dest_rel_j1),
-        "dest_j2": os.path.join(cfg.remote_dest_root, dest_rel_j2),
+        "dest_j1": dest_abs_j1,
+        "dest_j2": dest_abs_j2,
         "state_j1_hosts": sorted(list(state_j1.keys())),
         "state_j2_hosts": sorted(list(state_j2.keys())),
         "run_j1_rc": run_j1.rc,
@@ -677,6 +692,8 @@ def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
         "run_j2_rc": run_j2.rc,
         "run_j2_stdout": run_j2.stdout,
         "run_j2_stderr": run_j2.stderr,
+        "dest_j1_verbose_snapshot": dest_j1_verbose,
+        "dest_j2_verbose_snapshot": dest_j2_verbose,
     }
 
     return CaseResult(
@@ -723,11 +740,22 @@ def case_scatter_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
     passed: bool = same
     reason: str = "" if passed else f"layout/content differs between j={j1} and j={j2}: {reason_diff}"
 
+    # 参考: DEST 側の詳細スナップショット（1ホスト分、診断用）
+    ref_host: str = cfg.hosts_both[0] if cfg.hosts_both else "localhost"
+    dest_abs_j1: str = os.path.join(cfg.remote_dest_root, dest_rel_j1)
+    dest_abs_j2: str = os.path.join(cfg.remote_dest_root, dest_rel_j2)
+    dest_j1_verbose = _snapshot_scatter_dest_verbose(
+        cfg.ssh_user, ref_host, cfg.ssh_port, cfg.ssh_strict_bool, dest_abs_j1, maxdepth=6
+    )
+    dest_j2_verbose = _snapshot_scatter_dest_verbose(
+        cfg.ssh_user, ref_host, cfg.ssh_port, cfg.ssh_strict_bool, dest_abs_j2, maxdepth=6
+    )
+
     details: Dict[str, object] = {
         "j1": j1,
         "j2": j2,
-        "dest_j1": os.path.join(cfg.remote_dest_root, dest_rel_j1),
-        "dest_j2": os.path.join(cfg.remote_dest_root, dest_rel_j2),
+        "dest_j1": dest_abs_j1,
+        "dest_j2": dest_abs_j2,
         "state_j1_hosts": sorted(list(state_j1.keys())),
         "state_j2_hosts": sorted(list(state_j2.keys())),
         "run_j1_rc": run_j1.rc,
@@ -736,6 +764,8 @@ def case_scatter_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
         "run_j2_rc": run_j2.rc,
         "run_j2_stdout": run_j2.stdout,
         "run_j2_stderr": run_j2.stderr,
+        "dest_j1_verbose_snapshot": dest_j1_verbose,
+        "dest_j2_verbose_snapshot": dest_j2_verbose,
     }
 
     return CaseResult(
@@ -762,6 +792,11 @@ def case_gather_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
     remote_src_root: str = _prepare_remote_parallel_sources(cfg)
     remote_src_states: AllHostsState = _collect_remote_state_all_hosts(cfg, remote_src_root)
     remote_src_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(remote_src_states)
+    # 参考スナップショット（1台分、詳細 verbose）を共有ヘルパで採取
+    ref_host: str = cfg.hosts_both[0] if cfg.hosts_both else "localhost"
+    remote_src_verbose = _snapshot_scatter_dest_verbose(
+        cfg.ssh_user, ref_host, cfg.ssh_port, cfg.ssh_strict_bool, remote_src_root, maxdepth=6
+    )
 
     j1: int
     j2: int
@@ -797,6 +832,7 @@ def case_gather_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
         "j2": j2,
         "remote_src_root": remote_src_root,
         "remote_src_snapshot": remote_src_snapshot,
+        "remote_src_verbose_snapshot": remote_src_verbose,
         "dest_j1": os.path.join(cfg.local_root, dest_rel_j1),
         "dest_j2": os.path.join(cfg.local_root, dest_rel_j2),
         "dest_j1_snapshot": dest_j1_snapshot,
@@ -831,6 +867,11 @@ def case_gather_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
     remote_src_root: str = _prepare_remote_parallel_sources(cfg)
     remote_src_states: AllHostsState = _collect_remote_state_all_hosts(cfg, remote_src_root)
     remote_src_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(remote_src_states)
+    # 参考スナップショット（1台分、詳細 verbose）を共有ヘルパで採取
+    ref_host: str = cfg.hosts_both[0] if cfg.hosts_both else "localhost"
+    remote_src_verbose = _snapshot_scatter_dest_verbose(
+        cfg.ssh_user, ref_host, cfg.ssh_port, cfg.ssh_strict_bool, remote_src_root, maxdepth=6
+    )
 
     j1: int
     j2: int
@@ -866,6 +907,7 @@ def case_gather_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
         "j2": j2,
         "remote_src_root": remote_src_root,
         "remote_src_snapshot": remote_src_snapshot,
+        "remote_src_verbose_snapshot": remote_src_verbose,
         "dest_j1": os.path.join(cfg.local_root, dest_rel_j1),
         "dest_j2": os.path.join(cfg.local_root, dest_rel_j2),
         "dest_j1_snapshot": dest_j1_snapshot,

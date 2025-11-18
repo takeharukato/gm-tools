@@ -10,137 +10,39 @@
 from __future__ import annotations
 
 import os
-import shutil
 import shlex
 import subprocess
-import tempfile
 import fnmatch
 import pathlib
 from dataclasses import dataclass
-from types import SimpleNamespace as _CPShim
 from typing import Dict, List, Optional, Tuple, IO, Callable, Any, Union
 from ._local_types import Config, CaseResult
 from .asserts import assert_rc  # 共有のassertを使用
 from .test_common_config import load_config_from_env as load_common_config
 from .test_common_runner import run_cases
-from .test_common_cleanup import cleanup_dir
-from .test_common_config import _clear_dir as common_clear_dir
+from .test_common_cleanup import cleanup_dir, create_clean_dir
 from .test_common_ssh import (
     ssh_run as _ssh_run_common,
     ssh_run_sudo as _ssh_run_sudo_common,
     ssh_pipe_to_tee as _ssh_pipe_to_tee_common,
 )
-from .gmwrap import _run_local_argv as _gm_run_local_argv
+from .test_common_snapshot import (
+    local_find_tree as _local_find_tree,
+    remote_find_tree_script as _remote_find_tree_script,
+    snapshot_scatter_dest_verbose as _snapshot_scatter_dest_verbose,
+)
+from .test_common_local import cleanup_local_temps as _cleanup_local_temps
+
+# ランナー側は公開APIのみを使用（gmwrapの公開関数）
+from .gmwrap import gm_run_local_with_argv as _gm_run_local_argv_public
 from .test_common_hosts import write_temp_hosts as _write_temp_hosts
 
-
-def _safe_rmtree_abs(path_abs: str, *, ensure_under: Optional[str] = None) -> None:
-    """
-    安全な rmtree（共有実装に委譲）。
-    """
-    try:
-        p: str = os.path.abspath(path_abs)
-        if ensure_under is not None:
-            base: str = os.path.abspath(ensure_under)
-            if not (p == base or p.startswith(base + os.sep)):
-                return
-        if not os.path.isabs(p):
-            return
-        if os.path.islink(p):
-            return
-        if os.path.exists(p):
-            cleanup_dir(p)
-    except Exception:
-        pass
-
 def cleanup_local_temps(cfg: Config) -> None:
-    """
-    テストで作成するローカル一時ディレクトリを削除する。
-      - cfg.local_root (= _tmp_test_local/)
-      - カレント配下の相対ソース用一時: nf_rel/, nonpack_rel_dir/, sc_layout_rel_src/
-    """
-    cwd: str = os.getcwd()
-    # _tmp_test_local は cwd 配下に作る運用なので、念のため ensure_under=cwd を指定
-    _safe_rmtree_abs(cfg.local_root, ensure_under=cwd)
-    rel_dirs = ["nf_rel", "nonpack_rel_dir", "sc_layout_rel_src"]
-    for d in rel_dirs:
-        abs_path: str = os.path.join(cwd, d)
-        _safe_rmtree_abs(abs_path, ensure_under=cwd)
+    # 共有のクリーンアップ関数に委譲（Step4は相対作業ディレクトリも併せて削除）
+    _cleanup_local_temps(cfg, rel_dirs=["nf_rel", "nonpack_rel_dir", "sc_layout_rel_src"])
 
 
-def snapshot_scatter_dest_verbose(cfg: Config, host: str, dest_abs: str,
-                                  expected_paths: Optional[List[str]] = None) -> Dict[str, str]:
-    """scatter DEST 観測 + メタ情報収集 (絶対パス固定)。"""
-    parts: List[str] = []
-
-    # 1) 実行系メタ
-    meta_cmd: str = r'''
-set -u
-echo "[whoami] $(whoami)"
-echo "[pwd]    $(pwd)"
-echo "[home]   $HOME"
-echo "[uname]  $(uname -a)"
-echo "[umask]  $(umask)"
-'''.strip()
-    r_meta: subprocess.CompletedProcess[str] = ssh_do(
-        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", meta_cmd
-    )
-    parts.append(r_meta.stdout or "")
-
-    # 2) DEST 自体の解決と stat
-    cmd2: str = f'''
-set -u
-DEST={shlex.quote(dest_abs)}
-echo "[dest.raw] $DEST"
-echo "[dest.realpath] $(realpath -m "$DEST" 2>/dev/null || echo '(no realpath)')"
-if [ -e "$DEST" ]; then
-  echo "[dest.stat] $(stat -c '%U:%G %a %F' "$DEST" 2>/dev/null || echo '(stat-ng)')"
-else
-  echo "[dest.stat] (missing)"
-fi
-'''.strip()
-    r2: subprocess.CompletedProcess[str] = ssh_do(
-        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd2
-    )
-    parts.append(r2.stdout or "")
-
-    # 3) ツリーと find
-    cmd3: str = f'''
-set -u
-DEST={shlex.quote(dest_abs)}
-echo "[tree]"
-if command -v tree >/dev/null 2>&1; then tree -a "$DEST" || true; else echo "(tree not installed)"; fi
-echo "[find]"
-find "$DEST" -maxdepth 8 -printf '%y %p -> %l\n' 2>&1 || true
-'''.strip()
-    r3: subprocess.CompletedProcess[str] = ssh_do(
-        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd3
-    )
-    parts.append(r3.stdout or "")
-
-    # 4) 期待パス存在チェック
-    check_block: str = ""
-    if expected_paths:
-        q: str = " ".join(shlex.quote(p) for p in expected_paths)
-        cmd4: str = f'''
-set -u
-for P in {q}; do
-    test -f "$P"; rc=$?; printf "[check] %s : rc=%d\n" "$P" "$rc"
-done
-'''.strip()
-        r4: subprocess.CompletedProcess[str] = ssh_do(
-            cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd4
-        )
-        check_block = r4.stdout or ""
-        parts.append(check_block)
-
-    out: Dict[str, str] = {
-        "meta": parts[0] if len(parts) > 0 else "",
-        "dest": parts[1] if len(parts) > 1 else "",
-        "layout": parts[2] if len(parts) > 2 else "",
-        "checks": check_block,
-    }
-    return out
+## moved to test_common_snapshot.snapshot_scatter_dest_verbose
 
 # =========================
 # 共有ヘルパ（外部モジュール不要）
@@ -149,46 +51,42 @@ done
 # asserts.assert_rc を使用するためローカル定義を削除
 
 
-def _clear_dir(path: str, *, ensure_under: Optional[str] = None) -> None:
-    """
-    共有の test_common_config._clear_dir に委譲。
-    """
-    _ = ensure_under
-    common_clear_dir(path)
+## moved to test_common_cleanup.create_clean_dir
 
 # 共有 SSH を使う互換レイヤ
-_CFG_FOR_SSH: Optional[Config] = None
+_cfg_for_ssh: Optional[Config] = None
 
 def _set_cfg_for_ssh(cfg: Config) -> None:
-    global _CFG_FOR_SSH
-    _CFG_FOR_SSH = cfg
+    global _cfg_for_ssh
+    _cfg_for_ssh = cfg
 
 def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
-    if _CFG_FOR_SSH is not None:
-        r = _ssh_run_common(_CFG_FOR_SSH, host, list(remote_argv))
-        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    if _cfg_for_ssh is not None:
+        r = _ssh_run_common(_cfg_for_ssh, host, list(remote_argv))
+        return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
     argv: List[str] = ["ssh", "-o", f"StrictHostKeyChecking={strict}", "-p", str(port), f"{ssh_user}@{host}", "--"] + list(remote_argv)
     p = subprocess.run(argv, capture_output=True, text=True)
-    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
+    return p
 
 def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
-    if _CFG_FOR_SSH is not None:
-        r = _ssh_run_sudo_common(_CFG_FOR_SSH, host, list(remote_argv))
-        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    if _cfg_for_ssh is not None:
+        r = _ssh_run_sudo_common(_cfg_for_ssh, host, list(remote_argv))
+        return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
     argv: List[str] = ["ssh", "-o", f"StrictHostKeyChecking={strict}", "-p", str(port), f"{ssh_user}@{host}", "--", "sudo", "-n"] + list(remote_argv)
     p = subprocess.run(argv, capture_output=True, text=True)
-    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
+    return p
 
 def pipe_to_tee(ssh_user: str, host: str, port: int, strict: Union[bool, str], path: str, *, content: str, sudo: bool):
-    if _CFG_FOR_SSH is not None:
-        r = _ssh_pipe_to_tee_common(_CFG_FOR_SSH, host, path, content, sudo=sudo)
-        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    if _cfg_for_ssh is not None:
+        r = _ssh_pipe_to_tee_common(_cfg_for_ssh, host, path, content, sudo=sudo)
+        return subprocess.CompletedProcess(args=["tee", path], returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
     argv: List[str] = ["ssh", "-o", f"StrictHostKeyChecking={strict}", "-p", str(port), f"{ssh_user}@{host}", "--"]
     if sudo:
         argv += ["sudo", "-n"]
     argv += ["tee", "--", path]
     p = subprocess.run(argv, input=content, capture_output=True, text=True)
-    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
+    return p
+
 
 
 # =========================
@@ -269,8 +167,8 @@ def _as_posix_rel(path_abs: str) -> str:
 
 def _run_local_argv(argv: List[str], *, input_text: Optional[str] = None) -> LocalRun:
     if input_text is None:
-        r = _gm_run_local_argv(argv)
-        return LocalRun(r.rc, r.stdout, r.stderr)
+        res: Any = _gm_run_local_argv_public(argv)
+        return LocalRun(int(getattr(res, "rc", 0)), str(getattr(res, "stdout", "")), str(getattr(res, "stderr", "")))
     p = subprocess.run(argv, input=input_text, capture_output=True, text=True)
     return LocalRun(p.returncode, p.stdout, p.stderr)
 
@@ -393,7 +291,7 @@ def case_selinux_auto_ubuntu_skip(cfg: Config) -> CaseResult:
     available: Tuple[bool, str]
     available = is_selinux_available(cfg, cfg.host_ubuntu)
     empty_src_dir: str = os.path.join(cfg.local_root, "empty_src")
-    _ = _clear_dir(empty_src_dir, ensure_under=cfg.local_root)
+    _ = create_clean_dir(empty_src_dir, ensure_under=cfg.local_root)
 
     hosts_tmp: str = _write_temp_hosts([cfg.host_ubuntu])
     dest: str = os.path.join(cfg.remote_dest_root, "gm_step4_selinux_skip")
@@ -448,7 +346,7 @@ def case_path_semantics(cfg: Config) -> CaseResult:
     _ = _prepare_remote_sample_tree(cfg, cfg.host_ubuntu, cfg.target_user, rel_root)
 
     local_rel_out: str = os.path.join(cfg.local_root, "g_rel")
-    _ = _clear_dir(local_rel_out, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_rel_out, ensure_under=cfg.local_root)
     hosts_gather: str = _write_temp_hosts([cfg.host_ubuntu])
     argv_g: List[str] = (
         cfg.gm_gather_cmd
@@ -505,7 +403,7 @@ def case_gather_src_abs_slash_ok(cfg: Config) -> CaseResult:
 
     hosts_path: str = _write_temp_hosts([ubuntu])
     local_out: str = os.path.join(cfg.local_root, "g_abs_slash")
-    _ = _clear_dir(local_out, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_out, ensure_under=cfg.local_root)
 
     argv: List[str] = (
         cfg.gm_gather_cmd
@@ -543,7 +441,7 @@ def case_gather_src_abs_tilde_ok(cfg: Config) -> CaseResult:
 
     hosts_path: str = _write_temp_hosts([ubuntu])
     local_out: str = os.path.join(cfg.local_root, "g_abs_tilde")
-    _ = _clear_dir(local_out, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_out, ensure_under=cfg.local_root)
 
     tilde_src: str = f"~/gm_step4_tilde/src"
     argv: List[str] = (
@@ -581,7 +479,7 @@ def case_gather_src_rel_home_ok(cfg: Config) -> CaseResult:
 
     hosts_path: str = _write_temp_hosts([ubuntu])
     local_out: str = os.path.join(cfg.local_root, "g_rel_ok")
-    _ = _clear_dir(local_out, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_out, ensure_under=cfg.local_root)
 
     rel_src: str = "gm_step4_rel_home/src"
     argv: List[str] = (
@@ -613,7 +511,7 @@ def case_gather_src_tilde_user_error(cfg: Config) -> CaseResult:
 
     hosts_path: str = _write_temp_hosts([ubuntu])
     local_out: str = os.path.join(cfg.local_root, "g_tilde_user_err")
-    _ = _clear_dir(local_out, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_out, ensure_under=cfg.local_root)
 
     other_user: str = "root" if user != "root" else "nobody"
     src_bad: str = f"~{other_user}/some/where"
@@ -654,11 +552,13 @@ def case_scatter_dest_relative_ok_to_home(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     local_src: str = os.path.join(cfg.local_root, "s_dest_rel_src")
-    _ = _clear_dir(local_src, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_src, ensure_under=cfg.local_root)
     wf: IO[str]
     with open(os.path.join(local_src, "x.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("X\n")
-    abs_local_src_rel: str = _as_posix_rel(os.path.abspath(local_src))
+    # 期待は「SRC を絶対指定した場合のレイアウト」なので、実行引数も絶対パスで渡す
+    local_src_abs: str = os.path.abspath(local_src)
+    abs_local_src_rel: str = _as_posix_rel(local_src_abs)
 
     home: str = _get_remote_home(cfg, alma, user)
     dest_rel: str = "relative/dest"
@@ -673,7 +573,7 @@ def case_scatter_dest_relative_ok_to_home(cfg: Config) -> CaseResult:
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack"]
         + (["-v"] if cfg.verbose else [])
-        + ["--follow-symlinks", "--", local_src, dest_rel]
+        + ["--follow-symlinks", "--", local_src_abs, dest_rel]
     )
     run: LocalRun = _run_local_argv(argv)
 
@@ -717,11 +617,13 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     local_src: str = os.path.join(cfg.local_root, "s_abs_variants_src")
-    _ = _clear_dir(local_src, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_src, ensure_under=cfg.local_root)
     wf: IO[str]
     with open(os.path.join(local_src, "x.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("X\n")
-    abs_local_rel: str = _as_posix_rel(os.path.abspath(local_src))
+    # 期待は「SRC を絶対指定した場合のレイアウト」なので、実行引数も絶対パスで渡す
+    local_src_abs: str = os.path.abspath(local_src)
+    abs_local_rel: str = _as_posix_rel(local_src_abs)
 
     hosts_path: str = _write_temp_hosts([alma])
 
@@ -733,7 +635,7 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", local_src, dest_ok]
+        + ["--", local_src_abs, dest_ok]
     )
     run_ok: LocalRun = _run_local_argv(argv_ok)
     exp_ok: str = os.path.join(dest_ok, abs_local_rel, "x.txt")
@@ -743,7 +645,7 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", local_src, dest_tilde]
+        + ["--", local_src_abs, dest_tilde]
     )
     run_tilde: LocalRun = _run_local_argv(argv_tilde)
     home: str = _get_remote_home(cfg, alma, user)
@@ -754,7 +656,7 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", local_src, dest_win]
+        + ["--", local_src_abs, dest_win]
     )
     run_win: LocalRun = _run_local_argv(argv_win)
 
@@ -826,8 +728,8 @@ def case_gather_follow_symlinks_files(cfg: Config) -> CaseResult:
 
     out_no: str = os.path.join(cfg.local_root, "g_follow_no")
     out_yes: str = os.path.join(cfg.local_root, "g_follow_yes")
-    _ = _clear_dir(out_no, ensure_under=cfg.local_root)
-    _ = _clear_dir(out_yes, ensure_under=cfg.local_root)
+    _ = create_clean_dir(out_no, ensure_under=cfg.local_root)
+    _ = create_clean_dir(out_yes, ensure_under=cfg.local_root)
 
     argv_no: List[str] = (
         cfg.gm_gather_cmd
@@ -845,21 +747,8 @@ def case_gather_follow_symlinks_files(cfg: Config) -> CaseResult:
     )
     run_yes: LocalRun = _run_local_argv(argv_yes)
 
-    def _snapshot(path_dir: str) -> Dict[str, str]:
-        snap: Dict[str, str] = {}
-        cmd_find: str = f'find {shlex.quote(path_dir)} -maxdepth 6 -printf "%y %p -> %l\\n"'
-        p1: subprocess.CompletedProcess[str] = subprocess.run(["bash", "-lc", cmd_find], capture_output=True, text=True)
-        snap["find"] = (p1.stdout or "") + (("\n[find-err]\n" + p1.stderr) if p1.stderr else "")
-        cmd_tree: str = f'tree -a {shlex.quote(path_dir)}'
-        p2: subprocess.CompletedProcess[str] = subprocess.run(["bash", "-lc", cmd_tree], capture_output=True, text=True)
-        tree_out: str = p2.stdout or ""
-        if p2.returncode != 0 and not tree_out:
-            tree_out = "(tree not available or failed)"
-        snap["tree"] = tree_out
-        return snap
-
-    snap_no: Dict[str, str] = _snapshot(out_no)
-    snap_yes: Dict[str, str] = _snapshot(out_yes)
+    snap_no: Dict[str, str] = _local_find_tree(out_no, maxdepth=6)
+    snap_yes: Dict[str, str] = _local_find_tree(out_yes, maxdepth=6)
 
     def _find_first(base: str, patterns: List[str]) -> Optional[str]:
         idx: int = 0
@@ -941,7 +830,7 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     local_src: str = os.path.join(cfg.local_root, "s_follow_src")
-    _ = _clear_dir(local_src, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_src, ensure_under=cfg.local_root)
     file_local: str = os.path.join(local_src, "f.txt")
     link_local: str = os.path.join(local_src, "l.txt")
     wf: IO[str]
@@ -951,7 +840,9 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
         os.unlink(link_local)
     os.symlink("f.txt", link_local)
 
-    abs_local_src: str = _as_posix_rel(os.path.abspath(local_src))
+    # 期待は「SRC を絶対指定した場合のレイアウト」なので、実行引数も絶対パスで渡す
+    local_src_abs: str = os.path.abspath(local_src)
+    abs_local_src: str = _as_posix_rel(local_src_abs)
 
     dest_no: str = os.path.join(cfg.remote_dest_root, "s_follow_no")
     dest_yes: str = os.path.join(cfg.remote_dest_root, "s_follow_yes")
@@ -965,7 +856,7 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", local_src, dest_no]
+        + ["--", local_src_abs, dest_no]
     )
     run_no: LocalRun = _run_local_argv(argv_no)
 
@@ -973,7 +864,7 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack", "--follow-symlinks"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", local_src, dest_yes]
+        + ["--", local_src_abs, dest_yes]
     )
     run_yes: LocalRun = _run_local_argv(argv_yes)
 
@@ -1026,7 +917,7 @@ def case_scatter_pack_extract_user(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     local_src: str = os.path.join(cfg.local_root, "s_pack_user_src")
-    _ = _clear_dir(local_src, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_src, ensure_under=cfg.local_root)
     wf: IO[str]
     with open(os.path.join(local_src, "u.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("U\n")
@@ -1037,15 +928,17 @@ def case_scatter_pack_extract_user(cfg: Config) -> CaseResult:
     _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", dest_dir)
 
     hosts_path: str = _write_temp_hosts([alma])
+    # 期待は絶対SRCのレイアウトなので、実行引数も絶対にする
+    local_src_abs: str = os.path.abspath(local_src)
     argv: List[str] = (
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", local_src, dest_dir]
+        + ["--", local_src_abs, dest_dir]
     )
     run: LocalRun = _run_local_argv(argv)
 
-    rel_from_root: str = _as_posix_rel(os.path.abspath(local_src))
+    rel_from_root: str = _as_posix_rel(local_src_abs)
     remote_file: str = os.path.join(dest_dir, rel_from_root, "u.txt")
     r_stat_u: subprocess.CompletedProcess[str] = ssh_do(
         cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "stat", "-c", "%U:%G", remote_file
@@ -1074,7 +967,7 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     local_src: str = os.path.join(cfg.local_root, "s_pack_sudo_src")
-    _ = _clear_dir(local_src, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_src, ensure_under=cfg.local_root)
     wf: IO[str]
     with open(os.path.join(local_src, "r.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("R\n")
@@ -1088,11 +981,13 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> CaseResult:
 
     hosts_path: str = _write_temp_hosts([alma])
 
+    # 期待は絶対SRCのレイアウトなので、実行引数も絶対にする
+    local_src_abs: str = os.path.abspath(local_src)
     argv: List[str] = (
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack", "--sudo-extract"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", local_src, dest_dir]
+        + ["--", local_src_abs, dest_dir]
     )
     run: LocalRun = _run_local_argv(argv)
 
@@ -1128,7 +1023,7 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     local_src: str = os.path.join(cfg.local_root, "s_pack_sudo_exist_src")
-    _ = _clear_dir(local_src, ensure_under=cfg.local_root)
+    _ = create_clean_dir(local_src, ensure_under=cfg.local_root)
     wf: IO[str]
     with open(os.path.join(local_src, "r.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("R2\n")
@@ -1148,11 +1043,13 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> CaseResult:
 
     hosts_path: str = _write_temp_hosts([alma])
 
+    # 期待は絶対SRCのレイアウトなので、実行引数も絶対にする
+    local_src_abs: str = os.path.abspath(local_src)
     argv: List[str] = (
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack", "--sudo-extract"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", local_src, dest_dir]
+        + ["--", local_src_abs, dest_dir]
     )
     run: LocalRun = _run_local_argv(argv)
 
@@ -1187,7 +1084,7 @@ def case_selinux_policy_ignore_on_ubuntu(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     empty_src: str = os.path.join(cfg.local_root, "empty_src_selinux")
-    _ = _clear_dir(empty_src, ensure_under=cfg.local_root)
+    _ = create_clean_dir(empty_src, ensure_under=cfg.local_root)
     hosts_path: str = _write_temp_hosts([ubuntu])
     dest_dir: str = os.path.join(cfg.remote_dest_root, "selinux_ubuntu_test")
 
@@ -1265,7 +1162,7 @@ def case_gather_double_nesting_regression(cfg: Config) -> CaseResult:
     hosts_path: str = _write_temp_hosts([ubuntu])
 
     out_dir: str = os.path.join(cfg.local_root, "g_double_nest")
-    _ = _clear_dir(out_dir, ensure_under=cfg.local_root)
+    _ = create_clean_dir(out_dir, ensure_under=cfg.local_root)
 
     argv: List[str] = (
         cfg.gm_gather_cmd
@@ -1275,20 +1172,7 @@ def case_gather_double_nesting_regression(cfg: Config) -> CaseResult:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    def _snapshot(path_dir: str) -> Dict[str, str]:
-        snap: Dict[str, str] = {}
-        cmd_find: str = f'find {shlex.quote(path_dir)} -maxdepth 8 -printf "%y %p -> %l\\n"'
-        p1: subprocess.CompletedProcess[str] = subprocess.run(["bash", "-lc", cmd_find], capture_output=True, text=True)
-        snap["find"] = (p1.stdout or "") + (("\n[find-err]\n" + p1.stderr) if p1.stderr else "")
-        cmd_tree: str = f'tree -a {shlex.quote(path_dir)}'
-        p2: subprocess.CompletedProcess[str] = subprocess.run(["bash", "-lc", cmd_tree], capture_output=True, text=True)
-        tree_out: str = p2.stdout or ""
-        if p2.returncode != 0 and not tree_out:
-            tree_out = "(tree not available or failed)"
-        snap["tree"] = tree_out
-        return snap
-
-    snap: Dict[str, str] = _snapshot(out_dir)
+    snap: Dict[str, str] = _local_find_tree(out_dir)
 
     host_label: str = cfg.host_ubuntu
     exp_a: str = os.path.join(out_dir, host_label, "tmp", "gm_nest_src", "a.txt")
@@ -1350,26 +1234,8 @@ def case_gather_double_nesting_regression(cfg: Config) -> CaseResult:
     )
 
 def _remote_script_snapshot(ssh_user: str, host: str, port: int, strict: Union[bool, str], base: str) -> Dict[str, str]:
-    """
-    リモート絶対パス base の実体を『base固定で』観測するスナップショット。
-    - pwd（安全のため明示出力）
-    - ls -la -- <base>
-    - find <base> -maxdepth 8 -printf "%y %p -> %l\n"
-    - tree -a <base>（無ければ代替出力）
-    """
-    snap: Dict[str, str] = {}
-    script: str = "\n".join([
-        "set -e",
-        "echo '[[pwd]]'; pwd || true",
-        f"echo '[[ls -la {shlex.quote(base)}]]'; ls -la -- {shlex.quote(base)} || true",
-        f"echo '[[find {shlex.quote(base)}]]'; find {shlex.quote(base)} -maxdepth 8 -printf '%y %p -> %l\\n' || true",
-        f"echo '[[tree -a {shlex.quote(base)}]]'; tree -a {shlex.quote(base)} || echo '(tree not available or failed)'",
-    ])
-    p = ssh_do(ssh_user, host, port, strict, "bash", "-lc", script)
-    snap["stdout"] = p.stdout or ""
-    snap["stderr"] = p.stderr or ""
-    snap["rc"] = str(p.returncode)
-    return snap
+    """共有ヘルパに委譲して、リモートの find/tree スナップショットを取得する。"""
+    return _remote_find_tree_script(ssh_user, host, port, strict, base, maxdepth=8)
 
 def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
     """
@@ -1450,9 +1316,9 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
     # DEST 配下のみを確実に観測する（HOMEを走査しない）
     snap_dest: Dict[str, str] = _remote_script_snapshot(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, dest_abs)
 
-    snap = snapshot_scatter_dest_verbose(
-        cfg, ubuntu, dest_abs,
-        expected_paths=[exp_abs_a, exp_abs_b, exp_rel_a, exp_rel_b]
+    snap = _snapshot_scatter_dest_verbose(
+        cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict,
+        dest_abs, expected_paths=[exp_abs_a, exp_abs_b, exp_rel_a, exp_rel_b]
     )
 
     def _remote_is_file(path_abs: str) -> bool:
@@ -1560,7 +1426,7 @@ def case_scatter_dest_tilde_username_rejected(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     src_dir: str = os.path.join(cfg.local_root, "sc_tilde_user_src")
-    _ = _clear_dir(src_dir, ensure_under=cfg.local_root)
+    _ = create_clean_dir(src_dir, ensure_under=cfg.local_root)
     wf: IO[str]
     with open(os.path.join(src_dir, "x.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("X\n")
@@ -1608,8 +1474,8 @@ def case_scatter_nonpack_file_only_layout(cfg: Config) -> CaseResult:
     rel_dir: str = "nonpack_rel_dir"
     ign_dir: str = os.path.join(cfg.local_root, "nonpack_ignored_dir")
 
-    _ = _clear_dir(abs_dir, ensure_under=cfg.local_root)
-    _ = _clear_dir(ign_dir, ensure_under=cfg.local_root)
+    _ = create_clean_dir(abs_dir, ensure_under=cfg.local_root)
+    _ = create_clean_dir(ign_dir, ensure_under=cfg.local_root)
     _ = os.makedirs(rel_dir, exist_ok=True)
 
     abs_file: str = os.path.join(abs_dir, "a.txt")
@@ -1631,11 +1497,13 @@ def case_scatter_nonpack_file_only_layout(cfg: Config) -> CaseResult:
                  "chown", "-R", "--", f"{user}:{user}", dest_abs)
 
     hosts_path: str = _write_temp_hosts([host])
+    abs_file_abs: str = os.path.abspath(abs_file)
+    ign_dir_abs: str = os.path.abspath(ign_dir)
     argv: List[str] = (
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user]
         + (["-v"] if cfg.verbose else [])
-        + ["--", abs_file, rel_file, ign_dir, dest_abs]
+        + ["--", abs_file_abs, rel_file, ign_dir_abs, dest_abs]
     )
     run: LocalRun = _run_local_argv(argv)
 
@@ -1691,19 +1559,26 @@ def case_scatter_mixed_sources_two_hosts(cfg: Config) -> CaseResult:
         _ = ssh_sudo(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict,
                      "chown", "-R", "--", f"{user}:{user}", dest_abs)
 
+    src_a_abs: str = os.path.abspath(src_a)
+    if not src_a_abs.endswith(os.sep):
+        src_a_abs = src_a_abs + os.sep
+    src_b_abs: str = os.path.abspath(src_b)
+    if not src_b_abs.endswith(os.sep):
+        src_b_abs = src_b_abs + os.sep
+
     argv: List[str] = (
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", src_a, src_b, dest_abs]
+        + ["--", src_a_abs, src_b_abs, dest_abs]
     )
     run: LocalRun = _run_local_argv(argv)
 
-    def _rel(src_dir: str) -> str:
-        return _as_posix_rel(os.path.abspath(src_dir))
+    def _rel(src_dir_abs: str) -> str:
+        return _as_posix_rel(src_dir_abs)
 
-    rel_a: str = _rel(src_a)
-    rel_b: str = _rel(src_b)
+    rel_a: str = _rel(src_a_abs)
+    rel_b: str = _rel(src_b_abs)
 
     def _remote_path(src_rel: str, fname: str) -> str:
         return os.path.join(dest_abs, src_rel, fname)
@@ -1768,16 +1643,19 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
     except Exception:
         _hosts_cnt = -1
 
+    dup_root_abs: str = os.path.abspath(dup_root)
+    if not dup_root_abs.endswith(os.sep):
+        dup_root_abs = dup_root_abs + os.sep
     argv: List[str] = (
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user, "--pack"]
         + (["-v"] if cfg.verbose else [])
-        + ["--", dup_root, os.path.join(dup_root, "sub"), dest_abs]
+        + ["--", dup_root_abs, os.path.join(dup_root_abs, "sub"), dest_abs]
     )
     run: LocalRun = _run_local_argv(argv)
 
     # OS 非依存の相対化（先頭スラッシュ除去 + 区切り '/' 化）で一貫性を確保
-    dup_root_rel: str = _as_posix_rel(os.path.abspath(dup_root))
+    dup_root_rel: str = _as_posix_rel(dup_root_abs)
     base: str = os.path.join(dest_abs, dup_root_rel)
     exp: str = os.path.join(base, "sub", "n.txt")
 
@@ -1850,7 +1728,7 @@ def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> CaseResult
     user: str = cfg.target_user
 
     dir_abs: str = os.path.join(cfg.local_root, "nf_abs")
-    _ = _clear_dir(dir_abs, ensure_under=cfg.local_root)
+    _ = create_clean_dir(dir_abs, ensure_under=cfg.local_root)
     dir_rel: str = "nf_rel"
     _ = os.makedirs(dir_rel, exist_ok=True)
 
@@ -1869,11 +1747,12 @@ def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> CaseResult
                  "chown", "-R", "--", f"{user}:{user}", dest_abs)
 
     hosts_path: str = _write_temp_hosts([host])
+    f_abs_abs: str = os.path.abspath(f_abs)
     argv: List[str] = (
         cfg.gm_scatter_cmd
         + ["-H", hosts_path, "-u", user]
         + (["-v"] if cfg.verbose else [])
-        + ["--", f_abs, f_rel, dest_abs]
+        + ["--", f_abs_abs, f_rel, dest_abs]
     )
     run: LocalRun = _run_local_argv(argv)
 
@@ -1923,7 +1802,7 @@ def case_gather_src_regex_absolute(cfg: Config) -> CaseResult:
 
     # ローカル出力先
     out_dir: str = os.path.join(cfg.local_root, "g_regex_abs_out")
-    _ = _clear_dir(out_dir, ensure_under=cfg.local_root)
+    _ = create_clean_dir(out_dir, ensure_under=cfg.local_root)
 
     hosts_path: str = _write_temp_hosts([host])
     argv: List[str] = (
@@ -1982,7 +1861,7 @@ def case_gather_src_regex_relative(cfg: Config) -> CaseResult:
     pattern_rel: str = f"{rel_top}/src/dir1/.*"
 
     out_dir: str = os.path.join(cfg.local_root, "g_regex_rel_out")
-    _ = _clear_dir(out_dir, ensure_under=cfg.local_root)
+    _ = create_clean_dir(out_dir, ensure_under=cfg.local_root)
 
     hosts_path: str = _write_temp_hosts([host])
     argv: List[str] = (
@@ -2038,7 +1917,7 @@ def case_gather_src_regex_negative(cfg: Config) -> CaseResult:
     pattern: str = os.path.join(src_dir, "^x\\.txt$")
 
     out_dir: str = os.path.join(cfg.local_root, "g_regex_neg_out")
-    _ = _clear_dir(out_dir, ensure_under=cfg.local_root)
+    _ = create_clean_dir(out_dir, ensure_under=cfg.local_root)
 
     hosts_path: str = _write_temp_hosts([host])
     argv: List[str] = (
@@ -2177,8 +2056,9 @@ def case_scatter_src_regex_relative(cfg: Config) -> CaseResult:
         cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, dest_abs
     )
     # 期待パスの存在チェックとツリー/メタ情報を一括採取（whoami/pwd/umask なども含む）
-    snap_verbose: Dict[str, str] = snapshot_scatter_dest_verbose(
-        cfg, host, dest_abs, expected_paths=[exp_b, exp_a]
+    snap_verbose: Dict[str, str] = _snapshot_scatter_dest_verbose(
+        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, dest_abs,
+        expected_paths=[exp_b, exp_a]
     )
     # === ここまで追記 ===
 
