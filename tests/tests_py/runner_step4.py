@@ -20,7 +20,7 @@ from ._local_types import Config, CaseResult
 from .asserts import assert_rc  # 共有のassertを使用
 from .test_common_config import load_config_from_env as load_common_config
 from .test_common_runner import run_cases
-from .test_common_cleanup import cleanup_dir, create_clean_dir
+from .test_common_cleanup import create_clean_dir
 from .test_common_ssh import (
     ssh_run as _ssh_run_common,
     ssh_run_sudo as _ssh_run_sudo_common,
@@ -64,7 +64,16 @@ def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remot
     if _cfg_for_ssh is not None:
         r = _ssh_run_common(_cfg_for_ssh, host, list(remote_argv))
         return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
-    argv: List[str] = ["ssh", "-o", f"StrictHostKeyChecking={strict}", "-p", str(port), f"{ssh_user}@{host}", "--"] + list(remote_argv)
+    strict_str: str = strict if isinstance(strict, str) else ("yes" if strict else "no")
+    argv: List[str] = [
+        "ssh",
+        "-o",
+        f"StrictHostKeyChecking={strict_str}",
+        "-p",
+        str(port),
+        f"{ssh_user}@{host}",
+        "--",
+    ] + list(remote_argv)
     p = subprocess.run(argv, capture_output=True, text=True)
     return p
 
@@ -72,7 +81,18 @@ def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *rem
     if _cfg_for_ssh is not None:
         r = _ssh_run_sudo_common(_cfg_for_ssh, host, list(remote_argv))
         return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
-    argv: List[str] = ["ssh", "-o", f"StrictHostKeyChecking={strict}", "-p", str(port), f"{ssh_user}@{host}", "--", "sudo", "-n"] + list(remote_argv)
+    strict_str: str = strict if isinstance(strict, str) else ("yes" if strict else "no")
+    argv: List[str] = [
+        "ssh",
+        "-o",
+        f"StrictHostKeyChecking={strict_str}",
+        "-p",
+        str(port),
+        f"{ssh_user}@{host}",
+        "--",
+        "sudo",
+        "-n",
+    ] + list(remote_argv)
     p = subprocess.run(argv, capture_output=True, text=True)
     return p
 
@@ -80,7 +100,16 @@ def pipe_to_tee(ssh_user: str, host: str, port: int, strict: Union[bool, str], p
     if _cfg_for_ssh is not None:
         r = _ssh_pipe_to_tee_common(_cfg_for_ssh, host, path, content, sudo=sudo)
         return subprocess.CompletedProcess(args=["tee", path], returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
-    argv: List[str] = ["ssh", "-o", f"StrictHostKeyChecking={strict}", "-p", str(port), f"{ssh_user}@{host}", "--"]
+    strict_str: str = strict if isinstance(strict, str) else ("yes" if strict else "no")
+    argv: List[str] = [
+        "ssh",
+        "-o",
+        f"StrictHostKeyChecking={strict_str}",
+        "-p",
+        str(port),
+        f"{ssh_user}@{host}",
+        "--",
+    ]
     if sudo:
         argv += ["sudo", "-n"]
     argv += ["tee", "--", path]

@@ -4,12 +4,13 @@ from typing import Dict, List, Optional, Union
 
 
 def _ssh_run_raw(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str) -> subprocess.CompletedProcess[str]:
+    strict_str: str = strict if isinstance(strict, str) else ("yes" if strict else "no")
     argv: List[str] = [
         "ssh",
         "-p",
         str(port),
         "-o",
-        f"StrictHostKeyChecking={'yes' if bool(strict) else 'no'}",
+        f"StrictHostKeyChecking={strict_str}",
         "--",
         f"{ssh_user}@{host}",
     ] + list(remote_argv)
@@ -103,10 +104,6 @@ done
         "checks": check_block,
     }
     return out
-import shlex
-import subprocess
-from typing import Dict, Optional, Union
-
 # ローカルディレクトリの find/tree スナップショットを取得
 def local_find_tree(path_dir: str, maxdepth: Optional[int] = None) -> Dict[str, str]:
     out: Dict[str, str] = {"find": "", "tree": ""}
@@ -152,46 +149,3 @@ def local_find_tree(path_dir: str, maxdepth: Optional[int] = None) -> Dict[str, 
 # - pwd / ls -la -- <base>
 # - find <base> -maxdepth N -printf "%y %p -> %l\n"
 # - tree -a <base>（無ければ代替出力）
-def remote_find_tree_script(
-    ssh_user: str,
-    host: str,
-    port: int,
-    strict: Union[bool, str],
-    base: str,
-    *,
-    maxdepth: int = 8,
-) -> Dict[str, str]:
-    snap: Dict[str, str] = {}
-    qbase = shlex.quote(base)
-    script: str = "\n".join(
-        [
-            "set -e",
-            "echo '[[pwd]]'; pwd || true",
-            f"echo '[[ls -la {qbase}]]'; ls -la -- {qbase} || true",
-            f"echo '[[find {qbase}]]'; find {qbase} -maxdepth {int(maxdepth)} -printf '%y %p -> %l\\n' || true",
-            f"echo '[[tree -a {qbase}]]'; tree -a {qbase} || echo '(tree not available or failed)'",
-        ]
-    )
-
-    argv = [
-        "ssh",
-        "-o",
-        f"StrictHostKeyChecking={strict}",
-        "-p",
-        str(port),
-        f"{ssh_user}@{host}",
-        "--",
-        "bash",
-        "-lc",
-        script,
-    ]
-    try:
-        p = subprocess.run(argv, capture_output=True, text=True, check=False)
-        snap["stdout"] = p.stdout or ""
-        snap["stderr"] = p.stderr or ""
-        snap["rc"] = str(p.returncode)
-    except Exception as e:
-        snap["stdout"] = ""
-        snap["stderr"] = f"(ssh failed: {e})\n"
-        snap["rc"] = "255"
-    return snap

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+# no typing imports required
 
 
 def ensure_under(base: str, path_abs: str) -> bool:

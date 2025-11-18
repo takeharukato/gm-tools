@@ -1,7 +1,7 @@
 from typing import Optional
 import os
 from .test_common_paths import ensure_under as _ensure_under
- 
+
 
 def create_clean_dir(path: str, *, ensure_under: Optional[str] = None) -> None:
     """
@@ -22,7 +22,7 @@ def create_clean_dir(path: str, *, ensure_under: Optional[str] = None) -> None:
 # tests/tests_py/test_common_cleanup.py
 # Step7: cleanup の統合責務モジュール
 
- 
+
 
 import shutil
 from pathlib import Path
