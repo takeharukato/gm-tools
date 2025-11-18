@@ -14,11 +14,20 @@ import shlex
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, IO, TypeAlias, Callable
+from types import SimpleNamespace as _CPShim
+from typing import Dict, List, Optional, Tuple, IO, TypeAlias, Callable, Union
 
 from ._local_types import Config, CaseResult
+from .asserts import assert_rc
 from .test_common_config import load_config_from_env
 from .test_common_runner import run_cases
+from .test_common_cleanup import cleanup_dir
+from .test_common_ssh import (
+    ssh_run as _ssh_run_common,
+    ssh_run_sudo as _ssh_run_sudo_common,
+)
+from .gmwrap import _run_local_argv as _gm_run_local_argv
+from .test_common_hosts import write_temp_hosts as _write_temp_hosts
 
 # =========================
 # 型エイリアス
@@ -35,22 +44,22 @@ AllHostsState: TypeAlias = Dict[str, PerHostState]
 
 def _safe_rmtree_abs(path_abs: str, *, ensure_under: Optional[str] = None) -> None:
     """
-    安全な rmtree:
-      - 実体がディレクトリであること（シンボリックリンクは拒否）
-      - ensure_under が指定されていれば、その配下に限定
+    安全な rmtree（共有実装に委譲）。
     """
-    p: str = os.path.abspath(path_abs)
-    if ensure_under is not None:
-        base: str = os.path.abspath(ensure_under)
-        if not (p == base or p.startswith(base + os.sep)):
+    try:
+        p: str = os.path.abspath(path_abs)
+        if ensure_under is not None:
+            base: str = os.path.abspath(ensure_under)
+            if not (p == base or p.startswith(base + os.sep)):
+                return
+        if not os.path.isabs(p):
             return
-    if not os.path.exists(p):
-        return
-    if os.path.islink(p):
-        return
-    if os.path.isdir(p):
-        import shutil as _shutil  # 局所 import（型アノテーション不要）
-        _shutil.rmtree(p, ignore_errors=True)
+        if os.path.islink(p):
+            return
+        if os.path.exists(p):
+            cleanup_dir(p)
+    except Exception:
+        pass
 
 
 def cleanup_local_temps(cfg: Config) -> None:
@@ -66,48 +75,45 @@ def cleanup_local_temps(cfg: Config) -> None:
 # 共有ヘルパ
 # =========================
 
-def assert_rc(name: str, rc: int, *, expect_zero: bool = True) -> None:
-    """rc を検証（ゼロ期待がデフォルト）"""
-    ok: bool = (rc == 0) if expect_zero else (rc != 0)
-    if not ok:
-        msg: str = f"{name}: expected rc={'0' if expect_zero else '!=0'} but got {rc}"
-        raise AssertionError(msg)
+_CFG_FOR_SSH: Optional[Config] = None
 
+def _set_cfg_for_ssh(cfg: Config) -> None:
+    global _CFG_FOR_SSH
+    _CFG_FOR_SSH = cfg
 
-def _ssh_base_argv(port: int, strict: bool) -> List[str]:
-    """ssh のベース引数（オプションのみ）"""
-    argv: List[str] = ["ssh", "-p", str(port), "-o", f"StrictHostKeyChecking={'yes' if strict else 'no'}"]
-    return argv
+def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
+    if _CFG_FOR_SSH is not None:
+        r = _ssh_run_common(_CFG_FOR_SSH, host, list(remote_argv))
+        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    argv: List[str] = [
+        "ssh",
+        "-p",
+        str(port),
+        "-o",
+        f"StrictHostKeyChecking={'yes' if bool(strict) else 'no'}",
+        "--",
+        f"{ssh_user}@{host}",
+    ] + list(remote_argv)
+    p = subprocess.run(argv, capture_output=True, text=True)
+    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
 
-
-def ssh_do(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str) -> subprocess.CompletedProcess[str]:
-    """
-    外側シェルを挟まず、リモートでコマンド＋引数のみ実行。
-    形 : ssh <opts> -- user@host <argv...>
-    """
-    argv_list: List[str] = list(remote_argv)
-    argv: List[str] = _ssh_base_argv(port, strict) + ["--", f"{ssh_user}@{host}"] + argv_list
-    debug_flag: str = os.environ.get("VERBOSE", "0")
-    if debug_flag == "1":
-        debug_msg: str = f"[DEBUG] ssh_do: {argv!r}"
-        print(debug_msg)
-    completed: subprocess.CompletedProcess[str] = subprocess.run(argv, capture_output=True, text=True)
-    return completed
-
-
-def ssh_sudo(ssh_user: str, host: str, port: int, strict: bool, *remote_argv: str) -> subprocess.CompletedProcess[str]:
-    """
-    sudo -n を付与して実行。
-    形 : ssh <opts> -- user@host sudo -n <argv...>
-    """
-    argv_list: List[str] = list(remote_argv)
-    argv: List[str] = _ssh_base_argv(port, strict) + ["--", f"{ssh_user}@{host}", "sudo", "-n"] + argv_list
-    debug_flag: str = os.environ.get("VERBOSE", "0")
-    if debug_flag == "1":
-        debug_msg: str = f"[DEBUG] ssh_sudo: {argv!r}"
-        print(debug_msg)
-    completed: subprocess.CompletedProcess[str] = subprocess.run(argv, capture_output=True, text=True)
-    return completed
+def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
+    if _CFG_FOR_SSH is not None:
+        r = _ssh_run_sudo_common(_CFG_FOR_SSH, host, list(remote_argv))
+        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    argv: List[str] = [
+        "ssh",
+        "-p",
+        str(port),
+        "-o",
+        f"StrictHostKeyChecking={'yes' if bool(strict) else 'no'}",
+        "--",
+        f"{ssh_user}@{host}",
+        "sudo",
+        "-n",
+    ] + list(remote_argv)
+    p = subprocess.run(argv, capture_output=True, text=True)
+    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
 
 
 @dataclass(frozen=True)
@@ -118,29 +124,11 @@ class LocalRun:
 
 
 def _run_local_argv(argv: List[str]) -> LocalRun:
-    debug_flag: str = os.environ.get("VERBOSE", "0")
-    if debug_flag == "1":
-        dbg: str = f"[DEBUG] _run_local_argv argv: {shlex.join(argv)}"
-        print(dbg)
-    proc: subprocess.CompletedProcess[str] = subprocess.run(argv, capture_output=True, text=True)
-    run: LocalRun = LocalRun(proc.returncode, proc.stdout or "", proc.stderr or "")
-    return run
+    r = _gm_run_local_argv(argv)
+    return LocalRun(r.rc, r.stdout, r.stderr)
 
 
-def _write_temp_hosts(hosts: List[str]) -> str:
-    fd: int
-    path: str
-    fd, path = tempfile.mkstemp(prefix="hosts_", text=True)
-    os.close(fd)
-    f: IO[str]
-    i: int = 0
-    n: int = len(hosts)
-    with open(path, "w", encoding="utf-8") as f:
-        while i < n:
-            h: str = hosts[i]
-            _ = f.write(h + "\n")
-            i += 1
-    return path
+# _write_temp_hosts は共有実装に委譲（互換エイリアス）
 
 
 def _resolve_parallel_pair_from_env() -> Tuple[int, int]:
@@ -908,6 +896,7 @@ def main() -> None:
     # 共通 Config を使用する。Step5 では local_work_root を毎回クリアしたいので
     # clear_local_root=True を指定する。
     cfg: Config = load_config_from_env(clear_local_root=True)
+    _set_cfg_for_ssh(cfg)
     _ = print_env(cfg)
 
     try:

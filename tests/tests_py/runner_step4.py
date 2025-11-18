@@ -17,30 +17,41 @@ import tempfile
 import fnmatch
 import pathlib
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, IO, Callable, Any
+from types import SimpleNamespace as _CPShim
+from typing import Dict, List, Optional, Tuple, IO, Callable, Any, Union
 from ._local_types import Config, CaseResult
+from .asserts import assert_rc  # 共有のassertを使用
 from .test_common_config import load_config_from_env as load_common_config
 from .test_common_runner import run_cases
+from .test_common_cleanup import cleanup_dir
+from .test_common_config import _clear_dir as common_clear_dir
+from .test_common_ssh import (
+    ssh_run as _ssh_run_common,
+    ssh_run_sudo as _ssh_run_sudo_common,
+    ssh_pipe_to_tee as _ssh_pipe_to_tee_common,
+)
+from .gmwrap import _run_local_argv as _gm_run_local_argv
+from .test_common_hosts import write_temp_hosts as _write_temp_hosts
 
 
 def _safe_rmtree_abs(path_abs: str, *, ensure_under: Optional[str] = None) -> None:
     """
-    安全な rmtree:
-      - 実体がディレクトリであること（シンボリックリンクは拒否）
-      - ensure_under が指定されていれば、その配下に限定
+    安全な rmtree（共有実装に委譲）。
     """
-    p: str = os.path.abspath(path_abs)
-    if ensure_under is not None:
-        base: str = os.path.abspath(ensure_under)
-        if not (p == base or p.startswith(base + os.sep)):
-            return  # 外側は触らない
-    if not os.path.exists(p):
-        return
-    if os.path.islink(p):
-        # 誤爆防止のためシンボリックリンクは削除しない
-        return
-    if os.path.isdir(p):
-        shutil.rmtree(p, ignore_errors=True)
+    try:
+        p: str = os.path.abspath(path_abs)
+        if ensure_under is not None:
+            base: str = os.path.abspath(ensure_under)
+            if not (p == base or p.startswith(base + os.sep)):
+                return
+        if not os.path.isabs(p):
+            return
+        if os.path.islink(p):
+            return
+        if os.path.exists(p):
+            cleanup_dir(p)
+    except Exception:
+        pass
 
 def cleanup_local_temps(cfg: Config) -> None:
     """
@@ -135,89 +146,49 @@ done
 # 共有ヘルパ（外部モジュール不要）
 # =========================
 
-def assert_rc(name: str, rc: int, *, expect_zero: bool = True) -> None:
-    """rc を検証（ゼロ期待がデフォルト）"""
-    ok: bool = (rc == 0) if expect_zero else (rc != 0)
-    if not ok:
-        raise AssertionError(f"{name}: expected rc={'0' if expect_zero else '!=0'} but got {rc}")
+# asserts.assert_rc を使用するためローカル定義を削除
 
 
 def _clear_dir(path: str, *, ensure_under: Optional[str] = None) -> None:
     """
-    path を一度まるごと消してから作り直す。
-    - ensure_under: 指定されたベース配下でしか削除しない安全装置
-    - シンボリックリンクの削除は拒否（誤爆防止）
+    共有の test_common_config._clear_dir に委譲。
     """
-    p: str = os.path.abspath(path)
+    _ = ensure_under
+    common_clear_dir(path)
 
-    if ensure_under is not None:
-        base: str = os.path.abspath(ensure_under)
-        if not (p == base or p.startswith(base + os.sep)):
-            raise AssertionError(f"refuse to clear outside base: {p} (base={base})")
+# 共有 SSH を使う互換レイヤ
+_CFG_FOR_SSH: Optional[Config] = None
 
-    if os.path.islink(p):
-        raise AssertionError(f"refuse to clear symlink path: {p}")
+def _set_cfg_for_ssh(cfg: Config) -> None:
+    global _CFG_FOR_SSH
+    _CFG_FOR_SSH = cfg
 
-    if os.path.exists(p):
-        shutil.rmtree(p)
+def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
+    if _CFG_FOR_SSH is not None:
+        r = _ssh_run_common(_CFG_FOR_SSH, host, list(remote_argv))
+        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    argv: List[str] = ["ssh", "-o", f"StrictHostKeyChecking={strict}", "-p", str(port), f"{ssh_user}@{host}", "--"] + list(remote_argv)
+    p = subprocess.run(argv, capture_output=True, text=True)
+    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
 
-    os.makedirs(p, exist_ok=True)
+def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
+    if _CFG_FOR_SSH is not None:
+        r = _ssh_run_sudo_common(_CFG_FOR_SSH, host, list(remote_argv))
+        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    argv: List[str] = ["ssh", "-o", f"StrictHostKeyChecking={strict}", "-p", str(port), f"{ssh_user}@{host}", "--", "sudo", "-n"] + list(remote_argv)
+    p = subprocess.run(argv, capture_output=True, text=True)
+    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
 
-from typing import Union  # add Union for strict type flexibility
-
-def _ssh_base_argv(port: int, strict: Union[bool, str]) -> List[str]:
-    """ssh のベース引数（オプションのみ）; strict は bool か 'yes'/'no' 文字列。"""
-    if isinstance(strict, str):
-        s_val: bool = (strict.lower() == "yes")
-    else:
-        s_val: bool = bool(strict)
-    argv: List[str] = ["ssh", "-p", str(port), "-o", f"StrictHostKeyChecking={'yes' if s_val else 'no'}"]
-    return argv
-
-
-def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str) -> subprocess.CompletedProcess[str]:
-    """
-    外側シェルを挟まず、リモートでコマンド＋引数のみ実行。
-    形 : ssh <opts> -- user@host <argv...>
-    """
-    argv_list: List[str] = list(remote_argv)
-    argv: List[str] = _ssh_base_argv(port, strict) + ["--", f"{ssh_user}@{host}"] + argv_list
-    if os.environ.get("VERBOSE", "0") == "1":
-        debug_msg: str = f"[DEBUG] ssh_do: {argv!r}"
-        print(debug_msg)
-    completed: subprocess.CompletedProcess[str] = subprocess.run(argv, capture_output=True, text=True)
-    return completed
-
-
-def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str) -> subprocess.CompletedProcess[str]:
-    """
-    sudo -n を付与して実行。
-    形 : ssh <opts> -- user@host sudo -n <argv...>
-    """
-    argv_list: List[str] = list(remote_argv)
-    argv: List[str] = _ssh_base_argv(port, strict) + ["--", f"{ssh_user}@{host}", "sudo", "-n"] + argv_list
-    if os.environ.get("VERBOSE", "0") == "1":
-        debug_msg: str = f"[DEBUG] ssh_sudo: {argv!r}"
-        print(debug_msg)
-    completed: subprocess.CompletedProcess[str] = subprocess.run(argv, capture_output=True, text=True)
-    return completed
-
-
-def pipe_to_tee(ssh_user: str, host: str, port: int, strict: Union[bool, str], path: str, *, content: str, sudo: bool) -> subprocess.CompletedProcess[str]:
-    """
-    標準入力で渡した content をリモートの tee に流し込む。
-    形 : ssh <opts> -- user@host [sudo -n] tee -- <path>
-    """
-    argv: List[str] = _ssh_base_argv(port, strict) + ["--", f"{ssh_user}@{host}"]
+def pipe_to_tee(ssh_user: str, host: str, port: int, strict: Union[bool, str], path: str, *, content: str, sudo: bool):
+    if _CFG_FOR_SSH is not None:
+        r = _ssh_pipe_to_tee_common(_CFG_FOR_SSH, host, path, content, sudo=sudo)
+        return _CPShim(returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
+    argv: List[str] = ["ssh", "-o", f"StrictHostKeyChecking={strict}", "-p", str(port), f"{ssh_user}@{host}", "--"]
     if sudo:
         argv += ["sudo", "-n"]
     argv += ["tee", "--", path]
-    if os.environ.get("VERBOSE", "0") == "1":
-        printable: List[str] = list(argv)
-        debug_msg: str = f"[DEBUG] pipe_to_tee: {printable}  (len={len(argv) - (3 if sudo else 2)})"
-        print(debug_msg)
-    completed: subprocess.CompletedProcess[str] = subprocess.run(argv, input=content, capture_output=True, text=True)
-    return completed
+    p = subprocess.run(argv, input=content, capture_output=True, text=True)
+    return _CPShim(returncode=p.returncode, stdout=p.stdout, stderr=p.stderr)
 
 
 # =========================
@@ -297,28 +268,14 @@ def _as_posix_rel(path_abs: str) -> str:
     return s
 
 def _run_local_argv(argv: List[str], *, input_text: Optional[str] = None) -> LocalRun:
-    if os.environ.get("VERBOSE", "0") == "1":
-        dbg: str = f"[DEBUG] _run_local_argv argv: {shlex.join(argv)}"
-        print(dbg)
-    p: subprocess.CompletedProcess[str] = subprocess.run(argv, input=input_text, capture_output=True, text=True)
-    run: LocalRun = LocalRun(p.returncode, p.stdout, p.stderr)
-    return run
+    if input_text is None:
+        r = _gm_run_local_argv(argv)
+        return LocalRun(r.rc, r.stdout, r.stderr)
+    p = subprocess.run(argv, input=input_text, capture_output=True, text=True)
+    return LocalRun(p.returncode, p.stdout, p.stderr)
 
 
-def _write_temp_hosts(hosts: List[str]) -> str:
-    fd: int
-    path: str
-    fd, path = tempfile.mkstemp(prefix="hosts_", text=True)
-    os.close(fd)
-    f: IO[str]
-    with open(path, "w", encoding="utf-8") as f:
-        i: int = 0
-        m: int = len(hosts)
-        while i < m:
-            h: str = hosts[i]
-            _ = f.write(h + "\n")
-            i += 1
-    return path
+# _write_temp_hosts は共有実装に委譲（互換エイリアス）
 
 
 # =========================
@@ -2302,6 +2259,7 @@ def case_scatter_src_regex_negative(cfg: Config) -> CaseResult:
 
 def main() -> int:
     cfg: Config = load_config_from_env()
+    _set_cfg_for_ssh(cfg)
     _ = print_env(cfg)
     _ = _preflight(cfg)
     cases: List[Tuple[str, Callable[[Config], CaseResult]]] = [

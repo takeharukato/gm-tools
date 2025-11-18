@@ -6,13 +6,13 @@ from __future__ import annotations
 
 import threading
 import time
-import shutil
 from pathlib import Path as _Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from ._local_types import Config, CaseResult
 from .test_common_config import load_config_from_env
 from .test_common_runner import run_cases
+from .test_common_cleanup import cleanup_dir
 
 from gm_tools.core_signal_handling import GracefulStop
 from gm_tools.core_ssh import CancelledError, SSHClientLike, SFTPClientLike
@@ -437,7 +437,7 @@ def main() -> None:
         _ = run_cases(step_number=6, cfg=cfg, cases=cases)
     finally:
         # ---------------------------------------------------------
-        # Cleanup: Step6 テスト用ローカル作業ディレクトリの削除
+        # Cleanup: Step6 テスト用ローカル作業ディレクトリの削除（共有実装）
         #  - Config.local_work_root は tests_env.sh.sample で
         #    "${PWD}/_tmp_test_local" に設定される想定。
         #  - Step4/Step5 runner と同様に、runner 側が temp の寿命を持つ。
@@ -445,7 +445,7 @@ def main() -> None:
         local_root: _Path = _Path(cfg.local_work_root)
         try:
             if local_root.exists():
-                shutil.rmtree(local_root, ignore_errors=True)
+                cleanup_dir(str(local_root))
         except Exception:
             # Best-effort cleanup: テスト結果を壊さないため、例外は握りつぶす。
             pass
