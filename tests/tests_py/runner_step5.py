@@ -11,19 +11,17 @@ from __future__ import annotations
 import hashlib
 import os
 import shlex
-import subprocess
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, IO, TypeAlias, Callable, Union, Any
+from typing import Dict, List, Tuple, IO, TypeAlias, Callable
 # =========================
 # 型エイリアス
 # =========================
 
 
-from ._local_types import Config, CaseResult
+from ._local_types import Config, CaseResult, CommandResult, LocalRun
 from .asserts import assert_rc
-from .test_common_config import load_config_from_env
+from .test_common_config import load_config_from_env, print_env, resolve_parallel_pair_from_env
 from .test_common_runner import run_cases
-from .test_common_cleanup import cleanup_dir
+from .test_common_cleanup import safe_rmtree_abs
 from .test_common_ssh import (
     ssh_run as _ssh_run_common,
     ssh_run_sudo as _ssh_run_sudo_common,
@@ -32,9 +30,8 @@ from .test_common_snapshot import (
     snapshot_scatter_dest_verbose as _snapshot_scatter_dest_verbose,
 )
 from .test_common_local import cleanup_local_temps as _cleanup_local_temps
-from .gmwrap import gm_run_local_with_argv as _gm_run_local_argv_public
+from .test_common_local import run_local_with_argv as _run_local_argv
 from .test_common_hosts import write_temp_hosts as _write_temp_hosts
-from .test_common_paths import ensure_under as _ensure_under
 
 # =========================
 # 型エイリアス
@@ -45,107 +42,22 @@ PerHostState: TypeAlias = Dict[str, EntryValue]  # rel_path -> EntryValue
 AllHostsState: TypeAlias = Dict[str, PerHostState]
 
 
-# =========================
-# 安全なローカル掃除
-# =========================
-
-def _safe_rmtree_abs(path_abs: str, *, ensure_under: Optional[str] = None) -> None:
-    """
-    安全な rmtree（共有実装に委譲）。
-    """
-    try:
-        p: str = os.path.abspath(path_abs)
-        if ensure_under is not None and not _ensure_under(ensure_under, p):
-            return
-        if not os.path.isabs(p):
-            return
-        if os.path.islink(p):
-            return
-        if os.path.exists(p):
-            cleanup_dir(p)
-    except Exception:
-        pass
-
-
 def cleanup_local_temps(cfg: Config) -> None:
     # Step5 は local_root のみ対象
     _cleanup_local_temps(cfg)
 
 
 # =========================
-# 共有ヘルパ
-# =========================
-
-_cfg_for_ssh: Optional[Config] = None
-
-def _set_cfg_for_ssh(cfg: Config) -> None:
-    global _cfg_for_ssh
-    _cfg_for_ssh = cfg
-
-def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
-    if _cfg_for_ssh is not None:
-        r = _ssh_run_common(_cfg_for_ssh, host, list(remote_argv))
-        return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
-    argv: List[str] = [
-        "ssh",
-        "-p",
-        str(port),
-        "-o",
-        f"StrictHostKeyChecking={'yes' if bool(strict) else 'no'}",
-        "--",
-        f"{ssh_user}@{host}",
-    ] + list(remote_argv)
-    p = subprocess.run(argv, capture_output=True, text=True)
-    return p
-
-def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
-    if _cfg_for_ssh is not None:
-        r = _ssh_run_sudo_common(_cfg_for_ssh, host, list(remote_argv))
-        return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
-    argv: List[str] = [
-        "ssh",
-        "-p",
-        str(port),
-        "-o",
-        f"StrictHostKeyChecking={'yes' if bool(strict) else 'no'}",
-        "--",
-        f"{ssh_user}@{host}",
-        "sudo",
-        "-n",
-    ] + list(remote_argv)
-    p = subprocess.run(argv, capture_output=True, text=True)
-    return p
 
 
-@dataclass(frozen=True)
-class LocalRun:
-    rc: int
-    stdout: str
-    stderr: str
 
-
-def _run_local_argv(argv: List[str]) -> LocalRun:
-    res: Any = _gm_run_local_argv_public(argv)
-    return LocalRun(int(getattr(res, "rc", 0)), str(getattr(res, "stdout", "")), str(getattr(res, "stderr", "")))
+## run_local_with_argv/LocalRun は共有実装を使用
 
 
 # _write_temp_hosts は共有実装に委譲（互換エイリアス）
 
 
-def _resolve_parallel_pair_from_env() -> Tuple[int, int]:
-    """
-    並列度を環境変数から解決する。
-      - GM_PARALLEL が設定されていれば (1, GM_PARALLEL)
-      - 未設定ならば (1, 4)
-    """
-    gm_par_raw: str = os.environ.get("GM_PARALLEL", "").strip()
-    if gm_par_raw:
-        j2: int = int(gm_par_raw)
-        j1: int = 1
-        return j1, j2
-    j1_default: int = 1
-    j2_default: int = 4
-    return j1_default, j2_default
+## moved to test_common_config.resolve_parallel_pair_from_env
 
 
 def _hash_file_sha256(path: str) -> str:
@@ -179,15 +91,7 @@ def _all_hosts_state_snapshot(states: AllHostsState) -> Dict[str, List[str]]:
     return snapshot
 
 
-def print_env(cfg: Config) -> None:
-    # Pylance: cfg.parallel が型未定義の環境でも警告にならないよう、自前で解決して表示
-    j1, j2 = _resolve_parallel_pair_from_env()
-    msg1 = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)} PARALLEL={j1}/{j2}"
-    msg2 = f"[env] GM_GATHER_CMD='{shlex.join(cfg.gm_gather_cmd)}'"
-    msg3 = f"[env] GM_SCATTER_CMD='{shlex.join(cfg.gm_scatter_cmd)}'"
-    print(msg1)
-    print(msg2)
-    print(msg3)
+## moved to test_common_config.print_env
 
 
 # =========================
@@ -203,33 +107,27 @@ def _preflight(cfg: Config) -> None:
     while i < n:
         host: str = cfg.hosts_both[i]
 
-        r_sudo_v: subprocess.CompletedProcess[str] = ssh_do(
-            cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict_bool, "sudo", "-V"
-        )
-        assert_rc(f"{host}: sudo present", r_sudo_v.returncode, expect_zero=True)
+        r_sudo_v: CommandResult = _ssh_run_common(cfg, host, ["sudo", "-V"])
+        assert_rc(f"{host}: sudo present", r_sudo_v.rc, expect_zero=True)
 
-        r_sudo_true: subprocess.CompletedProcess[str] = ssh_do(
-            cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict_bool, "sudo", "-n", "true"
-        )
-        assert_rc(f"{host}: sudo -n true", r_sudo_true.returncode, expect_zero=True)
+        r_sudo_true: CommandResult = _ssh_run_common(cfg, host, ["sudo", "-n", "true"])
+        assert_rc(f"{host}: sudo -n true", r_sudo_true.rc, expect_zero=True)
 
-        r_mkdir: subprocess.CompletedProcess[str] = ssh_sudo(
-            cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict_bool,
+        r_mkdir: CommandResult = _ssh_run_sudo_common(cfg, host, [
             "mkdir", "-p", "--", cfg.remote_dest_root
-        )
-        assert_rc(f"{host}: mkdir remote_dest_root", r_mkdir.returncode, expect_zero=True)
+        ])
+        assert_rc(f"{host}: mkdir remote_dest_root", r_mkdir.rc, expect_zero=True)
 
-        r_chown: subprocess.CompletedProcess[str] = ssh_sudo(
-            cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict_bool,
+        r_chown: CommandResult = _ssh_run_sudo_common(cfg, host, [
             "chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", cfg.remote_dest_root
-        )
-        assert_rc(f"{host}: chown remote_dest_root", r_chown.returncode, expect_zero=True)
+        ])
+        assert_rc(f"{host}: chown remote_dest_root", r_chown.rc, expect_zero=True)
 
         i += 1
 
     # ローカル作業ルートをクリア
     cwd: str = os.getcwd()
-    _safe_rmtree_abs(cfg.local_root, ensure_under=cwd)
+    safe_rmtree_abs(cfg.local_root, ensure_under=cwd)
     os.makedirs(cfg.local_root, exist_ok=True)
 
 
@@ -243,7 +141,7 @@ def _prepare_local_parallel_sources(cfg: Config) -> List[str]:
       - すべて「ファイル SRC」とする（ディレクトリ SRC は使用しない）
     """
     src_root: str = os.path.join(cfg.local_root, "step5_parallel_src")
-    _safe_rmtree_abs(src_root, ensure_under=cfg.local_root)
+    safe_rmtree_abs(src_root, ensure_under=cfg.local_root)
     os.makedirs(src_root, exist_ok=True)
 
     dir1: str = os.path.join(src_root, "dir1")
@@ -277,17 +175,15 @@ def _prepare_remote_dest_for_all_hosts(cfg: Config, dest_rel: str) -> str:
     n: int = len(cfg.hosts_both)
     while i < n:
         host: str = cfg.hosts_both[i]
-        _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict_bool, "rm", "-rf", "--", dest_abs)
-        r_mkdir: subprocess.CompletedProcess[str] = ssh_sudo(
-            cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict_bool,
-            "mkdir", "-p", "--", dest_abs
+        _ = _ssh_run_sudo_common(cfg, host, ["rm", "-rf", "--", dest_abs])
+        r_mkdir: CommandResult = _ssh_run_sudo_common(
+            cfg, host, ["mkdir", "-p", "--", dest_abs]
         )
-        assert_rc(f"{host}: mkdir dest_abs", r_mkdir.returncode, expect_zero=True)
-        r_chown: subprocess.CompletedProcess[str] = ssh_sudo(
-            cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict_bool,
-            "chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", dest_abs
+        assert_rc(f"{host}: mkdir dest_abs", r_mkdir.rc, expect_zero=True)
+        r_chown: CommandResult = _ssh_run_sudo_common(
+            cfg, host, ["chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", dest_abs]
         )
-        assert_rc(f"{host}: chown dest_abs", r_chown.returncode, expect_zero=True)
+        assert_rc(f"{host}: chown dest_abs", r_chown.rc, expect_zero=True)
         i += 1
     return dest_abs
 
@@ -307,30 +203,15 @@ def _prepare_remote_parallel_sources(cfg: Config) -> str:
     n: int = len(cfg.hosts_both)
     while i < n:
         host: str = cfg.hosts_both[i]
-        _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict_bool, "rm", "-rf", "--", remote_src_root)
-        r_mkdir_root: subprocess.CompletedProcess[str] = ssh_sudo(
-            cfg.ssh_user,
-            host,
-            cfg.ssh_port,
-            cfg.ssh_strict_bool,
-            "mkdir",
-            "-p",
-            "--",
-            remote_src_root,
+        _ = _ssh_run_sudo_common(cfg, host, ["rm", "-rf", "--", remote_src_root])
+        r_mkdir_root: CommandResult = _ssh_run_sudo_common(
+            cfg, host, ["mkdir", "-p", "--", remote_src_root]
         )
-        assert_rc(f"{host}: mkdir remote_src_root", r_mkdir_root.returncode, expect_zero=True)
-        r_chown_root: subprocess.CompletedProcess[str] = ssh_sudo(
-            cfg.ssh_user,
-            host,
-            cfg.ssh_port,
-            cfg.ssh_strict_bool,
-            "chown",
-            "-R",
-            "--",
-            f"{cfg.target_user}:{cfg.target_user}",
-            remote_src_root,
+        assert_rc(f"{host}: mkdir remote_src_root", r_mkdir_root.rc, expect_zero=True)
+        r_chown_root: CommandResult = _ssh_run_sudo_common(
+            cfg, host, ["chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", remote_src_root]
         )
-        assert_rc(f"{host}: chown remote_src_root", r_chown_root.returncode, expect_zero=True)
+        assert_rc(f"{host}: chown remote_src_root", r_chown_root.rc, expect_zero=True)
 
         # dir1, dir2 とファイルを作成（target_user として）
         script_lines: List[str] = []
@@ -343,16 +224,10 @@ def _prepare_remote_parallel_sources(cfg: Config) -> str:
         script_lines.append('printf \'C\n\' > "$root/dir2/c.txt"')
         script: str = "\n".join(script_lines)
 
-        r_populate: subprocess.CompletedProcess[str] = ssh_do(
-            cfg.ssh_user,
-            host,
-            cfg.ssh_port,
-            cfg.ssh_strict_bool,
-            "bash",
-            "-lc",
-            script,
+        r_populate: CommandResult = _ssh_run_common(
+            cfg, host, ["bash", "-lc", script]
         )
-        assert_rc(f"{host}: populate remote_src_root", r_populate.returncode, expect_zero=True)
+        assert_rc(f"{host}: populate remote_src_root", r_populate.rc, expect_zero=True)
 
         i += 1
 
@@ -391,13 +266,12 @@ def _collect_remote_state_for_host(cfg: Config, host: str, dest_abs: str) -> Per
     lines_script.append('done')
     script: str = "\n".join(lines_script)
 
-    proc: subprocess.CompletedProcess[str] = ssh_do(
-        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict_bool,
-        "bash", "-lc", script
+    proc: CommandResult = _ssh_run_common(
+        cfg, host, ["bash", "-lc", script]
     )
-    if proc.returncode != 0:
+    if proc.rc != 0:
         name: str = f"{host}: snapshot DEST={dest_abs}"
-        assert_rc(name, proc.returncode, expect_zero=True)
+        assert_rc(name, proc.rc, expect_zero=True)
 
     out: str = proc.stdout or ""
     lines: List[str] = out.splitlines()
@@ -595,7 +469,7 @@ def _run_gather_parallel(
     # ローカル DEST をクリアして作成
     dest_abs: str = os.path.join(cfg.local_root, dest_rel)
     cwd: str = os.getcwd()
-    _safe_rmtree_abs(dest_abs, ensure_under=cwd)
+    safe_rmtree_abs(dest_abs, ensure_under=cwd)
     os.makedirs(dest_abs, exist_ok=True)
 
     hosts_path: str = _write_temp_hosts(cfg.hosts_both)
@@ -643,7 +517,7 @@ def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
 
     j1: int
     j2: int
-    j1, j2 = _resolve_parallel_pair_from_env()
+    j1, j2 = resolve_parallel_pair_from_env()
 
     dest_rel_j1: str = "step5_scatter_nonpack_j1"
     dest_rel_j2: str = "step5_scatter_nonpack_j2"
@@ -716,7 +590,7 @@ def case_scatter_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
 
     j1: int
     j2: int
-    j1, j2 = _resolve_parallel_pair_from_env()
+    j1, j2 = resolve_parallel_pair_from_env()
 
     dest_rel_j1: str = "step5_scatter_pack_j1"
     dest_rel_j2: str = "step5_scatter_pack_j2"
@@ -800,7 +674,7 @@ def case_gather_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
 
     j1: int
     j2: int
-    j1, j2 = _resolve_parallel_pair_from_env()
+    j1, j2 = resolve_parallel_pair_from_env()
 
     dest_rel_j1: str = "step5_gather_nonpack_j1"
     dest_rel_j2: str = "step5_gather_nonpack_j2"
@@ -875,7 +749,7 @@ def case_gather_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
 
     j1: int
     j2: int
-    j1, j2 = _resolve_parallel_pair_from_env()
+    j1, j2 = resolve_parallel_pair_from_env()
 
     dest_rel_j1: str = "step5_gather_pack_j1"
     dest_rel_j2: str = "step5_gather_pack_j2"
@@ -938,7 +812,7 @@ def main() -> None:
     # 共通 Config を使用する。Step5 では local_work_root を毎回クリアしたいので
     # clear_local_root=True を指定する。
     cfg: Config = load_config_from_env(clear_local_root=True)
-    _set_cfg_for_ssh(cfg)
+
     _ = print_env(cfg)
 
     try:

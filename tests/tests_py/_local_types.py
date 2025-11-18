@@ -1,6 +1,11 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Any
+@dataclass(frozen=True)
+class LocalRun:
+    rc: int
+    stdout: str
+    stderr: str
 
 @dataclass
 class CommandResult:

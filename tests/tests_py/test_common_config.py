@@ -6,7 +6,7 @@ import os
 import shlex
 import shutil
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple, Optional
 
 from ._local_types import Config
 from .constants import (
@@ -159,3 +159,38 @@ def snapshot_config(cfg: Config) -> Dict[str, Any]:
         "parallel": cfg.parallel,
     }
     return result
+
+
+def resolve_parallel_pair_from_env() -> Tuple[int, int]:
+    """
+    並列度を環境変数から解決する共通ヘルパ。
+      - GM_PARALLEL が設定されていれば (1, GM_PARALLEL)
+      - 未設定ならば (1, 4)
+    """
+    gm_par_raw: str = os.environ.get("GM_PARALLEL", "").strip()
+    if gm_par_raw:
+        j2: int = int(gm_par_raw)
+        j1: int = 1
+        return j1, j2
+    j1_default: int = 1
+    j2_default: int = 4
+    return j1_default, j2_default
+
+
+def print_env(cfg: Config, *, extra: Optional[Dict[str, str]] = None) -> None:
+    """
+    環境情報を安定した形式で出力する共通関数（Step5 仕様に準拠）。
+    既定の3行に加え、extra で任意の key/value を [env] KEY=VALUE として追記可能。
+    追加分は key を辞書順にして出力することで安定性を担保する。
+    """
+    j1, j2 = resolve_parallel_pair_from_env()
+    msg1 = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)} PARALLEL={j1}/{j2}"
+    msg2 = f"[env] GM_GATHER_CMD='{shlex.join(cfg.gm_gather_cmd)}'"
+    msg3 = f"[env] GM_SCATTER_CMD='{shlex.join(cfg.gm_scatter_cmd)}'"
+    print(msg1)
+    print(msg2)
+    print(msg3)
+    if extra:
+        for k in sorted(extra.keys()):
+            v = extra[k]
+            print(f"[env] {k}={v}")

@@ -1,20 +1,10 @@
 import shlex
 import subprocess
 from typing import Dict, List, Optional, Union
+from .test_common_ssh import ssh_run_raw as _ssh_run_raw
 
 
-def _ssh_run_raw(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str) -> subprocess.CompletedProcess[str]:
-    strict_str: str = strict if isinstance(strict, str) else ("yes" if strict else "no")
-    argv: List[str] = [
-        "ssh",
-        "-p",
-        str(port),
-        "-o",
-        f"StrictHostKeyChecking={strict_str}",
-        "--",
-        f"{ssh_user}@{host}",
-    ] + list(remote_argv)
-    return subprocess.run(argv, capture_output=True, text=True)
+# raw ssh 実行は共有ヘルパに委譲する（Config 非依存のためスナップショット用途に最適）
 
 
 def remote_find_tree_script(

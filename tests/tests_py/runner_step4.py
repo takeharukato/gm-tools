@@ -11,20 +11,17 @@ from __future__ import annotations
 
 import os
 import shlex
-import subprocess
-import fnmatch
-import pathlib
-from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, IO, Callable, Any, Union
-from ._local_types import Config, CaseResult
+from ._local_types import Config, CaseResult, CommandResult, LocalRun
 from .asserts import assert_rc  # 共有のassertを使用
-from .test_common_config import load_config_from_env as load_common_config
+from .test_common_config import load_config_from_env as load_common_config, print_env
 from .test_common_runner import run_cases
 from .test_common_cleanup import create_clean_dir
 from .test_common_ssh import (
     ssh_run as _ssh_run_common,
     ssh_run_sudo as _ssh_run_sudo_common,
     ssh_pipe_to_tee as _ssh_pipe_to_tee_common,
+    ssh_get_remote_home,
 )
 from .test_common_snapshot import (
     local_find_tree as _local_find_tree,
@@ -32,9 +29,9 @@ from .test_common_snapshot import (
     snapshot_scatter_dest_verbose as _snapshot_scatter_dest_verbose,
 )
 from .test_common_local import cleanup_local_temps as _cleanup_local_temps
+from .test_common_local import run_local_with_argv as _run_local_argv
+from .test_common_paths import walk_find_first, as_posix_rel
 
-# ランナー側は公開APIのみを使用（gmwrapの公開関数）
-from .gmwrap import gm_run_local_with_argv as _gm_run_local_argv_public
 from .test_common_hosts import write_temp_hosts as _write_temp_hosts
 
 def cleanup_local_temps(cfg: Config) -> None:
@@ -53,68 +50,7 @@ def cleanup_local_temps(cfg: Config) -> None:
 
 ## moved to test_common_cleanup.create_clean_dir
 
-# 共有 SSH を使う互換レイヤ
-_cfg_for_ssh: Optional[Config] = None
-
-def _set_cfg_for_ssh(cfg: Config) -> None:
-    global _cfg_for_ssh
-    _cfg_for_ssh = cfg
-
-def ssh_do(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
-    if _cfg_for_ssh is not None:
-        r = _ssh_run_common(_cfg_for_ssh, host, list(remote_argv))
-        return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
-    strict_str: str = strict if isinstance(strict, str) else ("yes" if strict else "no")
-    argv: List[str] = [
-        "ssh",
-        "-o",
-        f"StrictHostKeyChecking={strict_str}",
-        "-p",
-        str(port),
-        f"{ssh_user}@{host}",
-        "--",
-    ] + list(remote_argv)
-    p = subprocess.run(argv, capture_output=True, text=True)
-    return p
-
-def ssh_sudo(ssh_user: str, host: str, port: int, strict: Union[bool, str], *remote_argv: str):
-    if _cfg_for_ssh is not None:
-        r = _ssh_run_sudo_common(_cfg_for_ssh, host, list(remote_argv))
-        return subprocess.CompletedProcess(args=list(remote_argv), returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
-    strict_str: str = strict if isinstance(strict, str) else ("yes" if strict else "no")
-    argv: List[str] = [
-        "ssh",
-        "-o",
-        f"StrictHostKeyChecking={strict_str}",
-        "-p",
-        str(port),
-        f"{ssh_user}@{host}",
-        "--",
-        "sudo",
-        "-n",
-    ] + list(remote_argv)
-    p = subprocess.run(argv, capture_output=True, text=True)
-    return p
-
-def pipe_to_tee(ssh_user: str, host: str, port: int, strict: Union[bool, str], path: str, *, content: str, sudo: bool):
-    if _cfg_for_ssh is not None:
-        r = _ssh_pipe_to_tee_common(_cfg_for_ssh, host, path, content, sudo=sudo)
-        return subprocess.CompletedProcess(args=["tee", path], returncode=r.rc, stdout=r.stdout, stderr=r.stderr)
-    strict_str: str = strict if isinstance(strict, str) else ("yes" if strict else "no")
-    argv: List[str] = [
-        "ssh",
-        "-o",
-        f"StrictHostKeyChecking={strict_str}",
-        "-p",
-        str(port),
-        f"{ssh_user}@{host}",
-        "--",
-    ]
-    if sudo:
-        argv += ["sudo", "-n"]
-    argv += ["tee", "--", path]
-    p = subprocess.run(argv, input=content, capture_output=True, text=True)
-    return p
+## 共有 SSH ラッパを直接使用する。
 
 
 
@@ -124,128 +60,46 @@ def pipe_to_tee(ssh_user: str, host: str, port: int, strict: Union[bool, str], p
 
 # NOTE: Config は tests/tests_py/_local_types.py からインポートした共有定義を使用する。
 
-def _walk_find_first(root: str, *, name: Optional[str] = None,
-                     pattern: Optional[str] = None) -> Optional[str]:
-    """
-    ローカルの出力ツリーを走査し、最初に一致したパスを返す。
-    - name: 完全一致名（例: 'l.txt'）
-    - pattern: グロブ（例: '**/src/l.txt'）
-    戻り値は絶対パス。見つからなければ None。
-    """
-    root_path: pathlib.Path = pathlib.Path(root)
-    if pattern:
-        # '**' を含むグロブ探索
-        for p in root_path.rglob('*'):
-            p: pathlib.Path
-            try:
-                rel: str = str(p.relative_to(root_path))
-            except Exception as _ex:
-                _ex: Exception
-                rel = str(p)
-            if fnmatch.fnmatch(rel, pattern):
-                resolved: str = str(p.resolve())
-                return resolved
-        return None
-    if name:
-        for p in root_path.rglob(name):
-            p: pathlib.Path
-            resolved: str = str(p.resolve())
-            return resolved
-    return None
+## _walk_find_first は test_common_paths.walk_find_first を使用
 
 def load_config_from_env() -> Config:
         """共有ローダをそのまま利用して Config を取得 (Step4 用)。"""
         cfg: Config = load_common_config(clear_local_root=True)
         return cfg
 
-def print_env(cfg: Config) -> None:
-    msg1: str = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)}"
-    msg2: str = f"[env] GM_GATHER_CMD='{shlex.join(cfg.gm_gather_cmd)}'"
-    msg3: str = f"[env] GM_SCATTER_CMD='{shlex.join(cfg.gm_scatter_cmd)}'"
-    print(msg1)
-    print(msg2)
-    print(msg3)
-
-
-# =========================
-# ローカル実行ヘルパ
-# =========================
-
-@dataclass(frozen=True)
-class LocalRun:
-    rc: int
-    stdout: str
-    stderr: str
-
-def _as_posix_rel(path_abs: str) -> str:
-    """
-    絶対パスをリモート展開用の相対表記へ正規化する:
-      - OS 区切りを '/' に統一
-      - 先頭の '/' はすべて除去
-      - 末尾のスラッシュ有無は入力を尊重（存在すれば保持）
-        例:
-          '/tmp/a/b/'        -> 'tmp/a/b/'
-          'C:\\work\\x\\y'   -> 'C/work/x/y'
-    """
-    s0: str = path_abs.replace("\\", "/")
-    had_trailing: bool = s0.endswith("/")
-    s: str = s0.lstrip("/")
-    if had_trailing and not s.endswith("/"):
-        s = s + "/"
-    return s
-
-def _run_local_argv(argv: List[str], *, input_text: Optional[str] = None) -> LocalRun:
-    if input_text is None:
-        res: Any = _gm_run_local_argv_public(argv)
-        return LocalRun(int(getattr(res, "rc", 0)), str(getattr(res, "stdout", "")), str(getattr(res, "stderr", "")))
-    p = subprocess.run(argv, input=input_text, capture_output=True, text=True)
-    return LocalRun(p.returncode, p.stdout, p.stderr)
-
-
-# _write_temp_hosts は共有実装に委譲（互換エイリアス）
-
+## moved to test_common_config.print_env
 
 # =========================
 # 前処理と素材作成
 # =========================
 
-def _get_remote_home(cfg: Config, host: str, user: str) -> str:
-    r: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "getent", "passwd", user)
-    assert_rc(f"{host}: getent passwd {user}", r.returncode, expect_zero=True)
-    line: str = (r.stdout or "").splitlines()[0]
-    parts: List[str] = line.strip().split(":")
-    if len(parts) < 6:
-        raise AssertionError(f"{host}: invalid passwd entry for {user}: {line!r}")
-    home: str = parts[5]
-    if not home.startswith("/"):
-        raise AssertionError(f"{host}: bad home path for {user}: {home!r}")
-    return home
+## moved to test_common_ssh.ssh_get_remote_home
 
 
 def _prepare_remote_sample_tree(cfg: Config, host: str, user: str, rel_root_name: str) -> None:
     """
     <user のホーム>/rel_root_name/src に a.txt と dir1/b.txt を作る。
     """
-    home: str = _get_remote_home(cfg, host, user)
+    home: str = ssh_get_remote_home(cfg, host, user)
     abs_root: str = os.path.join(home, rel_root_name)
     src_dir: str = os.path.join(abs_root, "src")
     dir1: str = os.path.join(src_dir, "dir1")
 
-    r1: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", src_dir)
-    assert_rc(f"{host}: mkdir -p {src_dir}", r1.returncode, expect_zero=True)
-    r2: subprocess.CompletedProcess[str] = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
-    assert_rc(f"{host}: chown -R {user}:{user} {abs_root}", r2.returncode, expect_zero=True)
-    r3: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dir1)
-    assert_rc(f"{host}: mkdir -p {dir1}", r3.returncode, expect_zero=True)
-    r4: subprocess.CompletedProcess[str] = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", dir1)
-    assert_rc(f"{host}: chown -R {user}:{user} {dir1}", r4.returncode, expect_zero=True)
+    r1: CommandResult = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", src_dir])
+    assert_rc(f"{host}: mkdir -p {src_dir}", r1.rc, expect_zero=True)
+    r2: CommandResult = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", abs_root])
+    assert_rc(f"{host}: chown -R {user}:{user} {abs_root}", r2.rc, expect_zero=True)
+    r3: CommandResult = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dir1])
+    assert_rc(f"{host}: mkdir -p {dir1}", r3.rc, expect_zero=True)
+    r4: CommandResult = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", dir1])
+    assert_rc(f"{host}: chown -R {user}:{user} {dir1}", r4.rc, expect_zero=True)
 
     a_txt: str = os.path.join(src_dir, "a.txt")
     b_txt: str = os.path.join(dir1, "b.txt")
-    r5: subprocess.CompletedProcess[str] = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, a_txt, content="A\n", sudo=False)
-    assert_rc(f"{host}: tee {a_txt}", r5.returncode, expect_zero=True)
-    r6: subprocess.CompletedProcess[str] = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, b_txt, content="B\n", sudo=False)
-    assert_rc(f"{host}: tee {b_txt}", r6.returncode, expect_zero=True)
+    r5: CommandResult = _ssh_pipe_to_tee_common(cfg, host, a_txt, "A\n", sudo=False)
+    assert_rc(f"{host}: tee {a_txt}", r5.rc, expect_zero=True)
+    r6: CommandResult = _ssh_pipe_to_tee_common(cfg, host, b_txt, "B\n", sudo=False)
+    assert_rc(f"{host}: tee {b_txt}", r6.rc, expect_zero=True)
 
 
 def _preflight(cfg: Config) -> None:
@@ -256,39 +110,39 @@ def _preflight(cfg: Config) -> None:
     n: int = len(cfg.hosts_both)
     while i < n:
         h: str = cfg.hosts_both[i]
-        r: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "sudo", "-V")
-        assert_rc(f"{h}: sudo present", r.returncode, expect_zero=True)
+        r: CommandResult = _ssh_run_common(cfg, h, ["sudo", "-V"])
+        assert_rc(f"{h}: sudo present", r.rc, expect_zero=True)
 
-        r2: subprocess.CompletedProcess[str] = ssh_sudo(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "true")
-        assert_rc(f"{h}: sudo -n true", r2.returncode, expect_zero=True)
+        r2: CommandResult = _ssh_run_sudo_common(cfg, h, ["true"])
+        assert_rc(f"{h}: sudo -n true", r2.rc, expect_zero=True)
 
-        r3: subprocess.CompletedProcess[str] = ssh_sudo(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", cfg.remote_dest_root)
-        assert_rc(f"{h}: ensure remote_dest_root", r3.returncode, expect_zero=True)
+        r3: CommandResult = _ssh_run_sudo_common(cfg, h, ["mkdir", "-p", "--", cfg.remote_dest_root])
+        assert_rc(f"{h}: ensure remote_dest_root", r3.rc, expect_zero=True)
 
-        r4: subprocess.CompletedProcess[str] = ssh_sudo(
-            cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict,
-            "chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", cfg.remote_dest_root
+        r4: CommandResult = _ssh_run_sudo_common(
+            cfg, h,
+            ["chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", cfg.remote_dest_root]
         )
-        assert_rc(f"{h}: chown remote_dest_root", r4.returncode, expect_zero=True)
+        assert_rc(f"{h}: chown remote_dest_root", r4.rc, expect_zero=True)
         i += 1
 
     i2: int = 0
     n2: int = len(cfg.hosts_both)
     while i2 < n2:
         h2: str = cfg.hosts_both[i2]
-        _ = ssh_sudo(cfg.ssh_user, h2, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", "/tmp/gm_pack_case")
-        r1: subprocess.CompletedProcess[str] = ssh_sudo(cfg.ssh_user, h2, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", "/tmp/gm_pack_case")
-        assert_rc(f"{h2}: mkdir pack_case", r1.returncode, expect_zero=True)
-        r2: subprocess.CompletedProcess[str] = pipe_to_tee(
-            cfg.ssh_user, h2, cfg.ssh_port, cfg.ssh_strict,
-            "/tmp/gm_pack_case/secret.txt", content="secret\n", sudo=True
+        _ = _ssh_run_sudo_common(cfg, h2, ["rm", "-rf", "--", "/tmp/gm_pack_case"])
+        r1: CommandResult = _ssh_run_sudo_common(cfg, h2, ["mkdir", "-p", "--", "/tmp/gm_pack_case"])
+        assert_rc(f"{h2}: mkdir pack_case", r1.rc, expect_zero=True)
+        r2: CommandResult = _ssh_pipe_to_tee_common(
+            cfg, h2,
+            "/tmp/gm_pack_case/secret.txt", "secret\n", sudo=True
         )
-        assert_rc(f"{h2}: create secret.txt", r2.returncode, expect_zero=True)
-        r3: subprocess.CompletedProcess[str] = ssh_sudo(
-            cfg.ssh_user, h2, cfg.ssh_port, cfg.ssh_strict,
-            "ln", "-sf", "--", "/tmp/gm_pack_case/secret.txt", "/tmp/gm_pack_case/secret.link"
+        assert_rc(f"{h2}: create secret.txt", r2.rc, expect_zero=True)
+        r3: CommandResult = _ssh_run_sudo_common(
+            cfg, h2,
+            ["ln", "-sf", "--", "/tmp/gm_pack_case/secret.txt", "/tmp/gm_pack_case/secret.link"]
         )
-        assert_rc(f"{h2}: ln secret.link", r3.returncode, expect_zero=True)
+        assert_rc(f"{h2}: ln secret.link", r3.rc, expect_zero=True)
         i2 += 1
 
 
@@ -302,8 +156,8 @@ def is_selinux_available(cfg: Config, host: str) -> Tuple[bool, str]:
       - getenforce が失敗 or 空文字 or "Disabled": (False, "")
       - それ以外（Permissive/Enforcing）: (True, mode)
     """
-    r: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "getenforce")
-    if r.returncode != 0:
+    r: CommandResult = _ssh_run_common(cfg, host, ["getenforce"])
+    if r.rc != 0:
         return (False, "")
     mode: str = (r.stdout or "").strip()
     if not mode or mode.lower() == "disabled":
@@ -423,12 +277,12 @@ def case_gather_src_abs_slash_ok(cfg: Config) -> CaseResult:
     ubuntu: str = cfg.host_ubuntu
     user: str = cfg.target_user
 
-    home: str = _get_remote_home(cfg, ubuntu, user)
+    home: str = ssh_get_remote_home(cfg, ubuntu, user)
     abs_root: str = os.path.join(home, "gm_step4_abs")
     src_dir: str = os.path.join(abs_root, "src")
-    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", src_dir)
-    _ = ssh_sudo(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
-    _ = pipe_to_tee(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "a.txt"), content="A\n", sudo=False)
+    _ = _ssh_run_common(cfg, ubuntu, ["mkdir", "-p", "--", src_dir])
+    _ = _ssh_run_sudo_common(cfg, ubuntu, ["chown", "-R", "--", f"{user}:{user}", abs_root])
+    _ = _ssh_pipe_to_tee_common(cfg, ubuntu, os.path.join(src_dir, "a.txt"), "A\n", sudo=False)
 
     hosts_path: str = _write_temp_hosts([ubuntu])
     local_out: str = os.path.join(cfg.local_root, "g_abs_slash")
@@ -461,12 +315,12 @@ def case_gather_src_abs_tilde_ok(cfg: Config) -> CaseResult:
     ubuntu: str = cfg.host_ubuntu
     user: str = cfg.target_user
 
-    home: str = _get_remote_home(cfg, ubuntu, user)
+    home: str = ssh_get_remote_home(cfg, ubuntu, user)
     abs_root: str = os.path.join(home, "gm_step4_tilde")
     src_dir: str = os.path.join(abs_root, "src")
-    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", src_dir)
-    _ = ssh_sudo(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
-    _ = pipe_to_tee(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "b.txt"), content="B\n", sudo=False)
+    _ = _ssh_run_common(cfg, ubuntu, ["mkdir", "-p", "--", src_dir])
+    _ = _ssh_run_sudo_common(cfg, ubuntu, ["chown", "-R", "--", f"{user}:{user}", abs_root])
+    _ = _ssh_pipe_to_tee_common(cfg, ubuntu, os.path.join(src_dir, "b.txt"), "B\n", sudo=False)
 
     hosts_path: str = _write_temp_hosts([ubuntu])
     local_out: str = os.path.join(cfg.local_root, "g_abs_tilde")
@@ -587,14 +441,13 @@ def case_scatter_dest_relative_ok_to_home(cfg: Config) -> CaseResult:
         _ = wf.write("X\n")
     # 期待は「SRC を絶対指定した場合のレイアウト」なので、実行引数も絶対パスで渡す
     local_src_abs: str = os.path.abspath(local_src)
-    abs_local_src_rel: str = _as_posix_rel(local_src_abs)
+    abs_local_src_rel: str = as_posix_rel(local_src_abs)
 
-    home: str = _get_remote_home(cfg, alma, user)
+    home: str = ssh_get_remote_home(cfg, alma, user)
     dest_rel: str = "relative/dest"
     expected_remote_x: str = os.path.join(home, dest_rel, abs_local_src_rel, "x.txt")
 
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--",
-                 os.path.join(home, dest_rel))
+    _ = _ssh_run_sudo_common(cfg, alma, ["rm", "-rf", "--", os.path.join(home, dest_rel)])
 
     hosts_path: str = _write_temp_hosts([alma])
 
@@ -606,12 +459,12 @@ def case_scatter_dest_relative_ok_to_home(cfg: Config) -> CaseResult:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    r_isfile: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "test", "-f", expected_remote_x)
-    r_cat: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "cat", expected_remote_x)
+    r_isfile: CommandResult = _ssh_run_common(cfg, alma, ["test", "-f", expected_remote_x])
+    r_cat: CommandResult = _ssh_run_common(cfg, alma, ["cat", expected_remote_x])
 
-    passed: bool = (run.rc == 0 and r_isfile.returncode == 0 and (r_cat.stdout or "").strip() == "X")
+    passed: bool = (run.rc == 0 and r_isfile.rc == 0 and (r_cat.stdout or "").strip() == "X")
     reason: str = "" if passed else (
-        f"rc={run.rc}, isfile_rc={r_isfile.returncode}, exp={expected_remote_x!r}, content={r_cat.stdout!r}"
+        f"rc={run.rc}, isfile_rc={r_isfile.rc}, exp={expected_remote_x!r}, content={r_cat.stdout!r}"
     )
 
     return CaseResult(
@@ -652,7 +505,7 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
         _ = wf.write("X\n")
     # 期待は「SRC を絶対指定した場合のレイアウト」なので、実行引数も絶対パスで渡す
     local_src_abs: str = os.path.abspath(local_src)
-    abs_local_rel: str = _as_posix_rel(local_src_abs)
+    abs_local_rel: str = as_posix_rel(local_src_abs)
 
     hosts_path: str = _write_temp_hosts([alma])
 
@@ -668,7 +521,7 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
     )
     run_ok: LocalRun = _run_local_argv(argv_ok)
     exp_ok: str = os.path.join(dest_ok, abs_local_rel, "x.txt")
-    r_ok_isfile: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_ok)
+    r_ok_isfile: CommandResult = _ssh_run_common(cfg, alma, ["test", "-f", exp_ok])
 
     argv_tilde: List[str] = (
         cfg.gm_scatter_cmd
@@ -677,9 +530,9 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
         + ["--", local_src_abs, dest_tilde]
     )
     run_tilde: LocalRun = _run_local_argv(argv_tilde)
-    home: str = _get_remote_home(cfg, alma, user)
+    home: str = ssh_get_remote_home(cfg, alma, user)
     exp_tilde: str = os.path.join(home, "dest_tilde", abs_local_rel, "x.txt")
-    r_tilde_isfile: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_tilde)
+    r_tilde_isfile: CommandResult = _ssh_run_common(cfg, alma, ["test", "-f", exp_tilde])
 
     argv_win: List[str] = (
         cfg.gm_scatter_cmd
@@ -689,14 +542,14 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
     )
     run_win: LocalRun = _run_local_argv(argv_win)
 
-    ok_branch: bool = (run_ok.rc == 0 and r_ok_isfile.returncode == 0)
-    tilde_branch: bool = (run_tilde.rc == 0 and r_tilde_isfile.returncode == 0)
+    ok_branch: bool = (run_ok.rc == 0 and r_ok_isfile.rc == 0)
+    tilde_branch: bool = (run_tilde.rc == 0 and r_tilde_isfile.rc == 0)
     win_branch_rc_only: bool = (run_win.rc == 0)
 
     passed: bool = (ok_branch and tilde_branch and win_branch_rc_only)
     reason: str = "" if passed else (
-        f"/abs(rc={run_ok.rc}, isfile_rc={r_ok_isfile.returncode}, exp_ok={exp_ok}); "
-        f"~/ (rc={run_tilde.rc}, isfile_rc={r_tilde_isfile.returncode}, exp_tilde={exp_tilde}); "
+        f"/abs(rc={run_ok.rc}, isfile_rc={r_ok_isfile.rc}, exp_ok={exp_ok}); "
+        f"~/ (rc={run_tilde.rc}, isfile_rc={r_tilde_isfile.rc}, exp_tilde={exp_tilde}); "
         f"win(rc={run_win.rc})"
     )
 
@@ -741,17 +594,17 @@ def case_gather_follow_symlinks_files(cfg: Config) -> CaseResult:
     ubuntu: str = cfg.host_ubuntu
     user: str = cfg.target_user
 
-    home: str = _get_remote_home(cfg, ubuntu, user)
+    home: str = ssh_get_remote_home(cfg, ubuntu, user)
     abs_root: str = os.path.join(home, "gm_step4_follow_src")
     src_dir: str = os.path.join(abs_root, "src")
     src_dir = src_dir.rstrip('/') + '/'
     file_path: str = os.path.join(src_dir, "f.txt")
     link_path: str = os.path.join(src_dir, "l.txt")
 
-    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", src_dir)
-    _ = ssh_sudo(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
-    _ = pipe_to_tee(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, file_path, content="Z\n", sudo=False)
-    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "ln", "-sf", "--", "f.txt", link_path)
+    _ = _ssh_run_common(cfg, ubuntu, ["mkdir", "-p", "--", src_dir])
+    _ = _ssh_run_sudo_common(cfg, ubuntu, ["chown", "-R", "--", f"{user}:{user}", abs_root])
+    _ = _ssh_pipe_to_tee_common(cfg, ubuntu, file_path, "Z\n", sudo=False)
+    _ = _ssh_run_common(cfg, ubuntu, ["ln", "-sf", "--", "f.txt", link_path])
 
     hosts_path: str = _write_temp_hosts([ubuntu])
 
@@ -784,7 +637,7 @@ def case_gather_follow_symlinks_files(cfg: Config) -> CaseResult:
         total: int = len(patterns)
         while idx < total:
             pat: str = patterns[idx]
-            p: Optional[str] = _walk_find_first(base, pattern=pat)
+            p: Optional[str] = walk_find_first(base, pattern=pat)
             if p:
                 return p
             idx += 1
@@ -871,13 +724,13 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
 
     # 期待は「SRC を絶対指定した場合のレイアウト」なので、実行引数も絶対パスで渡す
     local_src_abs: str = os.path.abspath(local_src)
-    abs_local_src: str = _as_posix_rel(local_src_abs)
+    abs_local_src: str = as_posix_rel(local_src_abs)
 
     dest_no: str = os.path.join(cfg.remote_dest_root, "s_follow_no")
     dest_yes: str = os.path.join(cfg.remote_dest_root, "s_follow_yes")
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_no, dest_yes)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_no, dest_yes)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", cfg.remote_dest_root)
+    _ = _ssh_run_sudo_common(cfg, alma, ["rm", "-rf", "--", dest_no, dest_yes])
+    _ = _ssh_run_sudo_common(cfg, alma, ["mkdir", "-p", "--", dest_no, dest_yes])
+    _ = _ssh_run_sudo_common(cfg, alma, ["chown", "-R", "--", f"{user}:{user}", cfg.remote_dest_root])
 
     hosts_path: str = _write_temp_hosts([alma])
 
@@ -900,25 +753,25 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
     remote_no_l: str = os.path.join(dest_no, abs_local_src, "l.txt")
     remote_yes_l: str = os.path.join(dest_yes, abs_local_src, "l.txt")
 
-    r_no_exists: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "test", "-e", remote_no_l)
+    r_no_exists: CommandResult = _ssh_run_common(cfg, alma, ["test", "-e", remote_no_l])
 
-    r_yes_is_file: subprocess.CompletedProcess[str] = ssh_do(
-        cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "test", "-f", remote_yes_l
+    r_yes_is_file: CommandResult = _ssh_run_common(
+        cfg, alma, ["test", "-f", remote_yes_l]
     )
-    r_yes_cat: subprocess.CompletedProcess[str] = ssh_do(
-        cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "cat", remote_yes_l
+    r_yes_cat: CommandResult = _ssh_run_common(
+        cfg, alma, ["cat", remote_yes_l]
     )
 
     passed: bool = (
         run_no.rc == 0
         and run_yes.rc == 0
-        and r_no_exists.returncode != 0
-        and r_yes_is_file.returncode == 0
+        and r_no_exists.rc != 0
+        and r_yes_is_file.rc == 0
         and (r_yes_cat.stdout or "").strip() == "Q"
     )
     reason: str = "" if passed else (
         f"scatter rc no/yes=({run_no.rc}/{run_yes.rc}), "
-        f"no_exists_rc={r_no_exists.returncode}, file_rc={r_yes_is_file.returncode}, "
+        f"no_exists_rc={r_no_exists.rc}, file_rc={r_yes_is_file.rc}, "
         f"content={r_yes_cat.stdout!r}, paths(no={remote_no_l}, yes={remote_yes_l})"
     )
 
@@ -952,9 +805,9 @@ def case_scatter_pack_extract_user(cfg: Config) -> CaseResult:
         _ = wf.write("U\n")
 
     dest_dir: str = os.path.join(cfg.remote_dest_root, "s_pack_user_dest")
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_dir)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_dir)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", dest_dir)
+    _ = _ssh_run_sudo_common(cfg, alma, ["rm", "-rf", "--", dest_dir])
+    _ = _ssh_run_sudo_common(cfg, alma, ["mkdir", "-p", "--", dest_dir])
+    _ = _ssh_run_sudo_common(cfg, alma, ["chown", "-R", "--", f"{user}:{user}", dest_dir])
 
     hosts_path: str = _write_temp_hosts([alma])
     # 期待は絶対SRCのレイアウトなので、実行引数も絶対にする
@@ -967,14 +820,14 @@ def case_scatter_pack_extract_user(cfg: Config) -> CaseResult:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    rel_from_root: str = _as_posix_rel(local_src_abs)
+    rel_from_root: str = as_posix_rel(local_src_abs)
     remote_file: str = os.path.join(dest_dir, rel_from_root, "u.txt")
-    r_stat_u: subprocess.CompletedProcess[str] = ssh_do(
-        cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "stat", "-c", "%U:%G", remote_file
+    r_stat_u: CommandResult = _ssh_run_common(
+        cfg, alma, ["stat", "-c", "%U:%G", remote_file]
     )
     owner: str = (r_stat_u.stdout or "").strip()
 
-    passed: bool = (run.rc == 0 and r_stat_u.returncode == 0 and owner == f"{user}:{user}")
+    passed: bool = (run.rc == 0 and r_stat_u.rc == 0 and owner == f"{user}:{user}")
     reason: str = "" if passed else f"rc={run.rc}, owner={owner!r}"
 
     return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={"rc": run.rc, "owner": owner})
@@ -1000,13 +853,13 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> CaseResult:
     wf: IO[str]
     with open(os.path.join(local_src, "r.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("R\n")
-    abs_local_src: str = _as_posix_rel(os.path.abspath(local_src))
+    abs_local_src: str = as_posix_rel(os.path.abspath(local_src))
 
     dest_dir: str = os.path.join(cfg.remote_dest_root, "s_pack_sudo_dest")
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_dir)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_dir)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", "root:root", dest_dir)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "chmod", "0700", "--", dest_dir)
+    _ = _ssh_run_sudo_common(cfg, alma, ["rm", "-rf", "--", dest_dir])
+    _ = _ssh_run_sudo_common(cfg, alma, ["mkdir", "-p", "--", dest_dir])
+    _ = _ssh_run_sudo_common(cfg, alma, ["chown", "-R", "--", "root:root", dest_dir])
+    _ = _ssh_run_sudo_common(cfg, alma, ["chmod", "0700", "--", dest_dir])
 
     hosts_path: str = _write_temp_hosts([alma])
 
@@ -1021,14 +874,14 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> CaseResult:
     run: LocalRun = _run_local_argv(argv)
 
     remote_r: str = os.path.join(dest_dir, abs_local_src, "r.txt")
-    r_stat: subprocess.CompletedProcess[str] = ssh_sudo(
-        cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "stat", "-c", "%U:%G", remote_r
+    r_stat: CommandResult = _ssh_run_sudo_common(
+        cfg, alma, ["stat", "-c", "%U:%G", remote_r]
     )
     owner: str = (r_stat.stdout or "").strip()
 
-    passed: bool = (run.rc == 0 and r_stat.returncode == 0 and owner == f"{user}:{user}")
+    passed: bool = (run.rc == 0 and r_stat.rc == 0 and owner == f"{user}:{user}")
     reason: str = "" if passed else (
-        f"rc={run.rc}, stat_rc={r_stat.returncode}, owner={owner!r}, path={remote_r}"
+        f"rc={run.rc}, stat_rc={r_stat.rc}, owner={owner!r}, path={remote_r}"
     )
 
     return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={"rc": run.rc, "owner": owner, "remote_r": remote_r})
@@ -1056,19 +909,19 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> CaseResult:
     wf: IO[str]
     with open(os.path.join(local_src, "r.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("R2\n")
-    abs_local_src: str = _as_posix_rel(os.path.abspath(local_src))
+    abs_local_src: str = as_posix_rel(os.path.abspath(local_src))
 
     dest_dir: str = os.path.join(cfg.remote_dest_root, "s_pack_sudo_exist_dest")
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_dir)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_dir)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", "root:root", dest_dir)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "chmod", "0700", "--", dest_dir)
+    _ = _ssh_run_sudo_common(cfg, alma, ["rm", "-rf", "--", dest_dir])
+    _ = _ssh_run_sudo_common(cfg, alma, ["mkdir", "-p", "--", dest_dir])
+    _ = _ssh_run_sudo_common(cfg, alma, ["chown", "-R", "--", "root:root", dest_dir])
+    _ = _ssh_run_sudo_common(cfg, alma, ["chmod", "0700", "--", dest_dir])
 
     remote_dir_for_file: str = os.path.join(dest_dir, abs_local_src)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", remote_dir_for_file)
+    _ = _ssh_run_sudo_common(cfg, alma, ["mkdir", "-p", "--", remote_dir_for_file])
     remote_r: str = os.path.join(remote_dir_for_file, "r.txt")
-    _ = pipe_to_tee(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, remote_r, content="PRE\n", sudo=True)
-    _ = ssh_sudo(cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "chown", "--", "root:root", remote_r)
+    _ = _ssh_pipe_to_tee_common(cfg, alma, remote_r, "PRE\n", sudo=True)
+    _ = _ssh_run_sudo_common(cfg, alma, ["chown", "--", "root:root", remote_r])
 
     hosts_path: str = _write_temp_hosts([alma])
 
@@ -1082,19 +935,19 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> CaseResult:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    r_stat: subprocess.CompletedProcess[str] = ssh_sudo(
-        cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "stat", "-c", "%U:%G", remote_r
+    r_stat: CommandResult = _ssh_run_sudo_common(
+        cfg, alma, ["stat", "-c", "%U:%G", remote_r]
     )
     owner: str = (r_stat.stdout or "").strip()
 
-    r_cat: subprocess.CompletedProcess[str] = ssh_sudo(
-        cfg.ssh_user, alma, cfg.ssh_port, cfg.ssh_strict, "cat", remote_r
+    r_cat: CommandResult = _ssh_run_sudo_common(
+        cfg, alma, ["cat", remote_r]
     )
     content_after: str = (r_cat.stdout or "")
 
-    passed: bool = (run.rc == 0 and r_stat.returncode == 0 and owner == "root:root")
+    passed: bool = (run.rc == 0 and r_stat.rc == 0 and owner == "root:root")
     reason: str = "" if passed else (
-        f"rc={run.rc}, stat_rc={r_stat.returncode}, owner={owner!r}, content={content_after!r}, path={remote_r}"
+        f"rc={run.rc}, stat_rc={r_stat.rc}, owner={owner!r}, content={content_after!r}, path={remote_r}"
     )
 
     return CaseResult(name=name, passed=passed, skipped=False, reason=reason, details={"rc": run.rc, "owner": owner, "remote_r": remote_r, "content_after": content_after})
@@ -1182,11 +1035,11 @@ def case_gather_double_nesting_regression(cfg: Config) -> CaseResult:
     file_bdir: str = os.path.join(src_dir, "b")
     file_b: str = os.path.join(file_bdir, "b.txt")
 
-    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", abs_root)
-    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", file_bdir)
-    _ = ssh_sudo(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
-    _ = pipe_to_tee(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, file_a, content="A\n", sudo=False)
-    _ = pipe_to_tee(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, file_b, content="B\n", sudo=False)
+    _ = _ssh_run_common(cfg, ubuntu, ["rm", "-rf", "--", abs_root])
+    _ = _ssh_run_common(cfg, ubuntu, ["mkdir", "-p", "--", file_bdir])
+    _ = _ssh_run_sudo_common(cfg, ubuntu, ["chown", "-R", "--", f"{user}:{user}", abs_root])
+    _ = _ssh_pipe_to_tee_common(cfg, ubuntu, file_a, "A\n", sudo=False)
+    _ = _ssh_pipe_to_tee_common(cfg, ubuntu, file_b, "B\n", sudo=False)
 
     hosts_path: str = _write_temp_hosts([ubuntu])
 
@@ -1312,10 +1165,9 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
         _ = wf.write("B\n")
 
     dest_abs: str = "/tmp/gm_scatter_layout_dest"
-    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
-    _ = ssh_do(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
-    _ = ssh_sudo(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict,
-                 "chown", "-R", "--", f"{user}:{user}", dest_abs)
+    _ = _ssh_run_common(cfg, ubuntu, ["rm", "-rf", "--", dest_abs])
+    _ = _ssh_run_common(cfg, ubuntu, ["mkdir", "-p", "--", dest_abs])
+    _ = _ssh_run_sudo_common(cfg, ubuntu, ["chown", "-R", "--", f"{user}:{user}", dest_abs])
 
     hosts_path: str = _write_temp_hosts([ubuntu])
 
@@ -1327,7 +1179,7 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
     )
     run_abs: LocalRun = _run_local_argv(argv_abs)
 
-    abs_without_leading: str = _as_posix_rel(abs_src_dir)
+    abs_without_leading: str = as_posix_rel(abs_src_dir)
     exp_abs_a: str = os.path.join(dest_abs, abs_without_leading, "a.txt")
     exp_abs_b: str = os.path.join(dest_abs, abs_without_leading, "sub", "b.txt")
 
@@ -1351,11 +1203,8 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
     )
 
     def _remote_is_file(path_abs: str) -> bool:
-        # シェル経由を避け、終了コードのみで判定
-        r: subprocess.CompletedProcess[str] = ssh_do(
-            cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, "test", "-f", path_abs
-        )
-        return r.returncode == 0
+        r: CommandResult = _ssh_run_common(cfg, ubuntu, ["test", "-f", path_abs])
+        return r.rc == 0
 
     abs_ok: bool = _remote_is_file(exp_abs_a) and _remote_is_file(exp_abs_b)
     rel_ok: bool = _remote_is_file(exp_rel_a) and _remote_is_file(exp_rel_b)
@@ -1422,17 +1271,15 @@ def case_scatter_dest_relative_to_remote_home(cfg: Config) -> CaseResult:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    home: str = _get_remote_home(cfg, host, user)
+    home: str = ssh_get_remote_home(cfg, host, user)
     abs_without: str = abs_src.lstrip(os.sep)
     exp: str = os.path.join(home, "gm_rel_dest", abs_without, "a.txt")
 
-    r_isfile: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
-                      "test", "-f", exp)
-    r_cat: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
-                   "cat", exp)
+    r_isfile: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp])
+    r_cat: CommandResult = _ssh_run_common(cfg, host, ["cat", exp])
 
-    passed: bool = (run.rc == 0 and r_isfile.returncode == 0 and (r_cat.stdout or "").strip() == "A")
-    reason: str = "" if passed else f"rc={run.rc}, isfile_rc={r_isfile.returncode}, exp={exp!r}, content={r_cat.stdout!r}"
+    passed: bool = (run.rc == 0 and r_isfile.rc == 0 and (r_cat.stdout or "").strip() == "A")
+    reason: str = "" if passed else f"rc={run.rc}, isfile_rc={r_isfile.rc}, exp={exp!r}, content={r_cat.stdout!r}"
     return CaseResult(
         name=name,
         passed=passed,
@@ -1520,10 +1367,9 @@ def case_scatter_nonpack_file_only_layout(cfg: Config) -> CaseResult:
         _ = wf.write("C\n")
 
     dest_abs: str = "/tmp/gm_scatter_nonpack_dest"
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
-    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
-                 "chown", "-R", "--", f"{user}:{user}", dest_abs)
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", dest_abs])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dest_abs])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", dest_abs])
 
     hosts_path: str = _write_temp_hosts([host])
     abs_file_abs: str = os.path.abspath(abs_file)
@@ -1540,12 +1386,12 @@ def case_scatter_nonpack_file_only_layout(cfg: Config) -> CaseResult:
     exp_rel: str = os.path.join(dest_abs, rel_file)
     exp_ign: str = os.path.join(dest_abs, os.path.abspath(ign_dir).lstrip(os.sep))
 
-    r_abs: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_abs)
-    r_rel: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_rel)
-    r_ign: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-e", exp_ign)
+    r_abs: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_abs])
+    r_rel: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_rel])
+    r_ign: CommandResult = _ssh_run_common(cfg, host, ["test", "-e", exp_ign])
 
-    passed: bool = (run.rc == 0 and r_abs.returncode == 0 and r_rel.returncode == 0 and r_ign.returncode != 0)
-    reason: str = "" if passed else f"rc={run.rc}, abs={r_abs.returncode}, rel={r_rel.returncode}, ign_exists_rc={r_ign.returncode}"
+    passed: bool = (run.rc == 0 and r_abs.rc == 0 and r_rel.rc == 0 and r_ign.rc != 0)
+    reason: str = "" if passed else f"rc={run.rc}, abs={r_abs.rc}, rel={r_rel.rc}, ign_exists_rc={r_ign.rc}"
     return CaseResult(
         name=name,
         passed=passed,
@@ -1583,10 +1429,9 @@ def case_scatter_mixed_sources_two_hosts(cfg: Config) -> CaseResult:
     hosts_path: str = _write_temp_hosts([ubuntu, alma])
     dest_abs: str = "/tmp/gm_scatter_mixed_hosts"
     for h in (ubuntu, alma):
-        _ = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
-        _ = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
-        _ = ssh_sudo(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict,
-                     "chown", "-R", "--", f"{user}:{user}", dest_abs)
+        _ = _ssh_run_common(cfg, h, ["rm", "-rf", "--", dest_abs])
+        _ = _ssh_run_common(cfg, h, ["mkdir", "-p", "--", dest_abs])
+        _ = _ssh_run_sudo_common(cfg, h, ["chown", "-R", "--", f"{user}:{user}", dest_abs])
 
     src_a_abs: str = os.path.abspath(src_a)
     if not src_a_abs.endswith(os.sep):
@@ -1604,7 +1449,7 @@ def case_scatter_mixed_sources_two_hosts(cfg: Config) -> CaseResult:
     run: LocalRun = _run_local_argv(argv)
 
     def _rel(src_dir_abs: str) -> str:
-        return _as_posix_rel(src_dir_abs)
+        return as_posix_rel(src_dir_abs)
 
     rel_a: str = _rel(src_a_abs)
     rel_b: str = _rel(src_b_abs)
@@ -1616,9 +1461,8 @@ def case_scatter_mixed_sources_two_hosts(cfg: Config) -> CaseResult:
     for h in (ubuntu, alma):
         for (src_rel, fname) in ((rel_a, "a.txt"), (rel_b, "b.txt")):
             remote_path: str = _remote_path(src_rel, fname)
-            r: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, h, cfg.ssh_port, cfg.ssh_strict,
-                                                         "test", "-f", remote_path)
-            if r.returncode != 0:
+            r: CommandResult = _ssh_run_common(cfg, h, ["test", "-f", remote_path])
+            if r.rc != 0:
                 ok_all = False
 
     passed: bool = (run.rc == 0 and ok_all)
@@ -1658,10 +1502,9 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
 
     # テストごとに一意な DEST を使い、前回残骸や並列実行の干渉を排除
     dest_abs: str = f"/tmp/gm_scatter_dedup_dest_{os.getpid()}_{int.from_bytes(os.urandom(2),'big')}"
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
-    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
-                 "chown", "-R", "--", f"{user}:{user}", dest_abs)
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", dest_abs])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dest_abs])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", dest_abs])
 
     hosts_path: str = _write_temp_hosts([host])
     # ホスト行数（診断用）
@@ -1684,7 +1527,7 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
     run: LocalRun = _run_local_argv(argv)
 
     # OS 非依存の相対化（先頭スラッシュ除去 + 区切り '/' 化）で一貫性を確保
-    dup_root_rel: str = _as_posix_rel(dup_root_abs)
+    dup_root_rel: str = as_posix_rel(dup_root_abs)
     base: str = os.path.join(dest_abs, dup_root_rel)
     exp: str = os.path.join(base, "sub", "n.txt")
 
@@ -1696,9 +1539,9 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
     cmd_others = f'LC_ALL=C find {q_dest} -type f -name n.txt ! -path {q_exp} -printf "%p\\n" | wc -l'
     cmd_list   = f'LC_ALL=C find {q_dest} -type f -name n.txt -printf "%p\\n" | sort'
 
-    r_total  = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd_total)
-    r_others = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd_others)
-    r_list   = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "bash", "-lc", cmd_list)
+    r_total  = _ssh_run_common(cfg, host, ["bash", "-lc", cmd_total])
+    r_others = _ssh_run_common(cfg, host, ["bash", "-lc", cmd_others])
+    r_list   = _ssh_run_common(cfg, host, ["bash", "-lc", cmd_list])
 
     def _to_int(s: str) -> int:
         try:
@@ -1712,14 +1555,12 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
     # DEST全体のスナップショット（HOMEではなくDEST固定）
     snap_dest: Dict[str, str] = _remote_script_snapshot(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, dest_abs)
 
-    r_isfile: subprocess.CompletedProcess[str] = ssh_do(
-        cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp
-    )
+    r_isfile: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp])
 
     # 合否: 実行成功 + 期待ファイルが存在 + 期待以外の n.txt が 0 件
-    passed: bool = (run.rc == 0 and r_isfile.returncode == 0 and cnt_others == 0)
+    passed: bool = (run.rc == 0 and r_isfile.rc == 0 and cnt_others == 0)
     reason: str = "" if passed else (
-        f"rc={run.rc}, isfile_rc={r_isfile.returncode}, "
+        f"rc={run.rc}, isfile_rc={r_isfile.rc}, "
         f"total_n_txt={cnt_total}, others_except_exp={cnt_others}, exp={exp}"
     )
 
@@ -1770,10 +1611,9 @@ def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> CaseResult
         _ = wf.write("REL\n")
 
     dest_abs: str = "/tmp/gm_scatter_nonpack_collision"
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
-    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict,
-                 "chown", "-R", "--", f"{user}:{user}", dest_abs)
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", dest_abs])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dest_abs])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", dest_abs])
 
     hosts_path: str = _write_temp_hosts([host])
     f_abs_abs: str = os.path.abspath(f_abs)
@@ -1788,14 +1628,14 @@ def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> CaseResult
     exp_abs: str = os.path.join(dest_abs, os.path.abspath(f_abs).lstrip(os.sep))
     exp_rel: str = os.path.join(dest_abs, f_rel)
 
-    r1: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_abs)
-    r2: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_rel)
-    c1: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "cat", exp_abs)
-    c2: subprocess.CompletedProcess[str] = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "cat", exp_rel)
+    r1: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_abs])
+    r2: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_rel])
+    c1: CommandResult = _ssh_run_common(cfg, host, ["cat", exp_abs])
+    c2: CommandResult = _ssh_run_common(cfg, host, ["cat", exp_rel])
 
-    passed: bool = (run.rc == 0 and r1.returncode == 0 and r2.returncode == 0
+    passed: bool = (run.rc == 0 and r1.rc == 0 and r2.rc == 0
               and (c1.stdout or "").strip() == "ABS" and (c2.stdout or "").strip() == "REL")
-    reason: str = "" if passed else f"rc={run.rc}, r1={r1.returncode}, r2={r2.returncode}, c1={c1.stdout!r}, c2={c2.stdout!r}"
+    reason: str = "" if passed else f"rc={run.rc}, r1={r1.rc}, r2={r2.rc}, c1={c1.stdout!r}, c2={c2.stdout!r}"
     return CaseResult(
         name=name,
         passed=passed,
@@ -1816,15 +1656,15 @@ def case_gather_src_regex_absolute(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     # リモートに検体を作成: <home>/gm_step4_regex_abs/src/{a.txt, dir1/b.txt}
-    home: str = _get_remote_home(cfg, host, user)
+    home: str = ssh_get_remote_home(cfg, host, user)
     abs_root: str = os.path.join(home, "gm_step4_regex_abs")
     src_dir: str = os.path.join(abs_root, "src")
     dir1: str = os.path.join(src_dir, "dir1")
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", abs_root)
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dir1)
-    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
-    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "a.txt"), content="A\n", sudo=False)
-    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(dir1, "b.txt"), content="B\n", sudo=False)
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", abs_root])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dir1])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", abs_root])
+    _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(src_dir, "a.txt"), "A\n", sudo=False)
+    _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(dir1, "b.txt"), "B\n", sudo=False)
 
     # 正規表現 SRC（絶対）: dir1 配下の *.txt のみ
     pattern: str = os.path.join(src_dir, "dir1") + "/.*\\.txt"
@@ -1875,16 +1715,16 @@ def case_gather_src_regex_relative(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     # リモートに検体: <home>/gm_step4_regex_rel/src/{a.txt, dir1/b.txt}
-    home: str = _get_remote_home(cfg, host, user)
+    home: str = ssh_get_remote_home(cfg, host, user)
     rel_top: str = "gm_step4_regex_rel"
     abs_root: str = os.path.join(home, rel_top)
     src_dir: str = os.path.join(abs_root, "src")
     dir1: str = os.path.join(src_dir, "dir1")
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", abs_root)
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dir1)
-    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
-    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "a.txt"), content="A\n", sudo=False)
-    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(dir1, "b.txt"), content="B\n", sudo=False)
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", abs_root])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dir1])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", abs_root])
+    _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(src_dir, "a.txt"), "A\n", sudo=False)
+    _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(dir1, "b.txt"), "B\n", sudo=False)
 
     # 正規表現 SRC（相対）: dir1 配下のみ
     pattern_rel: str = f"{rel_top}/src/dir1/.*"
@@ -1933,14 +1773,14 @@ def case_gather_src_regex_negative(cfg: Config) -> CaseResult:
     user: str = cfg.target_user
 
     # リモートに検体: <home>/gm_step4_regex_neg/src/{x.txt, x.txt.bak}
-    home: str = _get_remote_home(cfg, host, user)
+    home: str = ssh_get_remote_home(cfg, host, user)
     abs_root: str = os.path.join(home, "gm_step4_regex_neg")
     src_dir: str = os.path.join(abs_root, "src")
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", abs_root)
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", src_dir)
-    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", abs_root)
-    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "x.txt"), content="X\n", sudo=False)
-    _ = pipe_to_tee(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, os.path.join(src_dir, "x.txt.bak"), content="XB\n", sudo=False)
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", abs_root])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", src_dir])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", abs_root])
+    _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(src_dir, "x.txt"), "X\n", sudo=False)
+    _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(src_dir, "x.txt.bak"), "XB\n", sudo=False)
 
     # アンカー付き SRC: basename 厳密一致のみ
     pattern: str = os.path.join(src_dir, "^x\\.txt$")
@@ -1999,9 +1839,9 @@ def case_scatter_src_regex_absolute(cfg: Config) -> CaseResult:
     pattern: str = os.path.join(abs_src_dir, "sub") + "/.*\\.txt"
 
     dest_abs: str = "/tmp/gm_scatter_regex_abs_dest"
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
-    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", dest_abs)
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", dest_abs])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dest_abs])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", dest_abs])
 
     hosts_path: str = _write_temp_hosts([host])
     argv: List[str] = (
@@ -2016,12 +1856,12 @@ def case_scatter_src_regex_absolute(cfg: Config) -> CaseResult:
     exp_b: str = os.path.join(dest_abs, os.path.abspath(os.path.join(abs_src_dir, "sub", "b.txt")).lstrip(os.sep))
     exp_a: str = os.path.join(dest_abs, os.path.abspath(os.path.join(abs_src_dir, "a.txt")).lstrip(os.sep))
 
-    rb = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_b)
-    ra = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_a)
+    rb: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_b])
+    ra: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_a])
 
-    passed: bool = (run.rc == 0 and rb.returncode == 0 and ra.returncode != 0)
+    passed: bool = (run.rc == 0 and rb.rc == 0 and ra.rc != 0)
     reason: str = "" if passed else (
-        f"rc={run.rc}, b_rc={rb.returncode}, a_rc={ra.returncode}, exp_b={exp_b}, exp_a={exp_a}"
+        f"rc={run.rc}, b_rc={rb.rc}, a_rc={ra.rc}, exp_b={exp_b}, exp_a={exp_a}"
     )
     return CaseResult(
         name=name,
@@ -2055,9 +1895,9 @@ def case_scatter_src_regex_relative(cfg: Config) -> CaseResult:
     pattern: str = rel_base + "/sub/.*"
 
     dest_abs: str = "/tmp/gm_scatter_regex_rel_dest"
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
-    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", dest_abs)
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", dest_abs])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dest_abs])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", dest_abs])
 
     hosts_path: str = _write_temp_hosts([host])
     argv: List[str] = (
@@ -2069,15 +1909,15 @@ def case_scatter_src_regex_relative(cfg: Config) -> CaseResult:
     run: LocalRun = _run_local_argv(argv)
 
     # 期待パス: base_abs を起点に絶対→_as_posix_rel()で DEST 直下にぶら下がる
-    exp_b: str = os.path.join(dest_abs, _as_posix_rel(os.path.join(rel_dir_abs, "sub", "b.txt")))
-    exp_a: str = os.path.join(dest_abs, _as_posix_rel(os.path.join(rel_dir_abs, "a.txt")))
+    exp_b: str = os.path.join(dest_abs, as_posix_rel(os.path.join(rel_dir_abs, "sub", "b.txt")))
+    exp_a: str = os.path.join(dest_abs, as_posix_rel(os.path.join(rel_dir_abs, "a.txt")))
 
-    rb = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_b)
-    ra = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_a)
+    rb: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_b])
+    ra: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_a])
 
-    passed: bool = (run.rc == 0 and rb.returncode == 0 and ra.returncode != 0)
+    passed: bool = (run.rc == 0 and rb.rc == 0 and ra.rc != 0)
     reason: str = "" if passed else (
-        f"rc={run.rc}, b_rc={rb.returncode}, a_rc={ra.returncode}, exp_b={exp_b}, exp_a={exp_a}"
+        f"rc={run.rc}, b_rc={rb.rc}, a_rc={ra.rc}, exp_b={exp_b}, exp_a={exp_a}"
     )
 
     # === ここから診断用スナップショット採取 ===
@@ -2130,9 +1970,9 @@ def case_scatter_src_regex_negative(cfg: Config) -> CaseResult:
     pattern: str = os.path.join(abs_src_dir, "^x\\.txt$")
 
     dest_abs: str = "/tmp/gm_scatter_regex_neg_dest"
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "rm", "-rf", "--", dest_abs)
-    _ = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "mkdir", "-p", "--", dest_abs)
-    _ = ssh_sudo(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "chown", "-R", "--", f"{user}:{user}", dest_abs)
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", dest_abs])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dest_abs])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", dest_abs])
 
     hosts_path: str = _write_temp_hosts([host])
     argv: List[str] = (
@@ -2147,12 +1987,12 @@ def case_scatter_src_regex_negative(cfg: Config) -> CaseResult:
     exp_x: str = os.path.join(dest_abs, os.path.abspath(os.path.join(abs_src_dir, "x.txt")).lstrip(os.sep))
     exp_bak: str = os.path.join(dest_abs, os.path.abspath(os.path.join(abs_src_dir, "x.txt.bak")).lstrip(os.sep))
 
-    r_x = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_x)
-    r_bak = ssh_do(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, "test", "-f", exp_bak)
+    r_x: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_x])
+    r_bak: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp_bak])
 
-    passed: bool = (run.rc == 0 and r_x.returncode == 0 and r_bak.returncode != 0)
+    passed: bool = (run.rc == 0 and r_x.rc == 0 and r_bak.rc != 0)
     reason: str = "" if passed else (
-        f"rc={run.rc}, x_rc={r_x.returncode}, bak_rc={r_bak.returncode}, exp_x={exp_x}, exp_bak={exp_bak}"
+        f"rc={run.rc}, x_rc={r_x.rc}, bak_rc={r_bak.rc}, exp_x={exp_x}, exp_bak={exp_bak}"
     )
     return CaseResult(
         name=name,
@@ -2168,7 +2008,6 @@ def case_scatter_src_regex_negative(cfg: Config) -> CaseResult:
 
 def main() -> int:
     cfg: Config = load_config_from_env()
-    _set_cfg_for_ssh(cfg)
     _ = print_env(cfg)
     _ = _preflight(cfg)
     cases: List[Tuple[str, Callable[[Config], CaseResult]]] = [

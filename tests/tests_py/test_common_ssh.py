@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Sequence, Union
+import subprocess
 
 from ._local_types import CommandResult, Config
 from . import sshexec
@@ -34,3 +35,35 @@ def ssh_pipe_to_tee(
     tee を使ってリモートの path に content を流し込むラッパ。
     """
     return sshexec.pipe_to_tee(cfg, host, path, content, sudo=sudo)
+
+
+def ssh_get_remote_home(cfg: Config, host: str, user: str) -> str:
+    """
+    リモートのユーザーの HOME を `getent passwd <user>` から取得するユーティリティ。
+    - 成功時は絶対パスの HOME を文字列で返す
+    - 失敗や不正な形式の場合は AssertionError を送出
+    """
+    r: CommandResult = ssh_run(cfg, host, ["getent", "passwd", user])
+    if r.rc != 0:
+        raise AssertionError(
+            f"{host}: getent passwd {user} failed: rc={r.rc}, stderr={(r.stderr or '')!r}"
+        )
+    line: str = (r.stdout or "").splitlines()[0] if (r.stdout or "").splitlines() else ""
+    parts = line.strip().split(":") if line else []
+    if len(parts) < 6:
+        raise AssertionError(f"{host}: invalid passwd entry for {user}: {line!r}")
+    home: str = parts[5]
+    if not home.startswith("/"):
+        raise AssertionError(f"{host}: bad home path for {user}: {home!r}")
+    return home
+
+
+def ssh_run_raw(
+    ssh_user: str,
+    host: str,
+    port: int,
+    strict: Union[bool, str],
+    *remote_argv: str,
+) -> subprocess.CompletedProcess[str]:
+    """素の SSH 実行の実装層に委譲"""
+    return sshexec.ssh_run_raw(ssh_user, host, port, strict, *remote_argv)
