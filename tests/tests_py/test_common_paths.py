@@ -75,8 +75,8 @@ def walk_find_first(root: str, *, name: Optional[str] = None, pattern: Optional[
 
     Args:
     - root (str): 走査の起点ディレクトリ（絶対/相対いずれも可）。
-    - name (Optional[str]): 完全一致で探すファイル名（例: 'l.txt'）。
-    - pattern (Optional[str]): グロブパターン（例: '**/src/l.txt'）。
+    - name (Optional[str]): 完全一致で探すファイル名（例: ``l.txt``）。
+    - pattern (Optional[str]): グロブパターン（例: ``**/src/l.txt``）。
 
     Returns:
     - Optional[str]: 最初に一致した項目の絶対パス。見つからなければ None。
