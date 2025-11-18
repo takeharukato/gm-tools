@@ -7,15 +7,16 @@ from __future__ import annotations
 import threading
 import time
 from pathlib import Path as _Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ._local_types import Config, CaseResult
 from .test_common_config import load_config_from_env, print_env
+from .test_common_ssh import dummy_open_ssh, dummy_open_sftp
 from .test_common_runner import run_cases
 from .test_common_cleanup import cleanup_dir
 
 from gm_tools.core_signal_handling import GracefulStop
-from gm_tools.core_ssh import CancelledError, SSHClientLike, SFTPClientLike
+from gm_tools.core_ssh import CancelledError, SFTPClientLike
 
 
 # gather_parallel（pull 側）用
@@ -118,15 +119,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
         result: PullHostResult = PullHostResult(warnings=0, errors=1, processed=0, trial=0)
         return result
 
-    def dummy_open_ssh(host: str) -> SSHClientLike:
-        _host: str = host
-        dummy: SSHClientLike = cast(SSHClientLike, object())
-        return dummy
-
-    def dummy_open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
-        _ssh: SSHClientLike = ssh
-        dummy: SFTPClientLike = cast(SFTPClientLike, object())
-        return dummy
+    # open_ssh/open_sftp は共有のダミー実装を使用
 
     def dummy_pull_one(sftp: SFTPClientLike, remote: str, local: _Path, is_dir: bool) -> None:
         _sftp: SFTPClientLike = sftp
@@ -270,15 +263,7 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
     abort_seen_box: List[bool] = [False]
     host_calls_box: List[str] = []
 
-    def dummy_open_ssh(host: str) -> SSHClientLike:
-        _host: str = host
-        dummy: SSHClientLike = cast(SSHClientLike, object())
-        return dummy
-
-    def dummy_open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
-        _ssh: SSHClientLike = ssh
-        dummy: SFTPClientLike = cast(SFTPClientLike, object())
-        return dummy
+    # open_ssh/open_sftp は共有のダミー実装を使用
 
     def dummy_push_one(sftp: SFTPClientLike, local: _Path, remote: str, is_dir: bool) -> None:
         _sftp: SFTPClientLike = sftp

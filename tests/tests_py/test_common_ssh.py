@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Sequence, Union
+from typing import Sequence, Union, cast
 import subprocess
 
 from ._local_types import CommandResult, Config
 from . import sshexec
+from gm_tools.core_ssh import SSHClientLike, SFTPClientLike
 
 
 def ssh_run(cfg: Config, host: str, argv: Sequence[str]) -> CommandResult:
@@ -67,3 +68,15 @@ def ssh_run_raw(
 ) -> subprocess.CompletedProcess[str]:
     """素の SSH 実行の実装層に委譲"""
     return sshexec.ssh_run_raw(ssh_user, host, port, strict, *remote_argv)
+
+
+def dummy_open_ssh(host: str) -> SSHClientLike:
+    """テスト用のダミー SSH オープナー（Step6 用ユーティリティ）。"""
+    _ = host
+    return cast(SSHClientLike, object())
+
+
+def dummy_open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
+    """テスト用のダミー SFTP オープナー（Step6 用ユーティリティ）。"""
+    _ = ssh
+    return cast(SFTPClientLike, object())
