@@ -409,7 +409,7 @@ def main() -> None:
     _dest_tilde_user: Optional[str] = tilde_username(_dest_raw)
     if _dest_tilde_user is not None:
         print(
-            _("Error: tilde with username is not supported in DEST: ~%(user)s") % {"user": _dest_tilde_user},
+            _("tilde with username is not supported"),
             file=sys.stderr,
         )
         sys.exit(EXIT_ERR_TILDE_USER)
@@ -425,8 +425,12 @@ def main() -> None:
     for s in srcs:
         u: Optional[str] = tilde_username(s)
         if u is not None:
-            print(_("Error: tilde with username is not supported in SRC: ~%(user)s") % {"user": u}, file=sys.stderr)
+            print(_("tilde with username is not supported"), file=sys.stderr)
             sys.exit(EXIT_ERR_TILDE_USER)
+        # 素の '~' はエラー ( scatter の DEST と同一方針 )
+        if str(s).strip() == "~":
+            print(_("bare tilde is not allowed"), file=sys.stderr)
+            sys.exit(EXIT_ERR_ARGS)
 
     hosts: List[str] = parse_hosts_file(str(args.hosts))
     if len(hosts) == 0:

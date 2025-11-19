@@ -156,8 +156,9 @@ def tilde_username(s: str) -> Optional[str]:
     '~user' または '~user/...' の 'user' を返す。'~'・'~/' は None ( 対象外 ) 。
     Windows/UNIX 共通で '/' と '\\' を区切りとして扱う。
     """
-    if s == "~" or s.startswith("~/"):
-        return None
+    # ~/~//~\ の場合, None
+    # ~user, ~user/...,~user\... の場合, 'user'
+    # を返却
     m = TILDE_USER_RE.match(s)
     return m.group(1) if m else None
 
