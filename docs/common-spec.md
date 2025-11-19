@@ -174,7 +174,7 @@ web02.example.com    # 任意の注記（例: 設置場所）
 協調停止処理に移行すると、安全な中断点で実行中の処理を停止し、以降のホスト/ファイルの転送を取りやめ、ローカルホストとリモートホストで作成した一時ファイルの削除を試みます。
 また、協調停止前の動作に応じて終了時の集計処理を行います。
 
-## 構造化ログ
+## 出力ログ仕様
 
 ### ログの書式
 
@@ -245,16 +245,6 @@ web02.example.com    # 任意の注記（例: 設置場所）
 2025-11-19T12:10:08.200+09:00 level="INFO" host="db01" op="scatter" phase="done" trial="356" processed="356" total="356" warnings="1" errors="0" duration="8.2" msg="host done"
 2025-11-19T12:10:08.250+09:00 level="INFO" host="-" op="scatter" phase="done" trial="356" processed="356" total="356" warnings="1" errors="0" msg="summary"
 ```
-
-集計行(`summary`)の書式と項目:
-
-- 書式: `timestamp="..." level="INFO" host="-" op="<op>" phase="done" trial="<total>" processed="<processed>" total="<total>" warnings="<n>" errors="<m>" msg="summary"`
-- host: `-` が入ります (全体集計であることを示します)。
-- trial: 対象総件数の最終値を示します。
-- processed: 処理済みの総件数を示します。
-- total: 対象総件数を示し、trial と一致します。
-- warnings: 警告件数の合計を示します。
-- errors: エラー件数の合計を示します。
 
 ## メッセージのローカライゼーション対象範囲について
 
