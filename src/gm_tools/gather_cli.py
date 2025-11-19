@@ -404,8 +404,12 @@ def main() -> None:
         print(_("At least one SRC and a DEST are required."), file=sys.stderr)
         sys.exit(EXIT_ERR_ARGS)
 
-    # DEST: '~user' は非対応なので明示エラー
+
     _dest_raw: str = str(args.dest)
+    if _dest_raw.strip() == "~":
+        print(_("bare tilde is not allowed"), file=sys.stderr)
+        sys.exit(EXIT_ERR_ARGS)
+    # DEST: '~user' は非対応なので明示エラー
     _dest_tilde_user: Optional[str] = tilde_username(_dest_raw)
     if _dest_tilde_user is not None:
         print(

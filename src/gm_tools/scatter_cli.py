@@ -241,7 +241,12 @@ def _build_plan_for_host(
     auto_sudo: bool = bool(pack) and (ssh_user != target_user)
     sudo_extract: bool = auto_sudo if (sudo_extract_flag is None) else bool(sudo_extract_flag)
 
-    # SRC '~user' 不許可
+    # SRC '~' は不許可
+    bad_srcs: List[str] = [s for s in srcs_raw if s.strip() == "~"]
+    if bad_srcs:
+        print(_("bare tilde is not allowed"), file=sys.stderr)
+        raise SystemExit(EXIT_ERR_ARGS)
+    # SRC '~user' は不許可
     for s in srcs_raw:
         u: Optional[str] = tilde_username(s)
         if u is not None:
