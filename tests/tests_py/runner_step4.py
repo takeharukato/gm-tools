@@ -454,6 +454,85 @@ def case_gather_src_tilde_user_error(cfg: Config) -> CaseResult:
         },
     )
 
+def case_gather_src_bare_tilde_rejected(cfg: Config) -> CaseResult:
+        """
+        目的:
+            gather の SRC に "~"（単独）を指定した場合にエラー（rc!=0）になることを検証（dry-run）。
+        期待:
+            rc!=0。メッセージはロケール依存のため、英語既定文言の有無は参考情報として details に格納。
+        """
+        name: str = "gather_src_bare_tilde_rejected"
+        ubuntu: str = cfg.host_ubuntu
+        user: str = cfg.target_user
+
+        hosts_path: str = _write_temp_hosts([ubuntu])
+        local_out: str = os.path.join(cfg.local_root, "g_tilde_bare_err")
+        _ = create_clean_dir(local_out, ensure_under=cfg.local_root)
+
+        argv: List[str] = (
+                cfg.gm_gather_cmd
+                + ["-H", hosts_path, "-u", user, "-n"]
+                + (["-v"] if cfg.verbose else [])
+                + ["--", "~", local_out]
+        )
+        run: LocalRun = _run_local_argv(argv)
+        out_all: str = (run.stderr or "") + (run.stdout or "")
+        marker: bool = ("bare tilde is not allowed" in out_all)
+
+        passed: bool = (run.rc != 0)
+        reason: str = "" if passed else f"rc={run.rc}, stderr+stdout={out_all!r}"
+        return CaseResult(
+                name=name,
+                passed=passed,
+                skipped=False,
+                reason=reason,
+                details={
+                        "rc": run.rc,
+                        "stderr_stdout": out_all,
+                        "argv": " ".join(shlex.quote(a) for a in argv),
+                        "marker_en": marker,
+                },
+        )
+
+
+def case_gather_dest_bare_tilde_rejected(cfg: Config) -> CaseResult:
+    """
+    目的:
+        gather の DEST に "~"（単独）を指定した場合にエラー（rc!=0）になることを検証（dry-run）。
+    期待:
+        rc!=0。英語既定文言の有無は参考情報として details に格納。
+    """
+    name: str = "gather_dest_bare_tilde_rejected"
+    ubuntu: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    hosts_path: str = _write_temp_hosts([ubuntu])
+    src_token: str = "/etc/hosts"
+
+    argv: List[str] = (
+        cfg.gm_gather_cmd
+        + ["-H", hosts_path, "-u", user, "-n"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", src_token, "~"]
+    )
+    run: LocalRun = _run_local_argv(argv)
+    out_all: str = (run.stderr or "") + (run.stdout or "")
+    marker: bool = ("bare tilde is not allowed" in out_all)
+
+    passed: bool = (run.rc != 0)
+    reason: str = "" if passed else f"rc={run.rc}, stderr+stdout={out_all!r}"
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
+            "rc": run.rc,
+            "stderr_stdout": out_all,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+            "marker_en": marker,
+        },
+    )
 
 # ---------------------------------------------------------------------------
 # 5) scatter の DEST 相対→remote_home 展開（--pack / 非dry-run）
@@ -1389,6 +1468,92 @@ def case_scatter_dest_tilde_username_rejected(cfg: Config) -> CaseResult:
     )
 
 
+def case_scatter_dest_bare_tilde_rejected(cfg: Config) -> CaseResult:
+    """
+    目的:
+      scatter の DEST に "~"（単独）が来た場合にエラー（rc!=0）になることを検証（dry-run）。
+    期待:
+      rc!=0。メッセージは実装依存（ロケール依存）のため、存在チェックは任意情報として details に格納。
+    """
+    name: str = "scatter_dest_bare_tilde_rejected"
+    host: str = cfg.host_alma
+    user: str = cfg.target_user
+
+    src_dir: str = os.path.join(cfg.local_root, "sc_tilde_bare_src")
+    _ = create_clean_dir(src_dir, ensure_under=cfg.local_root)
+    wf: IO[str]
+    with open(os.path.join(src_dir, "x.txt"), "w", encoding="utf-8") as wf:
+        _ = wf.write("X\n")
+
+    dest_bad: str = "~"
+
+    hosts_path: str = _write_temp_hosts([host])
+    argv: List[str] = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "-n"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", src_dir, dest_bad]
+    )
+    run: LocalRun = _run_local_argv(argv)
+    out_all: str = (run.stderr or "") + (run.stdout or "")
+    # 参考情報（ロケールにより翻訳されるため pass 条件にはしない）
+    marker: bool = ("bare tilde is not allowed" in out_all)
+
+    passed: bool = (run.rc != 0)
+    reason: str = "" if passed else f"rc={run.rc}, stderr+stdout={out_all!r}"
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
+            "rc": run.rc,
+            "stderr_stdout": out_all,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+            "marker_en": marker,
+        },
+    )
+
+
+def case_scatter_src_bare_tilde_rejected(cfg: Config) -> CaseResult:
+    """
+    目的:
+      scatter の SRC に "~"（単独）が含まれる場合にエラー（rc!=0）になることを検証（dry-run、Ubuntu ホスト）。
+    期待:
+      rc!=0。英語既定文言の有無は参考情報として details に格納。
+    """
+    name: str = "scatter_src_bare_tilde_rejected"
+    host: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    hosts_path: str = _write_temp_hosts([host])
+    dest_remote: str = "~/dest_ok"
+
+    argv: List[str] = (
+        cfg.gm_scatter_cmd
+        + ["-H", hosts_path, "-u", user, "-n"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", "~", dest_remote]
+    )
+    run: LocalRun = _run_local_argv(argv)
+    out_all: str = (run.stderr or "") + (run.stdout or "")
+    marker: bool = ("bare tilde is not allowed" in out_all)
+
+    passed: bool = (run.rc != 0)
+    reason: str = "" if passed else f"rc={run.rc}, stderr+stdout={out_all!r}"
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
+            "rc": run.rc,
+            "stderr_stdout": out_all,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+            "marker_en": marker,
+        },
+    )
+
 
 def case_scatter_nonpack_file_only_layout(cfg: Config) -> CaseResult:
     """
@@ -2076,6 +2241,8 @@ def main() -> int:
         ("gather_src_abs_tilde_ok", case_gather_src_abs_tilde_ok),
         ("gather_src_rel_home_ok", case_gather_src_rel_home_ok),
         ("gather_src_tilde_user_error", case_gather_src_tilde_user_error),
+        ("gather_src_bare_tilde_rejected", case_gather_src_bare_tilde_rejected),
+        ("gather_dest_bare_tilde_rejected", case_gather_dest_bare_tilde_rejected),
         ("scatter_dest_relative_ok_to_home", case_scatter_dest_relative_ok_to_home),
         ("scatter_dest_abs_variants", case_scatter_dest_abs_variants),
         ("gather_follow_symlinks_files", case_gather_follow_symlinks_files),
@@ -2086,6 +2253,8 @@ def main() -> int:
         ("gather_double_nesting_regression", case_gather_double_nesting_regression),
         ("scatter_src_path_layout_semantics", case_scatter_src_path_layout_semantics),
         ("scatter_dest_relative_to_remote_home", case_scatter_dest_relative_to_remote_home),
+        ("scatter_dest_bare_tilde_rejected", case_scatter_dest_bare_tilde_rejected),
+        ("scatter_src_bare_tilde_rejected", case_scatter_src_bare_tilde_rejected),
         ("scatter_dest_tilde_username_rejected", case_scatter_dest_tilde_username_rejected),
         ("scatter_nonpack_file_only_layout", case_scatter_nonpack_file_only_layout),
         ("scatter_mixed_sources_two_hosts", case_scatter_mixed_sources_two_hosts),
