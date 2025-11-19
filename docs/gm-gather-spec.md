@@ -11,46 +11,19 @@
 
 ## 使い方 (シノプシス)
 
-```text
-gm-gather [SRC ...] DEST
-
-SRC:
-  - '/...': リモートの絶対パス (UNIX)
-
-  - 'X:/...': リモートの絶対パス (Windows)
-  - '~/...': `-u/--user` の HOME を起点として展開
-  - RELATIVE: `-u/--user` の HOME 相対として扱う ( '..' による HOME 脱出は拒否 )
-  先頭ルート以降は「パス正規表現」として扱い、`/` 区切りの相対名に対して部分一致で評価します（Pythonの`re.search`で評価します）。
-
-DEST:
-  ローカル保存先ディレクトリ。相対はカレントから絶対化。`~user` 形式はエラー。
-  -H, --hosts FILE           ホストファイル (既定: hostfile)
-  -u, --user USER            リモート上のターゲットアカウント (既定: 実行ユーザ)
-  -s, --ssh-user USER        SSH ログインユーザ (既定: --user と同じ)
-  -P, --port PORT            SSH ポート (実装既定)
-  -K, --key PATH             秘密鍵
-
-  -W, --password PASS        パスワード
-  -T, --timeout SEC          SSH/コマンドのタイムアウト秒
-  -S, --strict-host-key-checking  厳格なホスト鍵検証
-  -j, --parallel N           ホスト並列数 (既定: 4)
-  -n, --dry-run              計画のみ表示 (転送なし)
-  -v, --verbose              詳細ログ
-      --pack                 リモートで tar.gz 作成 => ダウンロード => ローカル展開
-                             収集時に sudo を使用 (pack 経路のみ)。省略時は auto
-```
-```text
+```plaintext
 gm-gather [SRC ...] DEST
 
 SRC:
   - '/...': リモートの絶対パス (UNIX)
   - 'X:/...': リモートの絶対パス (Windows)
   - '~/...': `-u/--user` の HOME を起点として展開
+  - '~'   : 受け付けません (終了コードは無効引数)
   - RELATIVE: `-u/--user` の HOME 相対として扱う ( '..' による HOME 脱出は拒否 )
   先頭ルート以降は「パス正規表現」として扱い、`/` 区切りの相対名に対して部分一致で評価します（Pythonの`re.search`で評価します）。
 
 DEST:
-  ローカル保存先ディレクトリ。相対はカレントから絶対化。`~user` 形式はエラー。
+  ローカル保存先ディレクトリ。相対はカレントから絶対化。`~` や `~user` 形式はエラー。
   -H, --hosts FILE           ホストファイル (既定: hostfile)
   -u, --user USER            リモート上のターゲットアカウント (既定: 実行ユーザ)
   -s, --ssh-user USER        SSH ログインユーザ (既定: --user と同じ)
@@ -67,6 +40,7 @@ DEST:
   -x, --sudo-collect / --no-sudo-collect
                              収集時に sudo を使用 (pack 経路のみ)。省略時は auto
 ```
+
 
 ## SRC の解釈と列挙
 
