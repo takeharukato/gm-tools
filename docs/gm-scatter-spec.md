@@ -1,519 +1,201 @@
-# gm-scatter.py 仕様
+# gm-scatter 仕様
 
-## 機能概要
+本書は `gm-scatter` コマンドの挙動を現行実装に基づいて定義する。共通事項や用語は `docs/common-spec.md` を参照すること。
 
-ローカルのファイル / ディレクトリを, ホストファイルで列挙した複数のリモートホスト上の `dest` 配下へ配布する。配布方式は 以下の2 通り :
+## 引数とオプション
 
-1) 逐次 SFTP ( デフォルト ) : SFTPプロトコルを用いてファイル, ディレクトリを逐次転送する
-2) 一括アーカイブ配布 ( `--pack` )  : ローカルで作成した `tar.gz` アーカイブをリモートホストにアップロードし, リモートホスト上でアーカイブを展開する
+### SYNOPSIS
 
----
-
-## コマンドライン仕様
-
-```
-usage: gm-scatter.py [-h] [-a PATTERN_ABS] [-r PATTERN_REL] [-R ROOT] [-i]
-                     [-H HOSTS] [-u USER] [-s SSH_USER] [-P PORT] [-K KEY]
-                     [-W PASSWORD] [-T TIMEOUT] [-S] [--pack]
-                     [--preserve-perms | --no-preserve-perms]
-                     [--preserve-owner | --no-preserve-owner]
-                     [--preserve-acls | --no-preserve-acls]
-                     [--preserve-xattrs | --no-preserve-xattrs]
-                     [-j PARALLEL]
-                     [-n] [-v] [--follow-symlinks] [--include-empty-dirs]
-                     [--selinux {auto,policy,archive,ignore}]
-                     [src ...] [dest]
-
-Distribute local files/dirs to multiple remote hosts under a destination directory.
-
-- The last positional argument is always dest (remote destination).
-- If only dest is given, at least one pattern (--pattern-abs/--pattern-rel) must select files.
-  If no files are selected, it is treated as "no targets" and the program exits with code 1.
-
-Positional arguments:
-  src                  0 or more local files/dirs. Relative src is resolved from the current directory.
-  dest                 Remote destination directory. If relative, it is resolved from the remote target account's HOME (i.e., --user). This is independent of the SSH login user (--ssh-user).
-
-Selection (local):
-  -a, --pattern-abs RE      Regex for ABSOLUTE local paths (after normalization). Repeatable. [default: none]
-  -r, --pattern-rel RE      Regex for RELATIVE paths to each --root (evaluated on '/'-separated forms only).
-                            Repeatable. [default: none]
-  -R, --root PATH [...]    Local search root. [default: current directory]
-  -i, --ignore-case         Compile regexes with IGNORECASE. [default: off]
-
-Remote & SSH:
-  -H, --hosts FILE          Hosts file (one host per line; empty lines, lines starting with '#',
-                            and text after a TAB/space followed by '#' are comments). [default: hostfile]
-  -u, --user USER           Target account semantics on remote (for '~' resolution). [default: local user]
-  -s, --ssh-user USER       SSH login user. [default: same as --user]
-  -P, --port PORT           SSH port. [default: 22]
-  -K, --key PATH            SSH private key file. [default: none]
-  -W, --password PASS       SSH password (not recommended). [default: none]
-  -T, --timeout SEC         SSH/command timeout seconds. [default: 30]
-  -S, --strict-host-key-checking
-                            Enable strict host key checking (RejectPolicy). [default: AutoAdd]
-
-Transfer mode:
-      --pack                Use local tar.gz  =>  upload  =>  remote extract (fast for many files). [default: off]
-      --preserve-perms      Preserve permissions on extract (tar -p).
-      --no-preserve-perms   NOT preserve permissions on extract.
-      --preserve-owner      Preserve owner/group on extract.
-      --no-preserve-owner   NOT preserve owner/group on extract.
-      --preserve-acls       Preserve ACLs on extract.
-      --no-preserve-acls    NOT preserve ACLs on extract.
-      --preserve-xattrs     Preserve extended attributes (xattr).
-      --no-preserve-xattrs  NOT preserve extended attributes (xattr).
-  -j, --parallel N          Parallel hosts. [default: 4]
-  -n, --dry-run             Show plan only; do not upload or extract. [default: off]
-  -v, --verbose             Verbose logs. [default: off]
-      --follow-symlinks     Follow symlinks when scanning local root / packing explicit srcs. [default: off]
-      --include-empty-dirs  SFTP mode: also create empty directories found under explicit src directories.
-
-SELinux:
-      --selinux {auto,policy,archive,ignore}
-                            SELinux handling.
-                            auto: if selinuxfs exists and 'restorecon' is available on remote,
-                                  run 'restorecon -RF dest' after deploy; otherwise do nothing.
-                            policy: require selinuxfs & restorecon; run 'restorecon -RF dest'.
-                            archive: require --pack and --preserve-xattrs; restore security.selinux xattr if present;
-                                     and if selinuxfs & restorecon exist, also run 'restorecon -RF dest'.
-                            ignore: do nothing.
-                            [default: auto]
+```plaintext
+gm-scatter [OPTIONS] SRC... DEST
 ```
 
----
-
-### 各オプションのデフォルト値
-
-- `--hosts` : `hostfile`
-- `--user` : 実行ユーザ
-- `--ssh-user` : `--user` と同じ
-- `--parallel` : `4`
-- `--port` : `22`
-- `--timeout` : `30` ( 秒 )
-- `--strict-host-key-checking` : `false` ( AutoAddとして扱う )
-- `--pack` : `false`
-- `--preserve-perms` : `false` ( `--pack` 指定時は `true` )
-- `--preserve-owner` : `false` ( `--pack` 指定時は `true` )
-- `--preserve-acls` : `false` ( `--pack` 指定時は `true` )
-- `--preserve-xattrs` : `false` ( `--pack` 指定時は `true` )
-- `--pattern-abs` : なし
-- `--pattern-rel` : なし
-- `--root` : カレントディレクトリ
-- `--ignore-case` : `false`
-- `--dry-run` : `false`
-- `--verbose` : `false`
-- `--follow-symlinks` : `false`
-- `--include-empty-dirs` : `false`
-- `--selinux` : `auto`
-
----
-
-## コマンド終了コード
-
-- `0` : 正常終了
-- `1` : 配布対象なし ( src 不存在, パターン未指定, パターン不一致により転送対象件数が0件になった場合 )
-- `2` : 部分成功 ( 継続エラーあり )
-- `4` : 必須モジュール不在 ( 例 : paramiko )
-- `5` : 無効引数 ( `dest` 欠落, 正規表現コンパイルエラー等 )
-
-
-### 位置引数指定によるファイルパスと正規表現指定によるファイルパスの統合処理
-
-- 常に最後の位置引数は, `dest` ( リモートの配置先ディレクトリ ) として扱われる。
-- `src` は0 個以上。
-- 位置引数が 1 個 ( `dest` のみ ) のとき, パターン選択 ( `--pattern-abs` / `--pattern-rel` / `--root` ) で 1 個以上選定できなければ, 配布対象なしとして終了コード 1 で終了する。
-- 位置引数が **2 個以上 ( `src … dest` ) ** かつ, パターン指定があるときは,
-  「パターンで選ばれたファイル / ディレクトリの集合」 と 「位置引数で明示された `src` ファイル / ディレクトリの集合」 の和集合を配布する ( ローカル上の絶対パスで解釈して同一パスに存在するファイル / ディレクトリは, 高々 1 回のみ転送する ) 。
-`src` 位置引数におけるチルダの扱いは, `~/...` を実行ユーザの HOME に展開し, `~` 単独や `~user/...` を指定した場合は無効引数エラーとする。
-
-### `dest` の解釈について
-
-- `dest` が絶対パスの場合 : その絶対パスに展開。
-- `dest` が相対パスの場合 : リモートの **ターゲットアカウント** ( `--user` ) の HOME からの相対パスとして展開。
-  - `--ssh-user` と `--user` が異なる場合でも, 展開先の基点は `--user` の HOMEとなる。
-  - `--ssh-user != --user` のときは `dest` 作成や展開に `sudo -n` を用いる場合がある。
-`dest` に `~` 単独や `~user` 形式を指定した場合も, 無効引数エラーとして終了する。
-
-### パス区切り文字の扱いについて
-
-パス区切り文字は以下のように取り扱う:
-
-- ローカル, リモートともに, ホスト上のシェルを通してファイル操作を行う際は, OS が規定する区切り文字 ( Windows は `\`, Unix 系は `/` など ) を使用して実施する。
-
-- SFTP 経路で操作するリモートパス ( SFTP プロトコル上のパス)は, Paramiko の SFTPClientやWindows 上の OpenSSH/SFTP サーバの仕様に合わせて, '/'を使用する。
-
-- 正規表現評価の際の相対名の内部表現は, パス区切り文字を`/` 区切りに変換して扱う ( 後述 ) 。
-
----
-
-### ローカル選定 ( パターン ) と正規化
-
-#### パターン指定
-
-- `--pattern-abs` : ローカルの絶対パス ( 正規化後の文字列 ) に対して指定された正規表現にマッチするファイルを転送対象ファイルとして指定する。
-- `--pattern-rel` : 各 `--root` からの相対パスに対して 指定された正規表現にマッチするファイルを転送対象ファイルとして指定する。この際, 評価時のみ パス区切り文字を`/` へ変換して判定。
-- `--ignore-case` : 正規表現を `re.IGNORECASE` でコンパイル。
-- `--root` : ローカルファイルを探索する際の起点となるルートディレクトリを指定する。デフォルトはカレントディレクトリ。複数指定することが可能。
-
-なお, パターンによるファイル選択処理では, ファイルのみを選択対象とし, ディレクトリは選択対象としない。ディレクトリを選択する場合は, 位置引数`src`で明示して選択する。
-
-Windows 環境では, 絶対パスはドライブレターを含む形式(例 : `C:\dir\file` )をそのまま絶対パスとして解釈する。正規表現評価時の相対パス名への変換では, パス区切り文字を `/` に変換するが, ドライブレターは保持する(例 : `C:/dir/file` )。
-
-#### 正規化の定義
-
-ローカルファイルの探索時に, パスの正規化を行う。
-パスの正規化は以下のように実施する:
-
-- 絶対化 : 入力が相対なら `cwd` ( カレントディレクトリ ) 起点で絶対パスを生成することでパスを正規化する。
-- 冗長要素の畳み込み : 重複セパレータの縮約, `.` 除去, `..` の折りたたみ ( `--root`で指定されたディレクトリより上位のディレクトリ中のファイルは不正ファイルとみなし, 転送の対象としない ) 。
-- シンボリックリンクのリンク先となるファイル (実体ファイル)への追従は, `--follow-symlinks`オプションに従って行い, ファイル探索時には, シンボリックリンクファイルも単なる文字列として取り扱う。
-
-#### 送信用相対名の安全性保持
-
-生成した相対名は,
-
-  1) 先頭セパレータで始まらない,
-  2) 正規化後に `..` による上位逸脱を含まない,
-
-  # gm-scatter 仕様
-  # gm-scatter 仕様
-  を満たす場合にのみ, 転送対象ファイル, ディレクトリとして扱う。
-
-  上記を満たさない場合は Errorメッセージを出力し, そのファイル, ディレクトリの転送をスキップする。
-
-#### 送信用相対名の生成方式
-
-- 相対パスによる `src`指定の場合 : `cwd` から絶対化  =>  正規化  =>  `rel = abs(src) 相対 cwd`  =>  リモートでは `dest/rel` に展開。
----
-
-### 転送方式
-
-#### 逐次 SFTP ( デフォルト )
-
-- 必要に応じて `dest` を `mkdir -p` ( `--ssh-user != --user` の場合は `sudo -n` を付与 ) 。
-- 送信用相対名チェックに合格したファイルを 1 件ずつ `dest/<rel>` に SFTP put。
-- `--preserve-*` オプションは 無効となる ( 意味を持たない ) 。
-- `--include-empty-dirs`は, SFTPモードでの空ディレクトリの扱いを指定する。 `--include-empty-dirs`オプション未指定時 ( false )時は, 空ディレクトリを転送しない。`--include-empty-dirs`オプションを指定した場合は, 空ディレクトリを転送する。
-
-
-SFTP 転送では, 所有者 / グループ / ACL / xattr は保持されない。更新時刻(mtime)は SFTP 実装上, アップロード完了時刻になることがある ( ローカルファイルの更新時刻保持は保証しない ) 。
-
-#### 一括アーカイブ配布 ( `--pack` )
-
-- ローカルで `tar.gz` を作成。
-- SFTP でアップロード  =>  リモートで `dest` に展開。
-- デフォルトでは, メタデータ(所有権, 権限, ACL, xattr)を保持してファイルを展開する。
-
-`--pack`指定時は,ローカル / リモート双方で一時的にアーカイブサイズ分の空き容量を要する。途中失敗時も一時ファイルは原則削除するが, 障害時に残存した場合は自動削除を再試行し, 不可の場合は警告メッセージを出力する。
-
-#### `--follow-symlinks`がfalseの場合のシンボリックリンクの扱いについて
-
-`--follow-symlinks`がfalseの場合, シンボリックリンクを以下のように扱う。
-
-- 逐次 SFTP動作時: SFTP では通常 symlink の作成は行えないため, リンクはスキップし, 警告メッセージを出力して, 対象のファイルパス, ディレクトリパスの転送を中断し, 処理の継続を試みる。
-- 一括アーカイブ配布 ( `--pack` )動作時 : シンボリックリンクファイル はリンクエントリとしてアーカイブ内に格納する。
-
----
-
-### `--pack`時の所有権, 権限, ACL, xattrの扱いについて
-
-`--pack`指定時の所有権, 権限, ACL, xattrに関するオプションのデフォルト値は以下のようになる:
-
-- `--preserve-perms=true` ( `tar -p` 相当。)
-- `--preserve-owner=true` ( 権限が許せば所有権復元 )
-- `--preserve-acls=true` ( tar / FS が対応時 )
-- `--preserve-xattrs=true` ( tar / FS が対応時。`security.selinux` (SELinuxのラベル)を含む)
-
-`--pack` 指定がない場合は, 上記の `--preserve-*` は すべて false となり, 警告メッセージのみが表示される。SFTP ではこれらの設定値を復元することができないためである。
-
-`--preserve-*` がfalse, または, 未指定の場合は 警告メッセージを表示し, 展開処理の続行を試みる。
-### SELinux の扱い ( ホスト単位で自動判定 )
-
-
-
-- `test -d /sys/fs/selinux` または `mount | grep selinuxfs` が真
-- `command -v restorecon` が成功
-#### `--selinux` の挙動
-
-- `auto` ( デフォルト値 )  : SELinux対応可能なホストの場合, `restorecon -RF dest` を実行する。非対応なら何もしない ( 情報メッセージを表示するのみ ) 。
-- `policy` : SELinux対応可能なホストで*ない*場合, エラーメッセージを出して処理を中断する。SELinux対応可能なホストの場合, `restorecon -RF dest` を実行する。
-
-restorecon -RF dest は dest 配下を再帰的に走査・再ラベリングするため, 配布規模によっては時間を要する。必要に応じて dest を細分化する運用を推奨する。
-
-
-### xattr 復元処理実行条件, `restorecon` 実行条件について
-
-3) 転送元のファイルに xattr 属性が付いており, かつ, その属性をリモートホストで復元する場合, または, 作成したアーカイブ内に, xattr 属性が付いているファイルが含まれている。
-4) リモートの tar / FS / マウントオプションが xattr 書込みに対応。
-5) 権限が十分 ( 不足時は Warning または明示 true なら エラーメッセージを出して処理を継続 ) 。
-逐次SFTPでは, xattr を転送できないため, xattr の保持,復元は行わない。**xattrの保持, 復元が必要な場合は, --packを指定すること**。
-
-#### `restorecon` を実行する条件
-- `--selinux=policy` : SELinux対応可能ホストの場合, 常に実行する。SELinux対応不可能なホストの場合,エラーメッセージを出して処理を中断する。
-- `--selinux=archive` : xattr 復元の有無にかかわらず, SELinux対応可能ホストの場合で, かつ, tar/FSが対応可能 ( 例: GNU tar 1.27以降相当) なら追加で実行する ( ポリシーと実体の整合を保証 ) 。
-
-実質, restorecon は SELinux 対応ホストなら常に`restorecon`を実行する動作となる。
-
-#### ツール利用可能性の事前検査処理について
-
-ACL, xattrの復元処理に必要なコマンドの利用可否を事前に確認する処理を以下の通り実施する。
-
-- `--preserve-acls` が有効な場合, リモートホストで`setfacl` が利用可能であることを確認し, 利用不可の場合は, 警告メッセージを出力して, ACLの復元処理をスキップします。
-- `--preserve-xattrs` が有効な場合, リモートホストで`setfattr`が利用可能であることを確認し, 利用不可の場合は, 警告メッセージを出力して, xattrの復元処理をスキップします。
-- `--preserve-owner`, `--preserve-acl`,  `--preserve-xattrs`, `--preserve-perms`のいずれか1つ以上がtrueの場合, 外部tarコマンドが利用可能であることを転送処理開始前に確認し, 利用不可の場合は, アーカイブの作成, および, ファイル転送を一切行うことなく, エラーメッセージを出力して, プログラム全体を終了する。
-
-##### xattr 復元処理実行条件, `restorecon` 実行条件仕様策定の背景
-
-- アーカイブ / SFTP いずれの配布方式でも, **リモート FS の SELinux ポリシーに基づく最終ラベル**が, リモートのセキュリティポリシーに準じた動作となることから望ましい。
-- xattr を復元しても (`security.selinux` をローカルホストの設定値に合わせて復元しても ) , リモートホストの現行ポリシーと不整合な場合があるため, `restorecon` による再ラベリングで整合を担保するほうが望ましい。
-- SFTP で上書きした場合も コンテキスト変化が起こり得るため, 対応可能ホストでは `restorecon` を実行する方がセキュリティポリシーに矛盾しないことからより望ましい。
-
----
-
-### 並列実行と重複抑止
-
-- `--parallel` ( 既定 4 ) でホスト単位の並列実行。
-- 転送対象ファイルを指定されたファイル / ディレクトリパスの和集合を生成することで重複転送を抑止する。本処理は, ローカルでの絶対パスで一意化することで実現する。スキャン順は, 以下の通り:
-
-1. srcで明示的に指定されたファイルパス (引数順)
-2. --root オプションで指定された各基点ディレクトリに対して, pythonのos.walkによって検出された順(ディレクトリエントリの辞書順)に従って処理する。
-3. --root オプションが複数指定された場合は, オプションの出現順序に従って処理する。
-
-以上の手順で検出したファイルパスの内, 先行検出を採用し, 以降重複するパスを検出した場合は警告メッセージを出力して処理を継続する。
-
----
-
-### パス・トラバーサルの拒否
-
-- 各エントリの「送信用相対パス名」をOS 規定の区切りで正規化 ( `//` 縮約, `.` 除去, `..` 折畳み ) 。
-- 上記の結果が
-  1) 先頭セパレータで始まる, または,
-  2) 正規化後に `..` により`dest`ディレクトリより上位のディレクトリへの逸脱が発生する
-  のいずれかに該当する場合, `dest` より上位へは絶対にファイルを出力させないようにエラーメッセージを出して対象ファイル,ディレクトリの転送を中断し, 処理の継続を試みる。
-
----
-
-## ホストファイル形式
-
-本ツールのホストファイル形式は以下の通り:
-
-- 1 行につき, 1 ホストを記載する。
-- 空行, `#`で開始する行, および, タブ または, 空白 に続く `#` 以降はコメントとして扱う。
-
----
-
-## 運用上の注意
-
-- タイムアウトの設定値: `--timeout` は SSH コマンド単位の上限です。大量配布や大容量アーカイブではタイムアウトに達しやすいため, `--pack` の利用や値の引き上げを検討してください。
-- 一時領域の確保: `--pack` 時はローカル・各リモートの双方で アーカイブ分の一時ディスク容量が必要です。転送サイズと展開後サイズを考慮して, ストレージの一時領域を確保してください。
-- 差分配布: 作業時間短縮の観点から, 頻繁に配布する場合は, 変更検出 ( mtime/ハッシュ ) に基づく変更ファイルのみを転送対象とする, ディレクトリ単位で分割配布するなどの方式を推奨します。
-
----
-
-## 補足事項
-
-### アーカイブ作成側のtarの扱いについて
-
-GNU tar の場合は --acls/--xattrs を作成時にも付けて格納する。bsdtar / Libarchive 系では OS / バージョンにより挙動差があるため, ACL/xattr の格納は実装依存である。
-
-### ディレクトリ型シンボリックリンクについて
-
-ディレクトリ型シンボリックリンクは, 転送方式に応じて以下のように処理される。
-
-- 逐次 SFTP動作時: シンボリックリンクファイルの作成は行わず, 必要に応じて, シンボリックリンクの参照先(実体)を転送します。
-  - `--follow-symlinks`無指定時 ( False, デフォルト動作 ): そのディレクトリSymlink自体の処理をスキップします(警告を出してシンボリックリンクをたどらない)。
-
-  - `--follow-symlinks`指定時 ( True ) : リンクを辿って中身の実体 ( 通常ファイル ) を列挙・転送します。SFTPはシンボリックリンクそのものは作れないため, リンクとしては再現されず, 辿った先の実体が通常のファイル/ディレクトリとしてdest配下にコピーされます。壊れたリンク ( 参照先のないリンク ) があった場合は, 警告メッセージを出力して, 対象のシンボリックリンクの処理をスキップします。
-- `--pack`オプション指定時: シンボリックリンクファイルをリモートホスト上に作成(再現)します。ディレクトリ型シンボリックリンクも作成(ディレクトリへのシンボリックリンクとして作成)します。壊れたリンク ( リモート側で参照先のないリンク ) の場合も, シンボリックリンクを作成します。
-
-
-### Windows のドライブレターを含むパスの扱いについて
-
-`--pattern-rel` は 相対名に対して適用されます。Windows 上でローカル探索を行う場合, 相対名にドライブレター ( `C:` 等 ) を含めません。ドライブレターを扱う必要がある場合は `--pattern-abs` を用いるか, `--root` にドライブのルート ( 例: `C:\\` ) を指定し, 相対名はドライブレターを除いた形 ( 例: `a/b.txt` ) で扱ってください。
-
----
-
-## 使用例
-
-### 基本的な使用法
-
-#### 明示的な src 群を指定して, 各ホストの ~/deploy へ配布 ( SFTP, 逐次 put )
-
-```:shell
-gm-scatter.py -H hostfile -u appuser src/app.conf src/start.sh deploy
-```
-
-src は 0 個以上のファイル/ディレクトリ。最後の位置引数が `dest` ( 必須 ) 。
-
-dest が相対の場合は, `--user` の HOME 配下に展開される。
-この例では `~appuser/deploy`配下に展開される。
-
-#### ディレクトリをそのまま配布 ( SFTP, 逐次 put )
-
-```:shell
-gm-scatter.py -H hostfile -u appuser config/ webroot/ deploy
-```
-
-config/ と webroot/ の中身を走査し, 個々のファイルを SFTP で ~/deploy に作成。
-
-デフォルトではシンボリックリンクはたどらない ( リンク自体の転送も除外 ) 。シンボリックリンクをたどる場合は, `--follow-symlinks`をつける。
-
-#### 転送は行わず計画のみを表示する
-
-```:shell
-gm-scatter.py -H hostfile -u appuser -n config/ webroot/ deploy
-```
-
-転送・作成は実施せず, 台数や件数などの計画だけを表示。
-実配布前の検証に有効。
-
-#### パターン選択モード ( ローカル探索 )
-
-##### 指定したディレクトリ(root)を起点とした正規表現にマッチしたファイルを選択 ( 絶対パスパターン --pattern-abs )
-
-```:shell
-gm-scatter.py -H hostfile -u appuser \
-  -R /srv/app -a '.+\.service$' -a '/srv/app/config/.*\.yaml$' \
-  deploy
-```
-
-`-R /srv/app`により, `/srv/app`を探索の基点に設定。
-
-`/srv/app`配下で".service"および"config/*.yaml"に一致したファイルのみ選択して転送する。絶対パスに対してファイルのマッチング判定が行われる ( --pattern-abs ) 。
-
-##### 指定したディレクトリ(root)を起点とした正規表現にマッチしたファイルを選択 ( 相対パスパターン --pattern-rel )
-
-```:shell
-gm-scatter.py -H hostfile -u appuser \
-  -R /srv/app -r '^config/[^/]+\.yaml$' -r '^bin/[^/]+$' \
-  deploy
-```
-
-`-R /srv/app`により, `/srv/app`を探索の基点に設定。
-`/srv/app`からの相対パス ( config/..., bin/... 等 ) に対して正規表現を適用。
-
---pattern-abs と --pattern-rel は併用可。どちらか一方に一致すれば選定される。
-
-#### 大文字小文字を無視してパターン選択を実施
-
-```:shell
-gm-scatter.py -H hostfile -u appuser -i -R /srv/app -r '^readme(\.md)?$' deploy
-```
-
--i で IGNORECASE を有効化し, 正規表現マッチ時に大文字小文字の区別を行わずにマッチしたものを選択する。
-
-#### アーカイブ一括配布モード ( --pack )
-
-##### 転送対象ファイルをアーカイブ化しリモートホストで展開
-
-```:shell
-gm-scatter.py -H hostfile -u appuser --pack \
-  src_dir/ extra/file1.txt deploy
-```
-
-`--pack` 指定時は `--no-preserve-perms/--no-preserve-owner/--no-preserve-acls/--no-preserve-xattrs` が未指定なら既定で有効になる ( True ) 。
-
-ローカルホスト上に `tar` コマンドが必要 ( 見つからなければエラー終了 ) 。
-
-##### `--pack`指定転送を行いつつ, パーミッション等は保持しない
-
-```:shell
-gm-scatter.py -H hostfile -u appuser --pack \
-  --no-preserve-perms --no-preserve-owner --no-preserve-acls --no-preserve-xattrs \
-  src_dir/ deploy
-```
-
-#### SELinux コンテキストの復元
-
-##### 自動でrestorecon 実行
-
-```:shell
-gm-scatter.py -H hostfile -u appuser --pack --selinux auto src_dir/ deploy
-```
-
-##### 常にポリシー適用 ( restorecon 必須。無ければエラー )
-
-```:shell
-gm-scatter.py -H hostfile -u appuser --pack --selinux policy src_dir/ deploy
-```
-
-##### アーカイブに xattrs を保持し, 展開後に xattrs 復元 ( GNU tar + setfattr 必須 )
-
-```:shell
-gm-scatter.py -H hostfile -u appuser --pack --preserve-xattrs --selinux archive src_dir/ deploy
-```
-
-`--selinux archive` を指定するためには `--pack` と `--preserve-xattrs` の両方のオプションをつける必要がある。また, リモートホストに `setfattr`コマンド が必要。
-
-リモートホスト側のtarコマンドが GNU tar でない場合, --preserve-* の一部は無効化される可能性があり, 警告またはエラー ( `--preserve-*`オプションを明示指定した場合 ) として集計出力。
-
-
-#### 並列度・タイムアウト・SSH 認証の指定
-
-```:shell
-gm-scatter.py -H hostfile -u appuser \
-  -j 16 -T 45 -P 2222 -K ~/.ssh/id_ed25519 -S \
-  src/ deploy
-```
-
-- `-j` でホスト並列数, -T で SSH/コマンドタイムアウト秒。
-
-- `-P` でポート, `-K` で秘密鍵ファイル, `-S` で厳格なホスト鍵検証を有効化。
-
-- `--ssh-user` を併用すると「SSH ログインユーザー」と「リモート上のターゲットアカウント ( `--user` ) 」を分離できる ( `sudo -n` を使用した復元作業などに使用 ) 。
-
-```:shell
-gm-scatter.py -H hostfile --ssh-user deployer -u appuser src/ deploy
-```
-「SSH ログインユーザー」と「リモート上のターゲットアカウント ( `--user` ) 」を分離し, deployerでsshログインし, `appuser`ユーザでファイルの展開・復元を行う。
-
-
-#### SFTP モードで空ディレクトリも作成する
-
-```:shell
-gm-scatter.py -H hostfile -u appuser --include-empty-dirs config-dir/ deploy
-```
-
-`--pack` なしのときのみ有効。config-dir/ 直下で空のディレクトリもリモートに作成。
-
-`--pack` の場合はアーカイブ展開により, 空ディレクトリも含まれる。
-
-#### シンボリックリンクの追随
-
-```:shell
-gm-scatter.py -H hostfile -u appuser --follow-symlinks project-root/ deploy
-```
-
-SFTP モードで, リンク先をたどってファイルを転送したい場合に使用。
-デフォルトでは, リンクは安全側でスキップ ( 壊れたリンクは常にスキップ ) 。
-
-## hostfile の例
-
-コメントや空行を含むホストファイルの例を以下に示す:
-
-```:text
-# 1 行につき1 ホストを記載。空行可。
-# 行中の「タブ, または, 空白に続く #」以降はコメントとみなされる。
-
-srv-a.example.com
-srv-b.example.com   # blue rack
-10.0.0.15
-```
-
-`-H` 未指定時のデフォルトファイル名は, `hostfile`になる。
-
----
-
-## ログ分類
-
-- **Info** : 実行計画 ( ホスト数 / モード / `dest` / 選定件数 / 並列度 ) , 各ホストの進捗 ( DRY-RUN / packed / uploaded 件数, SELinux 実施など ) 。
-- **Warning ( 継続 ) ** : `--preserve-*` の非対応降格, `--selinux=auto` での非対応降格, xattr 書込み不可による部分無視等。**最後に**件数・ホスト数・詳細一覧を集計表示。
-- **Error ( 継続 ) ** : 個別ファイル失敗, 相対名の不正 ( 先頭セパレータ / `..` 逸脱 ) , 権限不足など。**最後に**件数・ホスト数・詳細一覧を集計。
-- **Error ( 致命 ) ** : 無効引数, `dest` 欠落, hostfile 空, 正規表現構文エラー, `paramiko` 不在, `--selinux=policy` / `archive` の必須条件欠落など  =>  **全体停止**。
-
-## 依存パッケージ
-
-本ツールの動作には以下のパッケージが必要となる:
-
-- Paramiko ( OS パッケージ `python3-paramiko` または `pip install paramiko` )
+- `SRC...` : 1 つ以上のローカルパスまたは正規表現。
+- `DEST`   : リモートホスト上の基準ディレクトリ。必須。
+
+### 位置引数
+
+| 引数 | 説明 |
+| ---- | ---- |
+| `SRC...` | ローカル側の送信元。リテラル/正規表現/チルダ展開規則は「パスと正規表現仕様」を参照。最低 1 件必要。 |
+| `DEST` | リモート側の配置先。相対指定はリモート `--user` の HOME に対して解決される。`~` や `~user` 形式は無効。 |
+
+### オプション一覧 (man スタイル)
+
+| オプション | 説明 |
+| ----------- | ---- |
+| `-H`, `--hosts` *FILE* | ホストファイルを指定。既定値 `hostfile` (`core_constants.DEFAULT_HOSTS_FILE`)。空行・先頭 `#`・トレーリングコメントは無視。 |
+| `-u`, `--user` *USER* | リモートでファイルを配置すべきターゲットアカウント。既定は実行ユーザ。SELinux や sudo 判定もこの値を基準にする。 |
+| `-s`, `--ssh-user` *USER* | SSH ログインユーザ。省略時は `--user` と同じ。`--sudo-extract` 自動判定や SFTP 経路の `sudo_mkdir` に影響。 |
+| `-P`, `--port` *PORT* | SSH ポート番号。既定 `22` (`core_ssh.DEFAULT_SSH_PORT`)。 |
+| `-K`, `--key` *PATH* | SSH 秘密鍵ファイル。未指定時は Paramiko の既定に従う。 |
+| `-W`, `--password` *PASS* | SSH パスワード (履歴への残存に注意)。鍵認証推奨。 |
+| `-T`, `--timeout` *SEC* | SSH セッションおよびリモートコマンドのタイムアウト秒。既定 `core_ssh.DEFAULT_TIMEOUT` (30 秒)。 |
+| `-S`, `--strict-host-key-checking` | Paramiko に `RejectPolicy` を設定し未知のホスト鍵を拒否。省略時は `AutoAddPolicy`。 |
+| `-j`, `--parallel` *N* | ホスト単位の並列数。1 以上で `scatter_parallel.execute` のワーカ数となる。既定 `core_constants.DEFAULT_PARALLEL_HOSTS` (4)。 |
+| `-n`, `--dry-run` | 転送を行わず計画とログ集計のみ実施。Exit code は常に 0。 |
+| `-v`, `--verbose` | 追加の DEBUG ログを有効化。dry-run 時も適用。 |
+| `--pack` | ローカルで tar.gz を生成し 1 回のアップロードで展開する。省略時は SFTP 逐次転送。 |
+| `--follow-symlinks` | `--pack` 使用時にローカル symlink を実体化して含める。SFTP モードでは無効。 |
+| `-x`, `--sudo-extract` | `--pack` 経路でリモート `mkdir`/`tar`/上書きを常に `sudo -n` で実行。`--no-sudo-extract` で明示的に無効化できる。指定なしは自動判定。 |
+| `--selinux` *MODE* | `auto`/`policy`/`ignore`。`--pack` 時の SELinux ラベル復元方針。既定 `auto`。SFTP 経路では効果なし。 |
+
+### オプション詳細
+
+- SSH 接続は Paramiko 経由で確立し、`ssh_open`/`finalize_sockets` でライフサイクルを管理する。
+- `--timeout` は `detect_remote_home`、`run_remote_cmd_capture`、`upload_pack_and_extract` などすべてのリモート操作に伝搬する。
+- `--pack` 指定時はホストごとに 1 度だけ `local_pack_paths_to_tmp` で tar.gz を生成し、`upload_pack_and_extract` が `DEST` 直下へ展開する。PlanEntry 毎に個別アップロードは行わない。
+- SFTP モードでは `sftp_put_one` が PlanEntry ごとに実行され、`PlanEntry.is_dir` が真でもファイルのみをアップロードする。ディレクトリはリモートで `mkdir -p` する。
+- `--sudo-extract` / `--no-sudo-extract` を両方省略した場合、`--pack` かつ `--ssh-user != --user` のときだけ自動的に `sudo -n` を使用する。
+- SFTP 経路でも `--ssh-user != --user` の場合は `remote_mkdir_p(... use_sudo=True)` で親ディレクトリを作成する。以後の SFTP 書き込みは SSH ユーザ権限のまま行い、書き込み不可なら即エラーになる。
+- `--selinux` は `--pack` 時のみ評価され、`restorecon_recursive_if_needed` の挙動を制御する。`policy` 指定で対応不可ホストに対してはエラー扱い。
+- `--dry-run` はローカルでの候補列挙とホスト別集計のみ行い、SSH/SFTP ハンドラ生成後は何も送信しない。
+
+## パスと正規表現仕様
+
+- `SRC` はローカルパスを前提とする。解釈規則は以下の通り。
+  - `/...` : UNIX 絶対パス。`resolve_token_for_scatter` が絶対化し、`DEST` 下では先頭スラッシュを除去した形に正規化する。
+  - `X:/...` または `X:\...` : Windows ドライブ絶対パス。`dest_rel_from_abs` により `X/...` 形式へ変換。Linux 上で Windows パスを指定すると `ValueError` でスキップされる。
+  - `~/...` : 起動ユーザの HOME ディレクトリに展開 (`scatter_expand_tilde_for_exec_user`) した上で扱う。
+  - 相対パス : 起動時のカレントディレクトリからの相対。`validate_relative_token_safe` が `..` による脱出を拒否し、失敗時は `ValueError` として PlanEntry 生成前に除外する。
+  - `~` および `~user`／`~user/...` は CLI で明示的に拒否し、`"bare tilde is not allowed"` または `"tilde with username is not supported"` を表示して終了する。
+- 正規表現判定は `looks_like_regex` に従い、`^$*+?{}[]\|()` のいずれかを含むと regex とみなす (`.` は除外)。
+- 正規表現 `SRC` は `split_src_to_root_and_tail_regex` により `(root, tail_regex)` に分割し、`root` 配下のファイル名 (ディレクトリは除外) に対して `re.search(tail_regex)` を適用する。マッチしたファイルの絶対パスが `PlanEntry` に入る。`root` 自体がマッチする場合はディレクトリエントリも追加され、`is_dir=True` で扱う。
+- リテラル `SRC` は存在するファイル/ディレクトリに限り列挙され、存在しない場合は静かにスキップされる。
+- `--pack` 指定時の `_normalize_pack_srcs` はリテラルで実体がディレクトリのものに末尾スラッシュを付与し、正規表現はそのまま保持する。
+
+## SRC と DEST の解釈とレイアウト
+
+- `DEST` は `_resolve_remote_dest` により解決される。
+  - `/...` : リモートの絶対パスとして使用。
+  - `X:/...` または `X:\...` : Windows ドライブ絶対パスとして許容。
+  - `~/...` : `detect_remote_home` で取得したターゲットユーザの HOME をプレフィックスとして展開。
+  - 相対文字列 : リモート HOME に連結 (`$HOME/relative`)。
+  - `~` および `~user` 形式は無効で `EXIT_ERR_ARGS` (4) を返す。
+- レイアウトは `PlanEntry.relpath` により決定され、すべて POSIX 形式 (`/` 区切り) に正規化される。
+  - 絶対 `SRC` : 先頭スラッシュを除去 (`/etc/hosts` → `etc/hosts`、`C:\logs` → `C/logs`)。
+  - 相対 `SRC` : 指定した相対パスを正規化 (`foo/bar` → `foo/bar`)。
+  - 正規表現 : マッチした実パスの `base_abs` から `normalize_rel_for_dest` した値を基点に、マッチしたファイルの相対を連結する。
+- `_normalize_remote_rel_file` がリモート相対パスから `..`、`./`、先頭 `/` を除去し、`DEST` を超える配置やパストラバーサルを拒否する。正規化結果が空文字の場合は basename にフォールバックする。
+- すべてのホストで共通の `DEST` を使用し、`gm-scatter` は `DEST/<relpath>` へ直接配置する。`gm-gather` と異なりホスト名サブディレクトリは作成しない (`join_host_dir=False`)。
+
+## 転送方式
+
+### SFTP 逐次 (既定)
+
+- `PlanEntry` ごとに `sftp_put_one` を呼び出し、ファイル単位でアップロードする。ディレクトリはローカル `os.walk` で展開し、リモートでは `remote_mkdir_p` で作成する。
+- `ssh_user != --user` の場合、親ディレクトリ作成は `sudo -n mkdir -p` で実行するが、ファイルの書き込みは SSH ユーザ権限のままとなる。書き込み不可であれば `E_SFTP_DIR_NOT_WRITABLE` を記録して失敗とする。
+- 新規ファイル・ディレクトリの所有者は SSH ユーザ、パーミッションはリモート側の umask 依存。SELinux ラベル、ACL、xattr は復元されない。
+- 既存ファイルを上書きする場合、`sudo_mkdir=True` なら上書き前に `stat/getfacl/getfattr` でメタデータを取得し、アップロード後に `chown`/`chmod`/`setfacl`/`setfattr` を試みて復元する。`sudo_mkdir=False` の場合はメタデータを取得しない。
+- シンボリックリンクは常に `status="dropped"` として除外される。
+
+### `--pack`
+
+- 各ホストで最初の PlanEntry を処理するときだけ `local_pack_paths_to_tmp` が呼ばれ、マッチしたファイル/ディレクトリをまとめて tar.gz にする。重複パスや親子関係は tar 作成時に正規化される。
+- 生成したアーカイブを `sftp.put` でリモート一時領域へ送信し、`upload_pack_and_extract` が `DEST` 直下に展開する。
+- tar フレーバに応じて適切な `tar` コマンドを構築し、既存ファイルと新規ファイルを分離して処理する。
+  - 新規 (NEW) : `tar -T members.new.txt` で直接 `DEST` 以下に展開。
+  - 既存 (EXIST) : 一時ディレクトリに展開し、`cat`→`mv` で上書き。上書き前に所有者・グループ・モード・ACL・xattr をダンプし、`sudo_extract` 有効時に復元する。
+- 空ディレクトリは別途 `remote_mkdir_p` で作成し、`sudo_extract` 有効時は `chown` でターゲットユーザの primary group に合わせる。
+- `follow_symlinks` 有効時のみ symlink を実体化してアーカイブに含める。無効時は symlink エントリを落とす。
+- リモート一時ファイル (`mktemp` で生成) は正常終了・エラーを問わずクリーンアップする。`sudo_extract` 有効時は tar/restorecon/chown も sudo 経由で実行する。
+- SELinux ラベル再設定 (`restorecon`) は pack 経路のみで実行される。
+
+## 転送対象の相違
+
+| 項目 | SFTP | `--pack` |
+| ---- | ---- | -------- |
+| 通常ファイル | 逐次 `sftp.put`。既存ファイルは sudo 経路でのみメタ復元。 | tar 内のファイルを新規/既存に分けて展開。既存は一時領域経由で上書きしメタ復元。 |
+| ディレクトリ | `os.walk` で作成し、親を `remote_mkdir_p`。属性復元は行わない。 | tar 展開時に生成。`sudo_extract` 有効なら新規ディレクトリへ `chown`。 |
+| シンボリックリンク | 常に除外 (`status="dropped"`)。 | `--follow-symlinks` 有効時にリンク先実体を収集。無効時はアーカイブにも入らない。 |
+| ハードリンク | Paramiko 経路ではハードリンク情報を保持しない。 | GNU tar のハードリンクは tar 展開時に通常ファイルとして復元する。 |
+| デバイス/FIFO/ソケット | 列挙時点で除外。 | `_safe_members` チェックで除外し、展開しない。 |
+| ACL/xattr | `sudo_mkdir=True` かつツール存在時に既存ファイルのみ復元。 | `sudo_extract=True` かつツール存在時に既存ファイルで復元。新規はデフォルト。 |
+
+## --follow-symlinks の挙動
+
+- フラグ未指定時
+  - SFTP: ローカル symlink は PlanEntry 作成後に `status="dropped"` で無視される。
+  - `--pack`: `tarfile` 生成時に symlink エントリを除外し、リモートには配置されない。
+- フラグ指定時
+  - SFTP: 挙動に変化なし (symlink は転送しない)。
+  - `--pack`: `tarfile.open(... dereference=True)` により symlink をリンク先の実体として格納し、リモートでは通常ファイル/ディレクトリとして展開される。親ディレクトリが symlink の場合は展開処理で警告を出してスキップする。
+
+## sudo の利用条件
+
+- パラメータ `sudo_extract` は以下で決定される。
+  - `--sudo-extract` 明示指定 → 常に `True`。
+  - `--no-sudo-extract` 明示指定 → 常に `False`。
+  - いずれも指定なし → `--pack` かつ `--ssh-user != --user` の場合だけ `True`。
+- `sudo_extract=True` の場合、以下の処理で `sudo -n` を使用する。
+  - リモート `mkdir -p`、tar 抽出、既存ファイルの上書き (`cat`→`mv`)、`chown/chmod`、ACL/xattr 復元、`restorecon`、一時ファイル削除。
+  - primary group の取得 (`id -gn target_user`) にも sudo を使用する。
+- SFTP 経路では `ssh_user != --user` のとき親ディレクトリ作成に sudo を使用するが、ファイル上書きは SSH ユーザ権限で行う。`sudo` を使ってファイル内容を書き込む経路は存在しない。
+- ローカルホストで `sudo` を呼び出す処理は無い。
+
+## SELinux 対応
+
+### SELinux 利用可能ホストの判定
+
+`detect_selinux_capable` は以下の条件を満たす場合に `True` を返す。
+- `/sys/fs/selinux` ディレクトリが存在する、または `mount` の出力に `selinuxfs` が含まれる。
+- `restorecon` コマンドが存在する (`command -v restorecon`).
+
+### `--selinux` オプションの挙動
+
+- `ignore` : SELinux 処理を常にスキップ。
+- `auto` (既定) : `detect_selinux_capable` が `True` のときだけ `restorecon -RF` を実行。非対応ホストでは黙ってスキップ。
+- `policy` : ホストが SELinux 非対応の場合は `RuntimeError` を送出し、転送失敗として扱う。対応時は `restorecon -RF` を強制。
+- 処理対象は pack 経路で生成・更新されたファイルと空ディレクトリであり、既存ファイルの上書き後も対象に含める。SFTP 経路では `restorecon` を呼ばない。
+
+## メタデータ復元条件
+
+- 所有者/グループ/パーミッション
+  - SFTP: 既存ファイルを上書きするとき `sudo_mkdir=True` かつ `getfacl`/`getfattr` が利用可能であれば、上書き前に取得したメタデータを `chown_chmod` で復元する。新規ファイル/ディレクトリは SSH ユーザ所有で作成される。
+  - `--pack`: `sudo_extract=True` の場合、既存ファイルで捕捉した所有者・グループ・モードを復元し、新規ファイルもターゲットユーザ (および primary group) に `chown` する。`sudo_extract=False` では復元を行わない。
+- タイムスタンプ
+  - SFTP: Paramiko の `sftp.put` に任せる (mtime/atime の維持は保証しない)。
+  - `--pack`: 一時ディレクトリから上書きする際に `touch -r` を実行し、元ファイルと同じ mtime に合わせるよう試みる。失敗しても転送は継続する。
+- ACL/xattr
+  - いずれの経路でも、リモートに `getfacl`/`setfacl` および `getfattr`/`setfattr` が存在しない場合は取得・復元を行わない。
+  - SFTP: 既存ファイルを上書きする際に `sudo_mkdir=True` かつ各ツールが利用可能なら復元する。新規作成では行わない。
+  - `--pack`: `sudo_extract=True` かつツールが利用可能な場合に既存ファイルで復元する。新規はデフォルト値のままとなる。
+- SELinux コンテキスト
+  - `--pack` 経路で `--selinux` により auto/policy が有効になっているときのみ `restorecon` で再設定する。
+  - SFTP 経路では SELinux ラベルは変更しない。
+
+## 並列処理 (`--parallel`)
+
+- `scatter_parallel.execute` がホスト単位で `ThreadPoolExecutor` を使用し、最大 `max(1, parallel)` 個のワーカーを動作させる。`Plan` の処理はホスト内で逐次実行され、ファイル単位の並列化は行わない。
+- 進捗は `HostLogAggregator` を通じて `seq/trial/processed/total` が記録される。`GracefulStop.abort_event` による協調キャンセルを共有する。
+
+## ログ・エラーメッセージ・終了コード
+
+代表的な標準エラー出力と終了コードは下表の通り (メッセージは gettext 化されている)。
+
+| メッセージ (msgid) | 発生条件 | 終了コード |
+| ------------------- | -------- | ---------- |
+| `"At least one SRC and a DEST are required."` | `SRC` または `DEST` の不足。 | `EXIT_ERR_ARGS` (4) |
+| `"bare tilde is not allowed"` | `SRC` または `DEST` に `~` 単独を指定。 | `EXIT_ERR_ARGS` (4) |
+| `"tilde with username is not supported"` | `SRC`/`DEST` に `~user` 形式。 | `EXIT_ERR_ARGS` (4) |
+| `"No hosts found in hosts file."` | ホストファイルに有効なホストが存在しない。 | `EXIT_ERR_NO_HOSTS` (1) |
+
+- 転送実行中にエラーが発生すると `HostLogAggregator` が `errors>0` を記録し、`run_parallel` は `EXIT_ERR_GENERIC` (2) を返す。
+- `--dry-run` 成功時は常に `EXIT_OK` (0)。
+
+## シグナル受信時の動作
+
+- `GracefulStop` を登録し、`SIGINT`/`SIGTERM` 受信で `abort_event` をセットする。以後新規ホストの着手を停止し、進行中の `run_host_scatter` ループに `CancelledError` を伝播させる。
+- 中断が発生すると `"Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories)."` を WARN ログに記録する。
+- クリーンアップは `GracefulStop.run_cleanups()` を介し、リモート一時領域 → ローカル一時領域 → SSH/SFTP クローズ → サマリ出力の順に実行される。部分的なアップロードが残る可能性があるため、再実行時はホスト側の整合性確認が推奨される。
+
+## 制限と注意事項
+
+- 正規表現は Python `re` を使用し、ロケール依存メタ (`\w` など) の挙動はプラットフォームに依存する。
+- `--pack` にはローカル Python の `tarfile` モジュール、リモート `tar`/`gzip`/`mktemp`/`bash` が必要。欠如すると `E_TAR_DETECT` や `E_PREFLIGHT` で失敗する。
+- `--follow-symlinks` は pack 経路でのみ効果があり、symlink 先の実体が存在しない場合は tar 生成時にスキップされる。
+- `--password` はコマンドラインに平文で残る。可能な限り鍵認証を使用すること。
+- SFTP 経路ではリモート側の umask に依存して権限が変化する。必要に応じて `--pack` や事前調整で補う。
+- SELinux ラベル復元は pack 経路でのみ実行され、SFTP ではラベル齟齬が生じる可能性がある。
+- ACL/xattr 復元は `getfacl/setfacl`・`getfattr/setfattr` がインストールされている場合に限り機能する。存在しない場合でも転送自体は継続される。
+- `GM_SCATTER_DEBUG=1` を設定するとデバッグログが増えるが、出力量が多いため本番運用では無効化を推奨する。
