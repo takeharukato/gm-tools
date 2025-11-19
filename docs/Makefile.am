@@ -4,7 +4,8 @@
 ## ドキュメント本体は docdir 直下に配置
 doc_DATA = \
 	gm-gather-spec.md \
-	gm-scatter-spec.md
+	gm-scatter-spec.md \
+	common-spec.md
 
 ## 配布アーカイブに含めるファイル
 EXTRA_DIST = \
