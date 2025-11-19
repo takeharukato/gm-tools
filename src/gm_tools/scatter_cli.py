@@ -28,6 +28,7 @@ from .core_logging import HostLogAggregator, init_logging, shutdown_logging
 from .core_path_handling import (
     is_local_abs,  # type: ignore[unused-ignore] 使わないが将来の整合のため保持
     is_windows_abs,
+    is_bare_tilde,
     tilde_username,
     # 相対/絶対 SRC の正規化とレイアウト算出に利用
     ScatterSrcToken,
@@ -168,7 +169,7 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
     if u is not None:
         # "~user/..." は非対応
         return "", _("tilde with username is not supported")
-    if d == "~":
+    if is_bare_tilde(d):
         # 素の "~" は非対応
         return "", _("bare tilde is not allowed")
     if d.startswith("~/"):
@@ -242,7 +243,7 @@ def _build_plan_for_host(
     sudo_extract: bool = auto_sudo if (sudo_extract_flag is None) else bool(sudo_extract_flag)
 
     # SRC '~' は不許可
-    bad_srcs: List[str] = [s for s in srcs_raw if s.strip() == "~"]
+    bad_srcs: List[str] = [s for s in srcs_raw if is_bare_tilde(s)]
     if bad_srcs:
         print(_("bare tilde is not allowed"), file=sys.stderr)
         raise SystemExit(EXIT_ERR_ARGS)

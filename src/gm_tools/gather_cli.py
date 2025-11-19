@@ -44,6 +44,7 @@ from .core_path_handling import (
     local_path_for_download,
     is_local_abs,
     tilde_username,
+    is_bare_tilde,
 )
 from .core_common import parse_hosts_file
 from .core_select import (
@@ -406,7 +407,7 @@ def main() -> None:
 
 
     _dest_raw: str = str(args.dest)
-    if _dest_raw.strip() == "~":
+    if is_bare_tilde(_dest_raw):
         print(_("bare tilde is not allowed"), file=sys.stderr)
         sys.exit(EXIT_ERR_ARGS)
     # DEST: '~user' は非対応なので明示エラー
@@ -432,7 +433,7 @@ def main() -> None:
             print(_("tilde with username is not supported"), file=sys.stderr)
             sys.exit(EXIT_ERR_TILDE_USER)
         # 素の '~' はエラー ( scatter の DEST と同一方針 )
-        if str(s).strip() == "~":
+        if is_bare_tilde(s):
             print(_("bare tilde is not allowed"), file=sys.stderr)
             sys.exit(EXIT_ERR_ARGS)
 

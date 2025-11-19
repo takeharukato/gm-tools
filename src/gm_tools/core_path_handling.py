@@ -337,6 +337,10 @@ def is_tilde_user_form(p: str) -> bool:
 def is_tilde_self_form(p: str) -> bool:
     return bool(RE_TILDE_SELF.match(p))
 
+def is_bare_tilde(value: str) -> bool:
+    """素の'~' を検出する。"""
+    return value.strip() == "~"
+
 def scatter_expand_tilde_for_exec_user(raw: str) -> str:
     """
     scatter における ~/ 展開は『コマンド実行ユーザの HOME』で行う。
