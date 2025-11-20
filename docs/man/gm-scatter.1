@@ -1,7 +1,6 @@
-." -*- coding: utf-8 -*-
-.TH GM-SCATTER 1 "2025-11-21" "gm-tools" "User Commands"
+.TH GM-SCATTER 1 “2025-11-21” “gm-tools” “User Commands”
 .SH NAME
-gm-scatter \- ローカルから複数ホストへファイルを配布するユーティリティ
+gm-scatter \- Utility to distribute files from a local host to multiple hosts
 .SH SYNOPSIS
 .B gm-scatter
 \fR[\-h|\-\-help] [\-H|\-\-hosts \fIFILE\fR] [\-u|\-\-user \fIUSER\fR] [\-s|\-\-ssh-user \fIUSER\fR]
@@ -18,114 +17,114 @@ gm-scatter \- ローカルから複数ホストへファイルを配布するユ
 .br
 \fRSRC... DEST
 .SH DESCRIPTION
-\fBgm-scatter\fR はホスト一覧に列挙された複数のリモートホストへローカルファイルを配布する。SFTP による逐次アップロードと、ローカルで一時アーカイブを作成してアップロードするパック方式を切り替え可能で、SELinux ラベルや ACL 等の復元に対応するオプションを備える。
+\fBgm-scatter\fR distributes local files to multiple remote hosts listed in the host list. It supports switching between sequential SFTP uploads and a pack method that creates a temporary archive locally before uploading, and includes options for restoring SELinux labels, ACLs, and more.
 .SH ARGUMENTS
 .TP
 \fBSRC...\fR
-1 件以上のローカルパスまたは正規表現パターン。指定方法は gm-scatter 仕様書の「パスと正規表現仕様」を参照する。存在しないリテラルは自動で除外される。
+One or more local paths or regular expression patterns. Refer to the “Path and Regular Expression Specifications” section in the gm-scatter specification document for the specification method. Non-existent literals are automatically excluded.
 .TP
 \fBDEST\fR
-リモート配置先ディレクトリ。相対指定はターゲットユーザのホームディレクトリを基準に変換され、`~` や `~user` はエラーとなる。
+Remote destination directory. Relative specifications are converted relative to the target user's home directory; `~` or `~user` will result in an error.
 .SH OPTIONS
-.SS 接続と認証
+.SS Connection and Authentication
 .TP
 \fB\-H\fR, \fB\-\-hosts\fR \fIFILE\fR
-転送対象のホストファイルを指定する。既定ではカレントディレクトリの \fBhostfile\fR を読み込む。
+Specifies the host file for transfer. By default, reads \fBhostfile\fR in the current directory.
 .TP
 \fB\-u\fR, \fB\-\-user\fR \fIUSER\fR
-配置に利用するターゲットユーザ。sudo や SELinux の判定もこのユーザを基準に行う。既定はコマンド実行ユーザ。
+The target user for deployment. Sudo and SELinux checks are also performed based on this user. The default is the command execution user.
 .TP
 \fB\-s\fR, \fB\-\-ssh-user\fR \fIUSER\fR
-SSH ログインに使用するユーザ。省略時は \fB\-\-user\fR と同じで、パック経路で sudo を使うかどうかの自動判定に用いる。
+User used for SSH login. If omitted, it defaults to \fB\-\-user\fR and is used for automatic determination of whether to use sudo in the pack path.
 .TP
 \fB\-P\fR, \fB\-\-port\fR \fIPORT\fR
-SSH ポート番号。既定は 22。
+SSH port number. Default is 22.
 .TP
 \fB\-K\fR, \fB\-\-key\fR \fIPATH\fR
-SSH 秘密鍵ファイル。未指定時は $HOME/.ssh/ の既知鍵を順に試し、SSH エージェントが有効であれば登録済みの鍵も利用する。
+SSH private key file. If unspecified, known keys in $HOME/.ssh/ are tried sequentially; if the SSH agent is enabled, registered keys are also used.
 .TP
 \fB\-W\fR, \fB\-\-password\fR \fIPASS\fR
-SSH パスワード。履歴に残る可能性があるため鍵認証が推奨される。
-.SS 実行制御
+SSH password. Key authentication is recommended as passwords may be logged.
+.SS Execution Control
 .TP
 \fB\-T\fR, \fB\-\-timeout\fR \fISEC\fR
-SSH セッションおよびリモートコマンドのタイムアウト秒。既定は 30 秒で、ホーム検出から抽出後の片付けまで共通値を利用する。
+SSH session and remote command timeout in seconds. Default is 30 seconds; uses a common value from home detection to cleanup after extraction.
 .TP
 \fB\-S\fR, \fB\-\-strict-host-key-checking\fR
-未知のホスト鍵を拒否し、known_hosts に登録されていないサーバーへの接続を防ぐ。
+Rejects unknown host keys and prevents connections to servers not registered in known_hosts.
 .TP
 \fB\-j\fR, \fB\-\-parallel\fR \fIN\fR
-ホスト単位の並列数。1 未満を指定しても 1 に切り上げられ、既定値は 4。各ホスト内では逐次で転送する。
+Number of parallel connections per host. Values less than 1 are rounded up to 1. Default is 4. Transfers are sequential within each host.
 .TP
 \fB\-n\fR, \fB\-\-dry-run\fR
-送信候補の列挙と件数集計のみを行い、転送を実施しない。終了コードは常に 0。
+Enumerates transfer candidates and counts items without performing the actual transfer. Always returns exit code 0.
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
-詳細ログを有効化する。dry-run 時も適用される。
-.SS 転送方式と権限
+Enables verbose logging. Also applies during dry-run mode.
+.SS Transfer Methods and Permissions
 .TP
 \fB\-\-pack\fR
-ローカルで一時的な tar.gz を作成し、アップロード後にリモートで展開する。SFTP に比べてまとめて配置できる。
+Creates a temporary tar.gz locally and extracts it remotely after upload. Allows bulk placement compared to SFTP.
 .TP
 \fB\-\-follow-symlinks\fR
-パック方式でシンボリックリンクを辿り、リンク先の実体をアーカイブへ含める。SFTP モードでは常にリンクを除外する。
+Follows symbolic links during packing and includes the linked files in the archive. Always excludes links in SFTP mode.
 .TP
 \fB\-x\fR, \fB\-\-sudo-extract\fR
-パック展開や `mkdir`、所有者変更を常に `sudo -n` で実行する。
+Always execute pack extraction, `mkdir`, and ownership changes using `sudo -n`.
 .TP
 \fB\-\-no-sudo-extract\fR
-パック方式でも sudo を利用しない。両方を省略した場合は、パック方式かつ SSH ログインユーザとターゲットユーザが異なるときに自動で sudo を使う。
+Do not use sudo even in pack mode. If both are omitted, sudo is used automatically in pack mode when the SSH login user and target user differ.
 .TP
 \fB\-\-selinux\fR {auto|policy|ignore}
-パック方式での SELinux ラベル復元方針。`auto` は対応可能なホストのみ `restorecon` を実行し、`policy` は要件を満たさないホストでエラーとする。`ignore` は常にスキップする。
+SELinux label restoration policy for pack mode. `auto` runs `restorecon` only on compatible hosts; `policy` errors on non-compliant hosts. `ignore` always skips.
 .SH TRANSFER MODES
-.SS SFTP 逐次転送
+.SS SFTP Sequential Transfer
 .PP
-送信候補ごとに SFTP `put` を呼び出す。必要に応じて `mkdir -p` を実行し、SSH ログインユーザとターゲットユーザが異なる場合は親ディレクトリ作成のみ sudo を用いる。新規ファイルの所有者は SSH ログインユーザとなり、パーミッションはリモートの umask に依存する。
-.SS パック転送
+Calls SFTP `put` for each transfer candidate. Executes `mkdir -p` if necessary. Uses sudo only for creating parent directories when the SSH login user and target user differ. New files are owned by the SSH login user, with permissions dependent on the remote umask.
+.SS Packed Transfer
 .PP
-ローカルで作成した tar.gz をアップロードし、リモートで展開する。`--sudo-extract` が有効なら `sudo -n` を通じて展開、上書き、所有者変更、アクセス権復元、SELinux ラベル再設定を行う。リンク先が存在しないシンボリックリンクはアーカイブ作成段階で除外される。
-.SS 対象の違い
+Uploads a locally created tar.gz and extracts it remotely. If `--sudo-extract` is enabled, performs extraction, overwriting, ownership change, permission restoration, and SELinux label reset via `sudo -n`. Symbolic links with non-existent targets are excluded during archive creation.
+.SS Target Differences
 .TP
-通常ファイル
-SFTP では個別にアップロードし、必要であれば所有者や権限を復元する。パック方式ではまとめて展開し、一時領域経由で上書きするときも所有者や権限を復元する。
+Regular Files
+SFTP uploads them individually and restores ownership/permissions if necessary. Pack mode extracts them collectively and restores ownership/permissions even when overwriting via temporary space.
 .TP
-ディレクトリ
-SFTP では必要に応じて作成するが属性の復元は行わない。パック方式では展開時に自動作成し、sudo 使用時はターゲットユーザへ合わせて `chown` する。
+Directories
+SFTP creates them as needed but does not restore attributes. Pack mode automatically creates them during extraction and uses `chown` to match the target user when sudo is used.
 .TP
-シンボリックリンク
-SFTP では常に除外し、ログへ記録する。パック方式では `--follow-symlinks` 時のみリンク先を取り込む。
+Symbolic Links
+Always excluded via SFTP and logged. Pack method includes target only when `--follow-symlinks` is used.
 .TP
-ハードリンク
-SFTP では個別ファイルとして配置する。パック方式では GNU tar の情報を元に通常ファイルとして復元する。
+Hard Links
+Placed as individual files via SFTP. Pack method restores as regular files based on GNU tar information.
 .TP
-デバイス/FIFO/ソケット
-SFTP では候補から除外し、パック方式ではアーカイブへ含めず展開時にも拒否する。
+Devices/FIFOs/Sockets
+Excluded from candidates via SFTP. Pack method excludes them from the archive and rejects them during extraction.
 .TP
-ACL/拡張属性
-SFTP では親ディレクトリ作成に sudo を使い必要なツールがある場合のみ既存ファイルで復元する。パック方式では `--sudo-extract` が有効かつツールが存在する場合に既存ファイルで復元する。
+ACL/Extended Attributes
+SFTP uses sudo to create parent directories and restores existing files only if the necessary tools are present. Pack method restores existing files if `--sudo-extract` is enabled and the tools exist.
 .SH SELINUX
 .PP
-`--selinux` が `auto` または `policy` のとき、`restorecon -RF` を実行できるホストではパック方式で新規作成または更新したファイル・ディレクトリのラベルを再設定する。`ignore` 指定時や SFTP モードではラベル変更を行わない。
+When `--selinux` is `auto` or `policy`, reset labels for files/directories newly created or updated by the pack method on hosts where `restorecon -RF` can be executed. Do not change labels when `ignore` is specified or in SFTP mode.
 .SH EXIT STATUS
 .TP
 \fB0\fR
-正常終了、または \fB\-\-dry-run\fR 実行時。
+Normal exit, or when executing \fB\-\-dry-run\fR.
 .TP
 \fB1\fR
-ホストファイルに有効なホストが存在しない。
+No valid hosts exist in the host file.
 .TP
 \fB2\fR
-転送中にエラーが発生したホストが存在する。
+Hosts encountered errors during transfer.
 .TP
 \fB4\fR
-位置引数が不足した、または `~` を単独で指定した。
+Insufficient positional arguments, or `~` specified alone.
 .SH SIGNALS
 .PP
-SIGINT/SIGTERM を受信すると中断フラグを立て、新しいホスト処理を開始しない。進行中の転送にはキャンセルを通知し、警告ログ "Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories)." を出力する。終了コードは完了状況に応じて 0 または 2 を返す。
+Receiving SIGINT/SIGTERM sets an interrupt flag and prevents starting new host processing. It notifies ongoing transfers of cancellation and outputs the warning log message “Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories).” The exit code returns 0 or 2 depending on the completion status.
 .SH LOGGING
 .PP
-ログ書式は `timestamp`、`level`、`host`、`op`、`phase`、`trial`、`processed`、`total` の固定キーと、`warnings`、`errors`、`duration`、`seq` の任意キーから成る key=value 形式である。`host=-` の行は全体集計を表し、`msg=summary` を付加する。
+The log format is key=value, consisting of fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, and optional keys `warnings`, `errors`, `duration`, `seq`. Lines with `host=-` represent overall totals and append `msg=summary`.
 .SH SEE ALSO
 .PP
-gm-scatter 仕様書 (docs/gm-scatter-spec.md)、gm-gather(1)
+gm-scatter specification (docs/gm-scatter-spec.md), gm-gather(1)

@@ -1,7 +1,6 @@
-." -*- coding: utf-8 -*-
-.TH GM-GATHER 1 "2025-11-21" "gm-tools" "User Commands"
+.TH GM-GATHER 1 “2025-11-21” “gm-tools” “User Commands”
 .SH NAME
-gm-gather \- リモートホストからローカルへファイルを収集するユーティリティ
+gm-gather \- Utility to gather files from remote hosts to local
 .SH SYNOPSIS
 .B gm-gather
 \fR[\-h|\-\-help] [\-H|\-\-hosts \fIFILE\fR] [\-u|\-\-user \fIUSER\fR] [\-s|\-\-ssh-user \fIUSER\fR]
@@ -14,105 +13,105 @@ gm-gather \- リモートホストからローカルへファイルを収集す�
 .br
 \fRSRC... DEST
 .SH DESCRIPTION
-\fBgm-gather\fR はホスト一覧に記載された複数のリモートホストから通常ファイルを収集し, 指定したローカルディレクトリへ保存する。 SSH/SFTPを用いた逐次転送と, ホスト単位で一時アーカイブを作成してダウンロードするパック処理の2系統を切り替えられる。 ログは構造化されたkey=value形式で出力され, 収集件数や警告・エラー数を追跡できる。
+\fBgm-gather\fR collects regular files from multiple remote hosts listed in the host list and saves them to the specified local directory. It supports two transfer methods: sequential transfer using SSH/SFTP, and pack processing, which creates temporary archives per host for download. Logs are output in structured key=value format, allowing tracking of collected items and warning/error counts.
 .SH ARGUMENTS
 .TP
 \fBSRC...\fR
-1 件以上の取得パターンを指定する。リテラル, 正規表現, チルダ展開の詳細は 「パスと正規表現仕様」を参照。無効なパターンは収集対象から除外される。
+Specifies one or more retrieval patterns. Details on literals, regular expressions, and tilde expansion are in the “Path and Regular Expression Specifications”. Invalid patterns are excluded from collection.
 .TP
 \fBDEST\fR
-ローカル側の出力ディレクトリ。相対パスは実行時カレントディレクトリを基準に絶対パスへ変換される。`~` や `~user` 形式はエラーとなる。
+The local output directory. Relative paths are converted to absolute paths relative to the current directory at execution time. `~` or `~user` formats will cause an error.
 .SH OPTIONS
-.SS 接続と認証
+.SS Connection and Authentication
 .TP
 \fB\-H\fR, \fB\-\-hosts\fR \fIFILE\fR
-操作対象ホストを列挙したホストファイルを指定する。既定ではカレントディレクトリの \fBhostfile\fR を読み込む。
+Specifies a host file listing the target hosts for operations. By default, it reads \fBhostfile\fR in the current directory.
 .TP
 \fB\-u\fR, \fB\-\-user\fR \fIUSER\fR
-収集対象のユーザ名。`SRC` の `~/` 展開や権限判定に利用し, 既定はコマンド実行ユーザ。
+The username to collect data for. Used for `~/` expansion in `SRC` and permission checks; defaults to the command execution user.
 .TP
 \fB\-s\fR, \fB\-\-ssh-user\fR \fIUSER\fR
-SSH ログインに使用するユーザ名。省略時は \fB\-\-user\fR と同じで, sudo を自動使用するかどうかの判定に用いる。
+The username used for SSH login. If omitted, it defaults to the same as `\fB\-\-user\fR` and is used to determine whether to automatically use sudo.
 .TP
 \fB\-P\fR, \fB\-\-port\fR \fIPORT\fR
-SSH ポート番号。既定は 22。
+The SSH port number. Default is 22.
 .TP
 \fB\-K\fR, \fB\-\-key\fR \fIPATH\fR
-SSH 秘密鍵ファイル。未指定時は $HOME/.ssh/ 下の既知鍵を順に試し, SSH エージェントが有効であれば登録済みの鍵も利用する。公開鍵認証を確実に使う場合は鍵パスを明示する。
+SSH private key file. If unspecified, known keys under $HOME/.ssh/ are tried sequentially; if the SSH agent is enabled, registered keys are also used. Explicitly specify the key path to ensure public key authentication is used.
 .TP
 \fB\-W\fR, \fB\-\-password\fR \fIPASS\fR
-SSH パスワード。シェル履歴に残るため鍵認証の利用が推奨される。
-.SS 実行制御
+SSH password. Key-based authentication is recommended as passwords are logged in the shell history.
+.SS Execution Control
 .TP
 \fB\-T\fR, \fB\-\-timeout\fR \fISEC\fR
-SSH セッションやリモートコマンドのタイムアウト秒。既定は 30 秒で, ホームディレクトリ検出からアーカイブ削除まで共通値を用いる。
+SSH session and remote command timeout in seconds. Default is 30 seconds; uses the same value from home directory detection to archive deletion.
 .TP
 \fB\-S\fR, \fB\-\-strict-host-key-checking\fR
-未知のホスト鍵を拒否し, known_hosts に無いホストへは接続しない。省略時は未知の鍵を自動登録する。
+Rejects unknown host keys and does not connect to hosts not in known_hosts. If omitted, automatically registers unknown keys.
 .TP
 \fB\-j\fR, \fB\-\-parallel\fR \fIN\fR
-ホスト単位の並列数。1 未満を指定しても 1 に切り上げられ, 既定値は 4。各ホスト内部の処理は逐次で実行される。
+Number of parallel processes per host. Values less than 1 are rounded up to 1. Default is 4. Processing within each host is executed sequentially.
 .TP
 \fB\-n\fR, \fB\-\-dry-run\fR
-収集計画の構築と件数集計のみを実施し, 転送を行わない。終了コードは常に 0。
+Performs only collection plan construction and item count aggregation; does not perform transfers. Exit code is always 0.
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
-追加のデバッグログを有効化する。dry-run 時も同様に適用される。
-.SS 転送方式
+Enables additional debug logging. Also applies during dry-run mode.
+.SS Transfer Method
 .TP
 \fB\-\-pack\fR
-ホスト単位でリモートに一時的な tar.gz を生成し, 1 度のダウンロードでまとめて展開する。省略時は SFTP を利用した逐次転送を行う。
+Creates temporary tar.gz files on the remote host per host and extracts them all at once in a single download. If omitted, performs sequential transfer using SFTP.
 .TP
 \fB\-\-follow-symlinks\fR
-\fB\-\-pack\fR 使用時にシンボリックリンクを辿り, リンク先の実体を収集する。SFTP モードでは常にリンクを除外する。
+\fB\-\-pack\fR When used, follows symbolic links and collects the actual files at the link destinations. Always excludes links in SFTP mode.
 .TP
 \fB\-x\fR, \fB\-\-sudo-collect\fR
-パック経路でのファイル列挙や tar/gzip 実行を常に `sudo -n` で行う。
+Always performs file enumeration and tar/gzip execution on pack paths using `sudo -n`.
 .TP
 \fB\-\-no-sudo-collect\fR
-パック経路で sudo を利用しない。両オプションを省略した場合は, SSH ログインユーザと収集対象ユーザが異なるときのみ `sudo -n` を自動で有効化する。
+Does not use sudo on the pack path. If both options are omitted, `sudo -n` is automatically enabled only when the SSH login user differs from the target user.
 .SH TRANSFER MODES
-.SS SFTP 逐次転送
+.SS SFTP Sequential Transfer
 .PP
-収集対象ごとに SFTP `get` を呼び出す。ディレクトリは対象リストに含めるが, 中身の転送は行わない。ローカル保存先ディレクトリは必要に応じて作成される。メタデータの完全な復元は保証されない。
-.SS パック転送
+Calls SFTP `get` for each collection target. Directories are included in the target list but their contents are not transferred. Local destination directories are created as needed. Complete metadata restoration is not guaranteed.
+.SS Pack Transfer
 .PP
-ホスト単位で tar.gz を作成しダウンロード後に展開する。利用可能な tar コマンドを検出し, \fB\-\-follow-symlinks\fR が有効で対応している場合はリンク先を通常ファイルとして取り込む。展開時はパストラバーサルを拒否し, 親ディレクトリがシンボリックリンクの場合は該当項目をスキップする。GNU tar のハードリンク情報は通常ファイルとして復元される。
-.SS 対象の違い
+Creates a tar.gz per host and extracts it after download. Detects available tar commands; if `--follow-symlinks` is enabled and supported, symbolic links are treated as regular files. During extraction, path traversal is rejected; if the parent directory is a symbolic link, the item is skipped. GNU tar hard link information is restored as regular files.
+.SS Target Differences
 .TP
-通常ファイル
-SFTP では通常ファイルと判定できたもののみ取得する。パック方式ではアーカイブに含まれる通常ファイルとハードリンクが復元される。
+Regular Files
+SFTP retrieves only those identified as regular files. Pack mode restores regular files and hard links contained within the archive.
 .TP
-ディレクトリ
-SFTP では対象リストに含めるが内容は転送しない。パック方式では展開時に再現し, 親ディレクトリがシンボリックリンクならスキップする。
+Directories
+SFTP includes them in the target list but does not transfer their contents. Pack mode recreates them during extraction, skipping if the parent directory is a symbolic link.
 .TP
-シンボリックリンク
-SFTP では常に除外する。パック方式では \fB\-\-follow-symlinks\fR 指定時のみリンク先を取り込み, 失敗時はリンク自体を除外する。
+Symbolic Links
+Always excluded by SFTP. Pack method only captures the link target when \fB\-\-follow-symlinks\fR is specified; if it fails, the link itself is excluded.
 .TP
-デバイス/FIFO/ソケット
-SFTP では列挙段階で除外し, パック方式では展開時の安全チェックで除外する。
+Device/FIFO/Socket
+Excluded during enumeration by SFTP; excluded during safety checks at extraction by the pack method.
 .SH EXIT STATUS
 .TP
 \fB0\fR
-正常終了, または \fB\-\-dry-run\fR 実行時。
+Normal exit, or when executing \fB\-\-dry-run\fR.
 .TP
 \fB1\fR
-ホストファイルから有効なホストが得られなかった。
+Could not obtain a valid host from the host file.
 .TP
 \fB2\fR
-転送中にエラーが発生したホストが存在する。
+Hosts with transfer errors exist.
 .TP
 \fB3\fR
-`~user` を含むパスを指定した。
+Specified a path containing `~user`.
 .TP
 \fB4\fR
-`SRC`/`DEST` が不足, または `~` 単独を指定した。
+Insufficient `SRC`/`DEST`, or specified `~` alone.
 .SH SIGNALS
 .PP
-SIGINT または SIGTERM を受信すると新しいホスト処理を開始せず, 進行中のホストにはキャンセルを通知する。中断後は警告ログ "Interrupt requested; cancelling remaining transfers…" を出力し, 完了状況に応じて終了コード 0 または 2 を返す。終了処理では開いているセッションを閉じ, 一時ディレクトリを削除する。
+Upon receiving SIGINT or SIGTERM, does not start new host processing and notifies ongoing hosts of cancellation. After interruption, outputs warning log “Interrupt requested; cancelling remaining transfers…” and returns exit code 0 or 2 based on completion status. The termination process closes open sessions and deletes temporary directories.
 .SH LOGGING
 .PP
-ログは `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total` の固定キーに続き, `warnings`, `errors`, `duration`, `seq` などの任意キーを key=value 形式で出力する。`phase` は `start`, `processing`, `done` を用い, 集計行では `host=-`, `msg=summary` を付加する。
+Logs output fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, followed by optional keys like `warnings`, `errors`, `duration`, `seq` in key=value format. `phase` uses `start`, `processing`, `done`. Aggregate lines append `host=-` and `msg=summary`.
 .SH SEE ALSO
 .PP
-gm-gather 仕様書 (docs/gm-gather-spec.md), gm-scatter(1)
+gm-gather specification (docs/gm-gather-spec.md), gm-scatter(1)
