@@ -1,9 +1,10 @@
-gm_tools 設計ドキュメント (準備中)
-=================================
+gm_tools 実装ドキュメント
+==========================
 
-将来的に `src/gm_tools` 配下のモジュール別解説やディレクトリ構成をここに追加します。
+`src/gm_tools` 配下のモジュール別関数仕様。
 
 .. toctree::
    :maxdepth: 1
+   :caption: モジュール API
 
-   overview
+   modules/modules

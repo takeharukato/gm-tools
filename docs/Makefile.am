@@ -1,4 +1,17 @@
-## -*- makefile -*-
+# -*- mode: makefile; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
+#
 ## docs/Makefile.am for gm-tools
 
 ## ドキュメント本体は docdir 直下に配置
@@ -28,4 +41,5 @@ EXTRA_DIST = \
 	sphinx/tst_framework/test_common_snapshot.rst \
 	sphinx/tst_framework/test_common_ssh.rst \
 	sphinx/design/index.rst \
-	sphinx/design/overview.rst
+	sphinx/design/modules/gm_tools.rst \
+	sphinx/design/modules/modules.rst
