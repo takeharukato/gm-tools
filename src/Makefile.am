@@ -58,6 +58,19 @@ gm-gather: Makefile
 	@echo "Generating $@"
 	@{ \
 	  echo '#!/usr/bin/env python3'; \
+    echo '# -*- mode: python; coding: utf-8; line-endings: unix -*-'; \
+    echo '# SPDX-License-Identifier: BSD-2-Clause'; \
+    echo '# Copyright (c) 2025 TAKEHARU KATO'; \
+    echo '#'; \
+    echo '# This file is distributed under the two-clause BSD license.'; \
+    echo '# For the full text of the license, see the LICENSE file in the project root directory.'; \
+    echo '# このファイルは2条項BSDライセンスの下で配布されています。'; \
+    echo '# ライセンス全文はプロジェクト直下の LICENSE を参照してください。'; \
+    echo '#'; \
+    echo "# OpenAI's ChatGPT partially generated this code."; \
+    echo '# Author has modified some parts.'; \
+    echo '# OpenAIのChatGPTがこのコードの一部を生成しました。'; \
+    echo '# 著者が修正している部分があります。'; \
 	  echo ''; \
 	  echo 'from gm_tools.gather_cli import main'; \
 	  echo ''; \
@@ -70,6 +83,19 @@ gm-scatter: Makefile
 	@echo "Generating $@"
 	@{ \
 	  echo '#!/usr/bin/env python3'; \
+    echo '# -*- mode: python; coding: utf-8; line-endings: unix -*-'; \
+    echo '# SPDX-License-Identifier: BSD-2-Clause'; \
+    echo '# Copyright (c) 2025 TAKEHARU KATO'; \
+    echo '#'; \
+    echo '# This file is distributed under the two-clause BSD license.'; \
+    echo '# For the full text of the license, see the LICENSE file in the project root directory.'; \
+    echo '# このファイルは2条項BSDライセンスの下で配布されています。'; \
+    echo '# ライセンス全文はプロジェクト直下の LICENSE を参照してください。'; \
+    echo '#'; \
+    echo "# OpenAI's ChatGPT partially generated this code."; \
+    echo '# Author has modified some parts.'; \
+    echo '# OpenAIのChatGPTがこのコードの一部を生成しました。'; \
+    echo '# 著者が修正している部分があります。'; \
 	  echo ''; \
 	  echo 'from gm_tools.scatter_cli import main'; \
 	  echo ''; \
