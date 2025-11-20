@@ -30,6 +30,7 @@ import getpass
 import os
 import sys
 import logging
+import shutil
 from argparse import BooleanOptionalAction, Namespace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Final, Sequence, Set
@@ -539,7 +540,8 @@ def _make_push_one_pack(
 
         1. ローカルホストでアーカイブを作成します。
         2. SFTP 経由でリモートホストにアーカイブをアップロードします。
-        3. リモートホストでアーカイブを解凍し, アーカイブ解凍の成否に依らず, アーカイブファイルを削除します。
+        3. リモートホストでアーカイブを解凍し, アーカイブ解凍の成否に依らず, リモートに残ったアーカイブファイルを削除します。
+        4. アップロードに利用したローカルの一時アーカイブと一時ディレクトリも後始末します。
 
     Args:
         ssh (SSHClientLike): リモートで展開処理を実行する SSH クライアント。
@@ -622,18 +624,29 @@ def _make_push_one_pack(
         tar_path: str
         _src_manifest: List[str]
         tar_path, _src_manifest = tar_tuple
-        upload_pack_and_extract(
-            ssh,
-            sftp,
-            tar_path,
-            dest_abs_root,
-            sudo_extract,
-            host,
-            _NULL_REPORT,   # Null Object (読み捨て)
-            False,          # dry_run
-            target_user=target_user,
-            selinux_mode=selinux_mode,
-        )
+        tar_tmp_dir: str = os.path.dirname(tar_path)
+        try:
+            upload_pack_and_extract(
+                ssh,
+                sftp,
+                tar_path,
+                dest_abs_root,
+                sudo_extract,
+                host,
+                _NULL_REPORT,   # Null Object (読み捨て)
+                False,          # dry_run
+                target_user=target_user,
+                selinux_mode=selinux_mode,
+            )
+        finally:
+            try:
+                os.remove(tar_path)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+            # temp ディレクトリにはアーカイブ以外存在しない想定のため丸ごと削除
+            shutil.rmtree(tar_tmp_dir, ignore_errors=True)
 
     return _push_one
 

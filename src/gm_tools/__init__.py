@@ -44,7 +44,12 @@ def __getattr__(name: str) -> Any:
     mod = _SUBMODULES.get(name)
     if mod is not None:
         return importlib.import_module(mod, __name__)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    try:
+        return importlib.import_module(f".{name}", __name__)
+    except ModuleNotFoundError as exc:
+        if exc.name in {f"{__name__}.{name}", name}:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+        raise
 
 def __dir__() -> list[str]:
     return sorted(list(globals().keys()) + __all__)
