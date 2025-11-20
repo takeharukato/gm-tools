@@ -66,6 +66,8 @@ rm -rf %{buildroot}
 # man pages
 %{_mandir}/man1/gm-gather.1*
 %{_mandir}/man1/gm-scatter.1*
+%lang(ja) %{_mandir}/ja/man1/gm-gather.1*
+%lang(ja) %{_mandir}/ja/man1/gm-scatter.1*
 
 %changelog
 * Sat Nov 15 2025 Takeharu Kato <tkato1219@gmail.com> - 0.1.0-1
