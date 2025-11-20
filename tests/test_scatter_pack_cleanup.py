@@ -1,7 +1,7 @@
 #
 # src/で,
 #
-# PYTHONPATH=. python3 -m pytest -q ../test_scatter_pack_cleanup.py
+# PYTHONPATH=. python3 -m pytest -q ../tests/test_scatter_pack_cleanup.py
 #
 """
 Unit tests for pack upload cleanup ensuring local archives are removed.
