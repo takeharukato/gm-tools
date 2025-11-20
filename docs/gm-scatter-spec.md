@@ -1,7 +1,7 @@
 # gm-scatter 仕様
 
 本書は `gm-scatter` コマンドの仕様を記述する。
-共通仕様や用語は `docs/common-spec.md` を参照のこと。
+共通仕様や用語は [gm-tools 共通仕様](common-spec.md) を参照のこと。
 
 ## 引数とオプション
 

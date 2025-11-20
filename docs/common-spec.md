@@ -2,8 +2,8 @@
 
 本書は `gm-gather` と `gm-scatter` に共通する仕様および運用上の注意を集約した文書である。各コマンド固有の仕様は個別の仕様書を参照すること。
 
-- `gm-gather` 仕様: ./gm-gather-spec.md
-- `gm-scatter` 仕様: ./gm-scatter-spec.md
+- [gm-gather 仕様](gm-gather-spec.md)
+- [gm-scatter 仕様](gm-scatter-spec.md)
 
 ## 記法・方針
 
