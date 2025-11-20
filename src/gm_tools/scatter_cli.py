@@ -455,11 +455,11 @@ def _make_push_one_sftp(
     host: str,
     remote_rel_map: Dict[str, str],
 ) -> PushOne:
-    """非 pack 経路の逐次 PUT 用クロージャを生成します。
+    """SFTP 経由で単一ファイルを逐次アップロードするクロージャを生成します。
 
     Args:
         ssh (SSHClientLike): リモート側で ``mkdir`` や ``chown`` を実行する SSH クライアント。
-        sftp (SFTPClientLike): ``sftp_put_one`` が利用する SFTP クライアント。
+        sftp (SFTPClientLike): 転送に利用する SFTP クライアント。
         dest_abs_root (str): リモート DEST の絶対パス。
         ssh_user (str): SSH 接続に使用するユーザー名。
         target_user (str): 転送先の所有者として想定するユーザー名。
@@ -467,7 +467,7 @@ def _make_push_one_sftp(
         remote_rel_map (Dict[str, str]): ローカル絶対パスとリモート相対パスの対応表。
 
     Returns:
-        PushOne: ``PlanEntry`` を受け取り、SFTP で 1 件ずつアップロードするクロージャ。
+        PushOne: 転送対象一件を表すデータ要素(``PlanEntry``) を受け取り、SFTP で 1 件ずつアップロードするクロージャ。
 
     Examples:
         >>> from unittest.mock import MagicMock  # doctest: +SKIP
@@ -484,7 +484,7 @@ def _make_push_one_sftp(
         True  # doctest: +SKIP
     """
     def _push_one(_sftp: SFTPClientLike, local_path: Path, _remote_root: str, is_dir: bool) -> None:
-        """ローカルファイル 1 件をリモートへアップロードします。
+        """ローカルファイル 1 件をリモートホストへアップロードします。
 
         Args:
             _sftp (SFTPClientLike): SFTP PUT を発行するクライアント。
@@ -541,12 +541,12 @@ def _make_push_one_pack(
         1. ローカルホストでアーカイブを作成します。
         2. SFTP 経由でリモートホストにアーカイブをアップロードします。
         3. リモートホストでアーカイブを解凍し, アーカイブ解凍の成否に依らず, リモートに残ったアーカイブファイルを削除します。
-        4. アップロードに利用したローカルの一時アーカイブと一時ディレクトリも後始末します。
+        4. アップロードに利用したローカルの一時アーカイブと一時ディレクトリを削除します。
 
     Args:
         ssh (SSHClientLike): リモートで展開処理を実行する SSH クライアント。
-        sftp (SFTPClientLike): パックファイルを送信する SFTP クライアント。
-        pack_srcs (List[Path]): パック対象となるローカルルートのリスト。
+        sftp (SFTPClientLike): アーカイブファイルを送信する SFTP クライアント。
+        pack_srcs (List[Path]): パック対象となるローカルファイルのパスのリスト。
         dest_abs_root (str): リモート DEST の絶対パス。
         sudo_extract (bool): リモート解凍時に ``sudo`` を利用する場合は ``True``。
         follow_symlinks (bool): パック時にシンボリックリンクを辿る場合は ``True``。
@@ -557,7 +557,7 @@ def _make_push_one_pack(
         remote_rel_map (Dict[str, str]): パック対象絶対パスからリモート相対パスへの対応。
 
     Returns:
-        PushOne: ``PlanEntry`` の最初の呼び出しで pack/upload/extract を実行するクロージャ。
+        PushOne: 転送対象一件を表すデータ要素(``PlanEntry``) の最初の呼び出しで pack/upload/extract を実行するクロージャ。
 
     Examples:
         >>> from unittest.mock import MagicMock  # doctest: +SKIP
@@ -583,9 +583,9 @@ def _make_push_one_pack(
         """pack 経路で 1 度だけアーカイブ転送と解凍を実行します。
 
         Args:
-            _sftp (SFTPClientLike): パックファイルを送信するクライアント。
-            _local_path (Path): ``PlanEntry`` が持つローカルパス（pack 経路では未使用）。
-            _remote_root (str): ``PlanEntry`` が持つリモートルート（未使用）。
+            _sftp (SFTPClientLike): アーカイブファイルを送信するクライアント。
+            _local_path (Path): 転送対象一件を表すデータ要素(``PlanEntry``) が持つローカルパス（pack 経路では未使用）。
+            _remote_root (str): 転送対象一件を表すデータ要素(``PlanEntry``) が持つリモートルート（未使用）。
             _is_dir (bool): エントリがディレクトリかどうか（未使用）。
 
         Returns:
