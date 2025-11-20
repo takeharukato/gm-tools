@@ -1,5 +1,25 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
+"""gm-gather CLI エントリポイントの制御フローと補助関数群をまとめたモジュールです。
+
+コマンドライン引数の解析、ホスト単位の Plan 構築、SFTP/pack の実行に係る
+補助クロージャ生成、および GracefulStop を用いた協調的停止処理を提供します。
+内部動作は gather_parallel と組み合わせてホスト並列収集を実現しつつ、既存 CLI
+との互換性を維持する設計です。
+"""
+
 # cspell:ignore hostfile argparser
 
 from __future__ import annotations
@@ -78,6 +98,17 @@ from .core_signal_handling import (
 _LOG = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
+    """`gm-gather` コマンド用の引数パーサを構築します。
+
+    Returns:
+        argparse.ArgumentParser: CLI 引数を解析するための ``ArgumentParser`` インスタンス。
+
+    Examples:
+        >>> parser = build_parser()  # doctest: +SKIP
+        >>> isinstance(parser, argparse.ArgumentParser)  # doctest: +SKIP
+        True  # doctest: +SKIP
+    """
+
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         description=
             _("gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
@@ -164,9 +195,32 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _make_pull_one_sftp() -> Callable[[SFTPClientLike, str, Path, bool], None]:
-    """SFTP 逐次GET。PlanEntry.relpathはローカル相対, remote_rootは per-entry。"""
+    """SFTP 経由で単一ファイルを逐次取得するクロージャを生成します。
+
+    Returns:
+        Callable[[SFTPClientLike, str, Path, bool], None]: ``PlanEntry`` に対応するファイルを
+        1 件ずつダウンロードするクロージャ関数。
+
+    Examples:
+        >>> pull_one = _make_pull_one_sftp()  # doctest: +SKIP
+        >>> callable(pull_one)  # doctest: +SKIP
+        True  # doctest: +SKIP
+    """
 
     def _pull_one(sftp: SFTPClientLike, remote_path: str, local_path: Path, is_dir: bool) -> None:
+        """SFTP で単一ファイルを取得してローカルへ保存します。
+
+        Args:
+            sftp (SFTPClientLike): 既存の SFTP クライアント。
+            remote_path (str): 取得するリモートファイルの絶対パス。
+            local_path (Path): 保存先のローカルパス。
+            is_dir (bool): 対象がディレクトリである場合は ``True``。
+
+        Examples:
+            >>> pull_one = _make_pull_one_sftp()  # doctest: +SKIP
+            >>> pull_one(None, '/remote/file', Path('/tmp/file'), False)  # doctest: +SKIP
+        """
+
         lp: Path = Path(local_path)
 
         _LOG.debug("[debug][sftp] get: remote=%s -> local=%s (is_dir=%s)", remote_path, str(lp), is_dir)
@@ -191,13 +245,66 @@ def _make_pull_one_pack(
     host: str,
     dest_host_root: Path
 ) -> Callable[[SFTPClientLike, str, Path, bool], None]:
-    """
-    初回呼出しで pack+download+extract を実施。以降 no-op。
-    Step4の権限/復元挙動 ( sudo指定時の権限復元含む ) を維持。
+    """``--pack`` オプション指定時にリモートで tar.gz を生成して一括ダウンロードするクロージャを生成します。
+
+    生成したクロージャは以下の処理を行います。
+
+      1. リモートホストでアーカイブを作成します。
+      2. SFTP 経由でリモートホストからアーカイブをダウンロードします。
+      3. ローカルホストでアーカイブを解凍し, 解凍後に, アーカイブ解凍の成否に依らずダウンロードしたアーカイブを削除します。
+      4. リモートホストのアーカイブを削除します。
+
+    Args:
+        ssh (SSHClientLike): リモートで ``tar`` や ``rm`` を実行する SSH クライアント。
+        sftp (SFTPClientLike): 生成されたアーカイブを取得する SFTP クライアント。
+        pack_list (List[str]): パッキング対象のリモート絶対パス一覧。
+        timeout (float): ``remote_pack_paths`` および後続コマンドのタイムアウト秒。
+        use_sudo (bool): パッキングおよびクリーンアップに ``sudo`` を使用する場合は ``True``。
+        follow_symlinks (bool): ``True`` の場合はシンボリックリンクを辿って実体を収集します。
+        host (str): ログ出力に用いるホスト名。
+        dest_host_root (Path): 展開先となる ``DEST/<HOST>`` ルートディレクトリ。
+
+    Returns:
+        Callable[[SFTPClientLike, str, Path, bool], None]: 最初の呼び出しで ``pack``→``download``→``extract`` を行い、以降は no-op とするクロージャ関数。
+
+    Examples:
+        >>> pull_one = _make_pull_one_pack(  # doctest: +SKIP
+        ...     ssh=None,
+        ...     sftp=None,
+        ...     pack_list=[],
+        ...     timeout=30.0,
+        ...     use_sudo=False,
+        ...     follow_symlinks=False,
+        ...     host='example',
+        ...     dest_host_root=Path('/tmp/dest')
+        ... )
+        >>> callable(pull_one)  # doctest: +SKIP
+        True  # doctest: +SKIP
     """
     state: Dict[str, Union[int, bool]] = {"ran": False, "extracted": 0}
 
     def _pull_one(_sftp: SFTPClientLike, _remote: str, _local: Path, _is_dir: bool) -> None:
+        """パッキング済みアーカイブを取得して展開し、後始末を行います。
+
+        Args:
+            _sftp (SFTPClientLike): SFTP クライアント (未使用だがシグネチャ整合のため受け取る)。
+            _remote (str): 呼び出し側から渡されるパス。pack モードでは未使用。
+            _local (Path): 呼び出し側から渡されるローカルパス。pack モードでは未使用。
+            _is_dir (bool): 対象がディレクトリである場合は ``True``。
+
+        Examples:
+            >>> pull_one = _make_pull_one_pack(  # doctest: +SKIP
+            ...     ssh=None,
+            ...     sftp=None,
+            ...     pack_list=[],
+            ...     timeout=30.0,
+            ...     use_sudo=False,
+            ...     follow_symlinks=False,
+            ...     host='example',
+            ...     dest_host_root=Path('/tmp/dest')
+            ... )
+            >>> pull_one(None, '/remote', Path('/tmp/local'), False)  # doctest: +SKIP
+        """
 
         _LOG.debug(
             "[debug][pack][sender] host=%s start: follow_symlinks=%s use_sudo=%s timeout=%s pack_items=%d",
@@ -237,13 +344,43 @@ def _make_pull_one_pack(
 def _split_remote_root_for_abs(
     p: str, *, home_abs: str
 ) -> Tuple[str, str]:
-    """
-    絶対パス文字列 p を (remote_root, inner_rel) に分解する。
-    対応:
-      - '/var/log/...'   -> ('/', 'var/log/...')
-      - '~/foo/bar'      -> ('<home_abs>', 'foo/bar')
-      - 'C:/Windows/...' -> ('C:/', 'Windows/...')
-      - 'C:\\Windows\\..'-> ('C:/', 'Windows/...')
+    """絶対パスを ``remote_root`` と ``remote_rel`` に分割します。
+
+    gather の計画情報 (`PlanEntry`) に元の絶対パスを再構築できる材料を残すための
+    前処理で、リモート側の「ルート部分」と「ルート以降の相対部分」を切り分けます。
+    具体的には以下の優先順位で判定します。
+
+    1. Windows のドライブレターで始まる (`C:/` や `C:\\`) 場合はドライブを
+       ``remote_root`` とし、残りをスラッシュ正規化した相対パスに変換します。
+    2. ``~/`` で始まる場合は呼び出し元で検出したホームディレクトリ ``home_abs`` を
+       ``remote_root`` とし、残りを ``remote_rel`` にします。
+    3. `/` から始まる通常の UNIX 絶対パスはルート `/` を ``remote_root`` とし、
+       残りを ``remote_rel`` にします。
+
+    入出力の対応関係の例:
+
+    - ``'/var/log/messages'`` → ``('/', 'var/log/messages')``
+    - ``'~/work/foo.txt'`` → ``(home_abs, 'work/foo.txt')``
+    - ``'C:/Windows/System32'`` → ``('C:/', 'Windows/System32')``
+    - ``'C:\\Windows\\Temp'`` → ``('C:/', 'Windows/Temp')``
+
+    Args:
+        p (str): リモート上の絶対パス文字列。
+        home_abs (str): ``~`` 展開に用いるリモート HOME の絶対パス。
+
+    Returns:
+        Tuple[str, str]: ``(remote_root, inner_rel)``。例として ``'/var/log/syslog'`` は
+        ``('/', 'var/log/syslog')`` を返します。
+
+    Examples:
+        >>> _split_remote_root_for_abs('/etc/hosts', home_abs='/home/demo')
+        ('/', 'etc/hosts')
+        >>> _split_remote_root_for_abs('~/work/app.log', home_abs='/home/demo')
+        ('/home/demo', 'work/app.log')
+        >>> _split_remote_root_for_abs('C:/Windows/system32', home_abs='C:/Users/demo')
+        ('C:/', 'Windows/system32')
+        >>> _split_remote_root_for_abs('C:\\Windows\\Temp', home_abs='C:/Users/demo')
+        ('C:/', 'Windows/Temp')
     """
     if len(p) >= 3 and p[1] == ":" and (p[2] == "/" or p[2] == "\\"):
         drive: str = p[:2]  # e.g., 'C:'
@@ -274,9 +411,49 @@ def _build_plan_for_host(
     sudo_collect_flag: Optional[bool],
     verbose: bool,
 ) -> Tuple[Plan, Dict[str, object]]:
-    """
-    ホストごとに Plan を構築。
-    戻り値: (plan, meta) / metaには home_abs, use_sudo, pack_list, ssh/sftp 等を格納。
+    """指定ホスト向けの収集計画と実行メタ情報を構築します。
+
+    Args:
+        host (str): 接続対象ホスト名。
+        dest_local (str): ローカル出力ディレクトリのベースパス。
+        srcs (List[str]): CLI 引数で指定された収集パターン一覧。
+        ssh_user (str): SSH 接続時のユーザー名。
+        args_user (str): 指定があれば ``--user`` による実行ユーザー名。
+        port (int): SSH ポート番号。
+        key (Optional[str]): 秘密鍵ファイルへのパス。
+        password (Optional[str]): パスワード認証で用いる文字列。
+        timeout (float): SSH/SFTP の全操作に適用されるタイムアウト秒。
+        strict (bool): ホストキー検証を強制する場合は ``True``。
+        pack_remote (bool): ``--pack`` オプション有効時は ``True``。
+        follow_symlinks (bool): シンボリックリンクを辿る場合は ``True``。
+        sudo_collect_flag (Optional[bool]): ``--sudo-collect`` の明示設定。``None``
+            の場合は ``ssh_user`` と ``args_user`` の差から推論します。
+        verbose (bool): SSH デバッグ出力を有効化する場合は ``True``。
+
+    Returns:
+        Tuple[Plan, Dict[str, object]]: 収集対象 ``Plan`` と付随メタ情報。
+        ``meta`` には ``ssh``、``sftp``、``home_abs``、``use_sudo``、
+        ``pack_list``、``dest_host_root`` など実行時に必要な鍵を格納します。
+
+    Examples:
+        >>> plan, meta = _build_plan_for_host(  # doctest: +SKIP
+        ...     host='example',
+        ...     dest_local='/tmp/dest',
+        ...     srcs=['/var/log/syslog'],
+        ...     ssh_user='demo',
+        ...     args_user='demo',
+        ...     port=22,
+        ...     key=None,
+        ...     password=None,
+        ...     timeout=30.0,
+        ...     strict=False,
+        ...     pack_remote=False,
+        ...     follow_symlinks=False,
+        ...     sudo_collect_flag=None,
+        ...     verbose=False,
+        ... )
+        >>> isinstance(meta.get('ssh'), object)  # doctest: +SKIP
+        True  # doctest: +SKIP
     """
     cfg: SSHConfig = SSHConfig(
         host=host,
@@ -382,6 +559,13 @@ def _build_plan_for_host(
 
 
 def main() -> None:
+    """CLI エントリポイント。引数解析から収集実行までを統括します。
+
+    Examples:
+        >>> import sys  # doctest: +SKIP
+        >>> sys.argv = ['gm-gather', '-f', 'hosts', '/tmp/dest']  # doctest: +SKIP
+        >>> main()  # doctest: +SKIP
+    """
 
     # 1. 国際化初期化
     setup_gettext()

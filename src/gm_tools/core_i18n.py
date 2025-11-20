@@ -1,16 +1,28 @@
-# -*- coding: utf-8 -*-
-"""
-gm_tools.core_i18n
-==================
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
 
-Centralized initialization for gettext-based internationalization.
+"""gettext を利用した国際化初期化をまとめたモジュール。
 
-Policy:
-- Call `setup_gettext()` once at program start (CLI entry).
-- All user-facing messages should be wrapped with `_()` (gettext).
-- *Exception payloads* (e.g., `str(e)`) are NOT translated; wrap only the
-  surrounding messages.
-- This module performs no side effects on import.
+CLI エントリポイントで :func:`setup_gettext` を 1 度呼び出し、ユーザー向けメッセージは
+``_()`` でラップする。例外オブジェクトの ``str(e)`` 自体は翻訳せず、周辺メッセージのみ
+翻訳する。モジュール import 時に副作用は発生しない。
+
+Examples:
+        >>> from gm_tools.core_i18n import setup_gettext
+        >>> gettext_fn, _ = setup_gettext(install_into_builtins=False)  # doctest: +SKIP
+        >>> gettext_fn('Hello')  # doctest: +SKIP
+        'Hello'
 """
 
 from __future__ import annotations
@@ -25,15 +37,25 @@ from typing import Callable, Mapping, Optional, Sequence, Tuple, Union
 
 from . import _config
 
-
 _VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
-
 def _substitute_gnu_vars(pattern: str, mapping: Mapping[str, str]) -> str:
-    """
-    Substitute GNU-style ${var} placeholders using the given mapping.
+    """GNU 形式 ``${var}`` プレースホルダを置換する。
 
-    Unknown variables are left as-is (i.e., ${unknown} stays unchanged).
+    対応するキーがない場合は元の構文を残す。
+
+    Args:
+        pattern (str): 置換対象文字列。
+        mapping (Mapping[str, str]): 変数名から展開後文字列へのマッピング。
+
+    Returns:
+        str: プレースホルダを置換した文字列。
+
+    Examples:
+        >>> _substitute_gnu_vars('${prefix}/share', {'prefix': '/usr'})
+        '/usr/share'
+        >>> _substitute_gnu_vars('${prefix}/${unknown}', {'prefix': '/opt'})
+        '/opt/${unknown}'
     """
     def _repl(match: re.Match[str]) -> str:
         name = match.group(1)
@@ -43,21 +65,26 @@ def _substitute_gnu_vars(pattern: str, mapping: Mapping[str, str]) -> str:
 
 
 def _compute_default_locale_dir() -> Path:
-    """
-    Compute the default locale directory from gm_tools._config.
+    """翻訳ファイルのデフォルトディレクトリを算出する。
 
-    This interprets _config.LOCALEDIR / _config.DATAROOTDIR /
-    _config.PREFIX / _config.EXEC_PREFIX as *templates* that may contain
-    GNU-style placeholders like ${prefix}, ${exec_prefix}, ${datarootdir},
-    and converts them into an absolute filesystem path.
+    ``gm_tools._config`` に定義された ``PREFIX`` や ``LOCALEDIR`` は GNU 形式の
+    テンプレートを含む可能性があるため、``${prefix}`` 等の変数を展開しながら
+    実際のパスへ変換する。展開結果に未解決の ``${...}`` が残った場合はフォールバックで
+    ``prefix/share/locale`` を採用する。
 
-    Fallback order:
-    - prefix:       _config.PREFIX      or sys.prefix
-    - exec_prefix:  _config.EXEC_PREFIX or sys.exec_prefix
-    - datarootdir:  _config.DATAROOTDIR or "${prefix}/share"
-    - localedir:    _config.LOCALEDIR   or "${datarootdir}/locale"
-    - if any ${...} remains after substitution, fall back to
-      prefix + "share/locale".
+    フォールバックの優先順位は以下の通り。
+    1. ``prefix`` は ``_config.PREFIX``、未設定なら ``sys.prefix``。
+    2. ``exec_prefix`` は ``_config.EXEC_PREFIX``、未設定なら ``${prefix}``、さらに失敗時は ``sys.exec_prefix``。
+    3. ``datarootdir`` は ``_config.DATAROOTDIR``、未設定なら ``${prefix}/share``。
+    4. ``localedir`` は ``_config.LOCALEDIR``、未設定なら ``${datarootdir}/locale``。
+    5. 展開後に ``${...}`` が残っていれば ``prefix/share/locale`` へフォールバックする。
+
+    Returns:
+        Path: 展開後のロケールディレクトリ。
+
+    Examples:
+        >>> isinstance(_compute_default_locale_dir(), Path)
+        True
     """
     # 1) prefix / exec_prefix を _config 優先で取得
     prefix = getattr(_config, "PREFIX", sys.prefix)
@@ -104,29 +131,28 @@ def setup_gettext(
     languages: Optional[Sequence[str]] = None,
     install_into_builtins: bool = True,
 ) -> Tuple[Callable[[str], str], Callable[[str, str, int], str]]:
-    """
-    Initialize gettext and return translation callables.
+    """gettext を初期化し翻訳関数を返す。
 
-    Parameters
-    ----------
-    domain : Union[str, None]
-        gettext domain name (defaults to configured DOMAIN).
-    locale_dir : Union[Path, str, None]
-        Directory path that contains locale/<lang>/LC_MESSAGES/<domain>.mo.
-        When None (default), this is derived from gm_tools._config
-        (LOCALEDIR / DATAROOTDIR / PREFIX / EXEC_PREFIX).
-    languages : Optional[Sequence[str]]
-        Preferred languages (e.g., ["ja_JP", "ja", "en"]). If None, gettext
-        will use environment settings.
-    install_into_builtins : bool
-        When True (default), install `_` and `ngettext` into builtins so that
-        modules can simply call `_('message')` without explicit imports.
+    Args:
+        domain (Union[str, None]): 使用する gettext ドメイン。``None`` なら設定値を利用。
+        locale_dir (Union[Path, str, None]): 翻訳ファイルを格納したディレクトリ。
+            ``None`` の場合は :func:`_compute_default_locale_dir` で決定する。
+        languages (Optional[Sequence[str]]): 優先したい言語コードリスト。
+            ``None`` の場合は環境変数に依存する。
+        install_into_builtins (bool): ``True`` の場合は ``_`` と ``ngettext`` を ``builtins`` に登録する。
 
-    Returns
-    -------
-    (gettext_fn, ngettext_fn) : tuple[Callable, Callable]
-        - gettext_fn(msgid) -> str
-        - ngettext_fn(singular, plural, n) -> str
+    Returns:
+        Tuple[Callable[[str], str], Callable[[str, str, int], str]]: ``gettext`` と ``ngettext`` のコール可能。
+
+    Examples:
+        >>> gettext_fn, ngettext_fn = setup_gettext(  # doctest: +SKIP
+        ...     domain='gm-tools',
+        ...     locale_dir='/usr/share/locale',
+        ...     languages=['ja_JP', 'ja'],
+        ...     install_into_builtins=False,
+        ... )
+        >>> gettext_fn('hello')  # doctest: +SKIP
+        'hello'
     """
     # Domain: _config.DOMAIN をデフォルトに
     if domain is None:
