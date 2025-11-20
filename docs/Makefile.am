@@ -20,6 +20,10 @@ doc_DATA = \
 	gm-scatter-spec.md \
 	common-spec.md
 
+dist_man_MANS = \
+	man/gm-gather.1 \
+	man/gm-scatter.1
+
 ## 配布アーカイブに含めるファイル
 EXTRA_DIST = \
 	$(doc_DATA) \
@@ -42,4 +46,5 @@ EXTRA_DIST = \
 	sphinx/tst_framework/test_common_ssh.rst \
 	sphinx/design/index.rst \
 	sphinx/design/modules/gm_tools.rst \
-	sphinx/design/modules/modules.rst
+	sphinx/design/modules/modules.rst \
+	$(dist_man_MANS)
