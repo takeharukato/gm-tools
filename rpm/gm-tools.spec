@@ -18,7 +18,8 @@ BuildRequires:  automake
 BuildRequires:  make
 BuildRequires:  gcc
 
-Requires:       python3
+Requires:       python3 >= 3.9
+Requires:       python3-paramiko
 
 %description
 gm-tools provides gm-gather and gm-scatter commands for file collection
@@ -39,6 +40,7 @@ rm -rf %{buildroot}
 %files
 %license LICENSE
 # Documents
+%doc %{_docdir}/gm-tools/common-spec.md
 %doc %{_docdir}/gm-tools/gm-gather-spec.md
 %doc %{_docdir}/gm-tools/gm-scatter-spec.md
 %doc %{_docdir}/gm-tools/config/hostfile.sample
