@@ -41,4 +41,5 @@ EXTRA_DIST = \
 	sphinx/tst_framework/test_common_snapshot.rst \
 	sphinx/tst_framework/test_common_ssh.rst \
 	sphinx/design/index.rst \
-	sphinx/design/overview.rst
+	sphinx/design/modules/gm_tools.rst \
+	sphinx/design/modules/modules.rst

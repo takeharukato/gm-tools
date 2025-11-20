@@ -2,8 +2,9 @@ import os
 import sys
 from datetime import datetime
 
-sys.path.insert(0, os.path.abspath("../../src"))
-sys.path.insert(0, os.path.abspath("../../tests"))
+ROOT_DIR = os.path.abspath("../..")
+sys.path.insert(0, os.path.join(ROOT_DIR, "src"))
+sys.path.insert(0, ROOT_DIR)
 
 project = "gm-tools Test Framework"
 author = "gm-tools contributors"
@@ -16,7 +17,8 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
 ]
-autosummary_generate = False
+autosummary_generate = True
+autosummary_imported_members = False
 
 autodoc_default_options = {
     "members": True,
@@ -33,7 +35,11 @@ napoleon_use_param = True
 napoleon_use_rtype = True
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build"]
+exclude_patterns = [
+    "_build",
+    "design/modules/_config.*",
+    "design/modules/__init__.*",
+]
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
