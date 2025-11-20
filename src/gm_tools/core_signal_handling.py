@@ -1,19 +1,20 @@
-# -*- coding: utf-8 -*-
-"""
-gm_tools.core_signal_handling
-============================
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
+"""gm-tools における協調的な停止処理とシグナルハンドリングを提供します。
 
-Graceful stop orchestration and signal handling for gm-tools.
-
-Policy:
-- CLI initializes this module and registers handlers once at startup.
-- On SIGINT/SIGTERM: set abort flag, run registered cleanups (best-effort),
-  and optionally trigger a summary callback. Do NOT call sys.exit() here;
-  the CLI is responsible for exit codes.
-- Callers should check `abort_event.is_set()` at "next trial just before start",
-  and before/after long I/O, to return early.
-
-This module performs no side effects on import.
+CLI レイヤーが起動時に初期化し、SIGINT/SIGTERM を受けた際に停止フラグとクリーンアップ処理を
+統合的に扱うユーティリティを定義します。モジュールインポート時に副作用は発生しません。
 """
 
 from __future__ import annotations
@@ -24,15 +25,14 @@ from typing import Callable, List, Optional
 
 
 class GracefulStop:
-    """
-    A coordinator for cooperative cancellation and best-effort cleanup.
+    """協調的な停止と後処理をまとめて管理するコーディネータです。
 
-    - `abort_event` is set when a stop is requested.
-    - Cleanup callbacks are executed at most once, in LIFO order.
-    - All methods are thread-safe.
+    ``abort_event`` が立った時点で停止要求を検知し、登録済みクリーンアップを LIFO で一度だけ
+    実行します。スレッドセーフな API を提供します。
     """
 
     def __init__(self) -> None:
+        """初期状態の停止フラグとクリーンアップ管理構造を生成します。"""
         self.abort_event: threading.Event = threading.Event()
         self._cleanups: List[Callable[[], None]] = []
         self._lock: threading.Lock = threading.Lock()
@@ -41,9 +41,20 @@ class GracefulStop:
     # ---- registration ----
 
     def register_cleanup(self, fn: Callable[[], None]) -> None:
-        """
-        Register a cleanup callback to be invoked upon stop (LIFO order).
-        The callback must be idempotent and must not raise; exceptions will be swallowed.
+        """停止時に実行するクリーンアップ関数を登録します。
+
+        Args:
+            fn (Callable[[], None]): 停止時に呼び出すコールバック。副作用は冪等である必要があります。
+
+        Examples:
+            >>> gs = GracefulStop()
+            >>> called = []
+            >>> def cleanup():
+            ...     called.append("done")
+            >>> gs.register_cleanup(cleanup)
+            >>> gs.request_stop()
+            >>> "done" in called
+            True
         """
         with self._lock:
             # Newest cleanup should run first -> push to the end (LIFO on run).
@@ -52,14 +63,30 @@ class GracefulStop:
     # ---- stop request & cleanup ----
 
     def request_stop(self) -> None:
-        """Set the abort flag. Safe to call multiple times."""
+        """停止要求フラグを立て、必要なクリーンアップを走らせます。
+
+        Examples:
+            >>> gs = GracefulStop()
+            >>> gs.abort_event.is_set()
+            False
+            >>> gs.request_stop()
+            >>> gs.abort_event.is_set()
+            True
+        """
         self.abort_event.set()
         self.run_cleanups()
 
     def run_cleanups(self) -> None:
-        """
-        Run all registered cleanup callbacks exactly once (best-effort, LIFO).
-        Exceptions from callbacks are swallowed to avoid masking other cleanups.
+        """登録済みクリーンアップを一度だけ LIFO で実行します。
+
+        Examples:
+            >>> gs = GracefulStop()
+            >>> order = []
+            >>> gs.register_cleanup(lambda: order.append("first"))
+            >>> gs.register_cleanup(lambda: order.append("second"))
+            >>> gs.run_cleanups()
+            >>> order
+            ['second', 'first']
         """
         with self._lock:
             if self._cleaned:
@@ -71,7 +98,7 @@ class GracefulStop:
             try:
                 fn()
             except Exception:
-                # Best-effort: never re-raise here.
+                # 可能な限り, 複数回例外を送出しないように無視する
                 pass
 
 
@@ -80,19 +107,31 @@ def register_signal_handlers(
     *,
     on_summary: Optional[Callable[[], None]] = None,
 ) -> None:
-    """
-    Register SIGINT/SIGTERM handlers that coordinate a graceful stop.
+    """SIGINT/SIGTERM に応じて協調的停止を実現するハンドラを登録します。
 
-    Parameters
-    ----------
-    gs : GracefulStop
-        The orchestrator instance whose abort flag and cleanups will be used.
-    on_summary : Optional[Callable[[], None]]
-        Callback invoked after cleanups to ensure a summary is printed.
-        Should be idempotent and exception-safe.
+    Args:
+        gs (GracefulStop): 停止フラグとクリーンアップを管理するコーディネータ。
+        on_summary (Optional[Callable[[], None]]): クリーンアップ後に要約出力を行う任意コールバック。
+
+    Examples:
+        >>> gs = GracefulStop()
+        >>> events = []
+        >>> def summary():
+        ...     events.append("summary")
+        >>> register_signal_handlers(gs, on_summary=summary)
+        >>> handler = signal.getsignal(signal.SIGINT)
+        >>> handler(signal.SIGINT, None)
+        >>> events
+        ['summary']
     """
 
     def _handler(signum: int, frame: object) -> None:
+        """受信したシグナルを契機に停止処理と要約出力を実行します。
+
+        Args:
+            signum (int): 受信したシグナル番号。
+            frame (object): シグナルを受け取ったスタックフレーム。未使用。
+        """
         # ここではログを出さない（CLI 層がユーザ向けログを担当）
         gs.request_stop()
         gs.run_cleanups()

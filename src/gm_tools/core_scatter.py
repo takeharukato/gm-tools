@@ -1,5 +1,22 @@
-# -*- coding:utf-8 -*-
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
 #
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
+"""Scatter 処理に必要な tar/SFTP 操作と補助ロジックをまとめたモジュールです。
+
+ローカル側での一時アーカイブ生成やメンバーリスト作成、リモート側での抽出・属性復元、
+SELinux の復元処理までを一貫して扱い、`TransferReport` に進捗を記録します。
+"""
+
 # 環境変数:
 #   GM_SCATTER_DEBUG=1|true|yes|on
 #     診断用ログ ( tzf 比較や -T 検証等 ) を出力する ( 既定: 抑制 )
@@ -57,7 +74,7 @@ from .core_xattr import (
     restore_xattr_dump,            # (ssh, dump_file, use_sudo) -> None
 )
 
-# === Timeouts (seconds) ===
+# === タイムアウト（秒） ===
 TAR_DETECT_TIMEOUT: float = 10.0
 PREFLIGHT_TEST_TIMEOUT: float = 60.0
 EXTRACT_TIMEOUT_NEW: float = 180.0
@@ -65,7 +82,7 @@ EXTRACT_TIMEOUT_EXIST: float = 180.0
 CHECK_REGFILE_TIMEOUT: float = 30.0
 OVERWRITE_TIMEOUT: float = 120.0
 
-# === internal debug log function ===
+# === 内部デバッグログ関数 ===
 
 # デバッグフラグ
 _DEBUG: bool = str(os.environ.get("GM_SCATTER_DEBUG", "")).lower() in ("1", "true", "yes", "on")
@@ -73,22 +90,54 @@ _DEBUG: bool = str(os.environ.get("GM_SCATTER_DEBUG", "")).lower() in ("1", "tru
 _LOG: logging.Logger = logging.getLogger(__name__)
 
 def _dbg_log(msg: str) -> None:
+    """内部デバッグフラグが有効なときにログへ書き出します。
+
+    Args:
+        msg (str): 出力したい診断メッセージ。
+
+    Examples:
+        >>> prev = _DEBUG
+        >>> _globals = globals()
+        >>> _globals['_DEBUG'] = True
+        >>> _dbg_log('dry-run message')  # doctest: +SKIP
+        >>> _globals['_DEBUG'] = prev
+    """
     if _DEBUG:
         _LOG.debug(msg)
 
 
 # ------------------------
-# Remote path normalizers
+# リモートパス正規化
 # ------------------------
 def _normalize_remote_rel_file(rel: Optional[str]) -> str:
-    """
-    remote_rel を「DEST からの相対“ファイル”パス」として扱い, 安全化する。
-      - None/空なら "" を返す（呼び出し側で basename(local) にフォールバック可）
-      - '\\' を '/' に統一
-      - 先頭の '/' は除去（絶対化の禁止）
-      - './' の折り畳み, '//' の除去
-      - スタック方式で '..' を評価 : ベースより上に出る場合のみ拒否
-      - 正常時は正規化済みの相対パスを返す（内部 '..' は解消される）
+    """``gm-scatter`` が形成する DEST 配下を前提に安全な相対ファイルパスへ正規化します。
+
+    以下の手順で安全化を行います。
+
+    - ``None`` や空文字であれば空文字を返し、呼び出し元で ``basename`` フォールバックを許可します。
+    - ``\\`` を ``/`` に統一し、先頭 ``/`` を除去して絶対パス化を防ぎます。
+    - ``./`` および ``//`` を折り畳み、冗長な区切りを排除します。
+    - スタック方式で ``..`` を評価し、ベースより上位へ脱出しようとした場合は拒否します。
+    - 正常終了時は ``..`` を解消した正規化済み相対パスを返却します。
+
+    Args:
+        rel (Optional[str]): 呼び出し元が指定した相対パス文字列。``None`` や空文字は許可します。
+
+    Returns:
+        str: ``DEST`` 配下に安全に展開できる正規化済みの相対パス。
+
+    Raises:
+        ValueError: ``..`` により ``DEST`` から外へ脱出しようとした場合。
+
+    Examples:
+        >>> _normalize_remote_rel_file('dir/../file.txt')
+        'file.txt'
+        >>> _normalize_remote_rel_file(None)
+        ''
+        >>> _normalize_remote_rel_file('../escape.txt')
+        Traceback (most recent call last):
+        ...
+        ValueError: dangerous relative path: ../escape.txt
     """
     rel_in: Optional[str] = rel
     if not rel_in:
@@ -113,6 +162,20 @@ def _normalize_remote_rel_file(rel: Optional[str]) -> str:
 
 
 def _posix_join(*parts: str) -> str:
+    """POSIX 形式でパス要素を連結します。
+
+    Args:
+        *parts (str): 連結したいパス要素。空文字列は無視せずにそのまま評価します。
+
+    Returns:
+        str: POSIX 形式で ``/`` 区切りに整えたパス文字列。
+
+    Examples:
+        >>> _posix_join('etc', 'nginx', 'conf.d')
+        'etc/nginx/conf.d'
+        >>> _posix_join('', 'var', 'log')
+        'var/log'
+    """
     out: str = ""
     p: str
     for p in parts:
@@ -121,6 +184,25 @@ def _posix_join(*parts: str) -> str:
 
 @dataclass
 class ScatterOpts:
+    """scatter 実行で使用するオプション値をまとめたデータクラスです。
+
+    Attributes:
+        dest_abs_root (str): 配置先 ``DEST`` の絶対パス。
+        pack (bool): tar 経路を利用するかどうか。
+        follow_symlinks (bool): シンボリックリンクを実体化して含めるかどうか。
+        dry_run (bool): 転送を実行せずに計画のみ記録するかどうか。
+        sudo_extract (bool): 抽出処理を sudo 経由で実行する必要があるかどうか。
+        ssh_user (Optional[str]): SSH 接続に使うユーザー名。
+        local_user (Optional[str]): ローカル側操作で想定するユーザー名。
+        target_user (Optional[str]): ``--user`` 指定により抽出後に設定するユーザー名。
+        selinux_mode (SelinuxMode): SELinux の扱いモード。
+
+    Examples:
+        >>> from gm_tools.core_scatter import ScatterOpts
+        >>> opts = ScatterOpts(dest_abs_root='/srv/dest', pack=True)
+        >>> (opts.dest_abs_root, opts.pack)
+        ('/srv/dest', True)
+    """
     dest_abs_root: str
     pack: bool = False
     follow_symlinks: bool = False
@@ -132,9 +214,22 @@ class ScatterOpts:
     selinux_mode: SelinuxMode = "auto"         # --selinux {auto,policy,ignore}  ( pack 経路のみ )
 
 
-# --- Path helpers (末尾スラッシュ正規化) ------------------------------------
+# --- パス補助関数（末尾スラッシュ正規化） ------------------------------------
 def _norm_noslash(path: str) -> str:
-    """ファイル/汎用パス用 : root('/')以外の末尾'/'を除去。"""
+    """末尾のスラッシュを取り除きつつ先頭の ``/`` 自体（ルートディレクトリ）は保持します。
+
+    Args:
+        path (str): 正規化したいパス文字列。
+
+    Returns:
+        str: 末尾 ``/`` を除いたパス。ルート ``/`` のみはそのまま返します。
+
+    Examples:
+        >>> _norm_noslash('/srv/data///')
+        '/srv/data'
+        >>> _norm_noslash('/')
+        '/'
+    """
     s: str = path
     return s if s == "/" else s.rstrip("/")
 
@@ -144,12 +239,48 @@ def local_pack_paths_to_tmp(
     follow_symlinks: bool,
     arcnames: Optional[List[str]] = None,
 ) -> Tuple[str, List[str]]:
-    """
-    与えられたパス群から 重複を除去し, follow_symlinks に応じてシンボリックリンクを処理したうえで,
-    tar.gz アーカイブを作成する。
-      - arcnames が与えられた場合は, 各要素を「DEST からの相対パス」として正規化
-        （'\\' => '/', 先頭'/'除去, '..' 脱出拒否, './' 折り畳み）
-      - 同一 arcname は重複排除
+    """入力パスを安全に正規化したうえで tar.gz にまとめます。
+
+    ``DEST`` は ``gm-scatter`` がホストごとに形成する展開先ディレクトリ（例: ``ScatterOpts.dest_abs_root``）を指し、
+    アーカイブ内部のパスはこの ``DEST`` からの相対パスに揃えます。安全に正規化する手順は以下のとおりです。
+
+    - ``\\`` を ``/`` へ統一し、プラットフォーム差異による区切り混在を解消します。
+    - 先頭の ``/`` を除去して絶対パス化を防ぎます。
+    - ``./`` や ``//`` といった冗長区切りを折り畳みます。
+    - ``..`` をスタック評価し、``DEST`` より上位へ脱出しようとした場合は ``ValueError`` を送出します。
+    - 正規化後の相対パスが空になったときのみ ``basename`` にフォールバックします。
+
+    相対パスの決定は以下の方針で行います。
+
+    - ``arcnames`` を指定した場合は各要素を ``DEST`` からの相対ファイルパスとして ``_normalize_remote_rel_file``
+      で正規化します。
+        - ``arcnames`` が ``None`` の場合は ``dest_rel_from_abs`` で絶対パスを ``DEST`` 相対に変換し、
+            同様に正規化します。結果が空になった場合のみ ``basename`` をフォールバックとして使用します。
+        - 正規化後に重複したアーカイブ名が見つかった場合は、先着を優先して後続の同名エントリを排除し、
+            対応する ``paths``/``arcnames`` の入力要素も一緒に間引きます（重複した実体を tar へ含めないため）。
+
+    Args:
+        paths (Iterable[str]): アーカイブへ含めたいローカルパスの列挙。
+        follow_symlinks (bool): シンボリックリンクを実体化して含める場合は ``True``。
+        arcnames (Optional[List[str]]): ``DEST`` からの相対ファイルパスを指定したい場合のリスト。
+
+    Returns:
+        Tuple[str, List[str]]: 作成されたアーカイブファイルの絶対パスと、収録したアーカイブ名の一覧。
+
+    Raises:
+        ValueError: ``arcnames`` に ``..`` で ``DEST`` から脱出するような危険な相対パスが含まれていた場合。
+        OSError: 入力ファイルの読み出しや一時ディレクトリ作成に失敗した場合。
+
+    Examples:
+        >>> import os, shutil, tempfile
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     src = os.path.join(tmp, 'example.txt')
+        ...     with open(src, 'w', encoding='utf-8') as fh:
+        ...         _ = fh.write('hello scatter')
+        ...     tar_path, members = local_pack_paths_to_tmp([src], False)
+        ...     members
+        ...     shutil.rmtree(os.path.dirname(tar_path), ignore_errors=True)
+        ['example.txt']
     """
 
     def _filter(ti: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
@@ -187,7 +318,6 @@ def local_pack_paths_to_tmp(
         triples,
         key=lambda t: (t[2].count(os.sep), len(t[2]), t[2], t[0])
     )
-
     kept_idx: List[int] = []
     kept_canons: List[str] = []
 
@@ -295,18 +425,45 @@ def write_members_file(
     normalize_paths: bool = True,
     preserve_order: bool = False,   # 追加: True で入力順を保持（ソートしない）
 ) -> None:
-    """
-    tar -T で参照するメンバーリストを生成・書き出す。
-    ポリシー:
-      - 重複排除し, ASCII順に安定ソート
-      - 各行はアーカイブ内部の相対パス ( 先頭'./'や'/'は除去 )
-      - 相対パスは大文字小文字を区別し, アーカイブ内部の名前と完全に一致しなければならない
-      - バックスラッシュはスラッシュに統一 ( 将来的なWindows対応のため )
-      - 行区切りは LF('\n')。末尾にも LF('\n') を付与
-      - CRLF/CR 混入は _sftp_write_text() 側で LF('\n') 正規化することを前提とする
+    """``tar -T`` が参照するメンバーリストファイルを生成して送信します。
 
-    normalize_paths=False の場合は, 与えられた文字列をそのまま並べ替え・連結のみ行う。
-    preserve_order=True の場合は, ソートせずに与えられた順序を保持する。
+    以下のポリシーで内容を整えます。
+
+    - 重複を除去し、既定では ASCII 順に並べます。
+    - すべての行をアーカイブ内部の相対パス ( ``./`` や ``/`` は除去 ) に正規化します。
+    - バックスラッシュは POSIX 形式に揃えるため ``/`` に置換します。
+    - 各行は LF (``\n``) 区切りで、末尾にも LF を付与します。
+
+    Args:
+        sftp (SFTPClientLike): 書き込み先にアクセスするための SFTP クライアント。
+        remote_path (str): リモート側に生成するメンバーリストファイルの絶対パス。
+        members (Iterable[str]): アーカイブメンバー名として扱いたい文字列群。
+        normalize_paths (bool): ``True`` の場合に POSIX 形式へ正規化します。
+        preserve_order (bool): ``True`` を指定すると入力順を保持し、既定のソートを抑止します。
+
+    Raises:
+        OSError: リモートファイルへの書き込みに失敗した場合。
+
+    Examples:
+        >>> import io
+        >>> class DummyFile:
+        ...     def __init__(self):
+        ...         self.buffer = io.BytesIO()
+        ...     def write(self, data):
+        ...         return self.buffer.write(data)
+        ...     def close(self):
+        ...         pass
+        >>> class DummySFTP:
+        ...     def __init__(self):
+        ...         self.files = {}
+        ...     def open(self, path, mode='wb'):
+        ...         fileobj = DummyFile()
+        ...         self.files[path] = fileobj
+        ...         return fileobj
+        >>> dummy = DummySFTP()
+        >>> write_members_file(dummy, '/tmp/list.txt', ['./foo', 'foo', 'bar'])
+        >>> dummy.files['/tmp/list.txt'].buffer.getvalue().decode('utf-8')
+        'bar\nfoo\n'
     """
     def _normalize_members_content(s: str) -> bytes:
         return s.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
@@ -356,9 +513,33 @@ def upload_pack_and_extract(
     target_user: Optional[str] = None,
     selinux_mode: SelinuxMode = "auto",
 ) -> None:
-    """
-    作成済み tar.gz をリモート一時領域へアップロードし, DEST/ 以下に展開する。
-    レイアウト: DEST/<archive internal paths>
+    """tar.gz をアップロードして ``DEST`` 直下へ展開します。
+
+    ここでの ``DEST`` は ``gm-scatter`` が展開先ルートとして使用するディレクトリ
+    （通常は ``ScatterOpts.dest_abs_root`` で指定されるパス）を指します。
+
+    Args:
+        ssh (SSHClientLike): リモートホストでコマンドを実行するための SSH クライアント。
+        sftp (SFTPClientLike): 一時ファイルを転送するための SFTP クライアント。
+        tar_path (str): 事前に生成済みのアーカイブファイルの絶対パス。
+        dest_abs_root (str): 展開先となる ``DEST`` の絶対パス。
+        sudo_extract (bool): 抽出・上書きを sudo 経由で実行する必要がある場合は ``True``。
+        host (str): レポート記録に使用するホスト名。
+        report (TransferReport): 進捗と結果を蓄積するレポートオブジェクト。
+        dry_run (bool): ``True`` の場合はアップロードせず計画登録のみ行います。
+        target_user (Optional[str]): sudo 経路で chown する際の対象ユーザー。
+        selinux_mode (SelinuxMode): SELinux 再ラベル処理の動作モード。
+
+    Examples:
+        >>> upload_pack_and_extract(  # doctest: +SKIP
+        ...     ssh=mock_ssh,
+        ...     sftp=mock_sftp,
+        ...     tar_path='/tmp/payload.tar.gz',
+        ...     dest_abs_root='/srv/dest',
+        ...     sudo_extract=False,
+        ...     host='example',
+        ...     report=report, dry_run=True
+        ... )
     """
     # 事前初期化
     members_file_new: Optional[str] = None
@@ -698,12 +879,35 @@ def sftp_put_one(
     # 配置レイアウトの上書き (相対 SRC 用)。例: "projA/file.txt"
     remote_rel: Optional[str] = None,
 ) -> None:
-    """
-    単一のファイル ( またはディレクトリ ) を逐次 SFTP で配置する。
-    シンボルリンクは無視 ( dropped ) する。
-    レイアウト:
-        既定: DEST/<local_abs_without_leading_slash>
-        remote_rel 指定時: DEST/<remote_rel>  （<remote_rel> は“ファイル”パスとして扱う）
+    """SFTP 経由で単一ツリーを ``DEST`` 配下へ配置します。
+
+    シンボリックリンクは転送対象から除外し、必要に応じてメタデータを復元します。
+
+    ここでの ``DEST`` は ``gm-scatter`` が配下へ配置する先頭ルート
+    （例: ``ScatterOpts.dest_abs_root``）を指し、個々のファイル・ディレクトリはこの相対配置に基づきます。
+
+    Args:
+        ssh (SSHClientLike): リモート作業に使用する SSH クライアント。
+        sftp (SFTPClientLike): ファイルを転送するための SFTP クライアント。
+        local_abs (str): 転送したいローカルパス。相対指定も受け付けます。
+        dest_abs_root (str): ``DEST`` の絶対パス。
+        host (str): レポート記録に利用するホスト名。
+        report (TransferReport): 進捗を記録するレポートオブジェクト。
+        dry_run (bool): ``True`` の場合はレポート登録のみ行います。
+        sudo_mkdir (bool): 親ディレクトリ作成やメタ復元に sudo が必要な場合は ``True``。
+        enable_restore_meta (bool): 既存ファイル上書き時に ACL や xattr を復元する場合は ``True``。
+        remote_rel (Optional[str]): 配置先 ``DEST`` 相対パスを明示する場合に指定します。
+
+    Examples:
+        >>> sftp_put_one(  # doctest: +SKIP
+        ...     ssh=mock_ssh,
+        ...     sftp=mock_sftp,
+        ...     local_abs='build/output.txt',
+        ...     dest_abs_root='/srv/dest',
+        ...     host='example',
+        ...     report=report,
+        ...     dry_run=True
+        ... )
     """
     # 能力 ( SFTP 経路では毎回チェックしてもよいが, ここで 1 回 )
     acl_ok: bool = check_acl_tools_available(ssh)
@@ -759,7 +963,7 @@ def sftp_put_one(
         )
         return
 
-    # plan
+    # 計画フェーズの登録
     report.add(
         host,
         TransferItem(
@@ -920,10 +1124,40 @@ def _sftp_put_with_exist_restore(
     xattr_ok: bool,
     rtmp_meta: Optional[str],
 ) -> None:
-    """
-    SFTP で 1 ファイルを put。
-    - 既存の場合は上書き前に owner/group/mode/ACL/xattr をキャプチャし, 上書き後に復元 ( コマンドがある範囲 ) 。
-    - 新規の場合はそのまま put ( SFTP 経路では SELinux は非対応・chown/chmod は行わない ) 。
+    """単一ファイルを SFTP 転送し、必要に応じてメタデータを復元します。
+
+    既存ファイルを上書きする場合は、sudo 経路で所有者・グループ・モード・ACL・xattr を事前に採取し、
+    上書き後に元の状態へ復元します。新規作成（リモートに存在しないパス）の場合はメタデータ取得を行わず、
+    SFTP 転送のみを実施します。
+
+    Args:
+        ssh (SSHClientLike): メタデータ取得や復元に用いる SSH クライアント。
+        sftp (SFTPClientLike): ファイルの put 操作を行う SFTP クライアント。
+        local_path (str): 転送するローカルファイルの絶対パス。
+        remote_path (str): リモート ``DEST`` 側の絶対パス。
+        host (str): レポートへ記録するホスト名。
+        report (TransferReport): 転送結果を登録するレポートオブジェクト。
+        sudo_needed (bool): メタデータ復元に sudo 権限が必要な場合は ``True``。
+        acl_ok (bool): ACL 操作用ユーティリティが利用可能かどうか。
+        xattr_ok (bool): xattr 操作用ユーティリティが利用可能かどうか。
+        rtmp_meta (Optional[str]): メタデータ一時保存ディレクトリ。``None`` なら ACL/xattr を収集しません。
+
+    Raises:
+        OSError: SFTP 転送やメタデータの取得・復元が OS レベルで失敗した場合。
+
+    Examples:
+        >>> _sftp_put_with_exist_restore(  # doctest: +SKIP
+        ...     ssh=mock_ssh,
+        ...     sftp=mock_sftp,
+        ...     local_path='/tmp/example.txt',
+        ...     remote_path='/srv/dest/example.txt',
+        ...     host='example',
+        ...     report=report,
+        ...     sudo_needed=False,
+        ...     acl_ok=False,
+        ...     xattr_ok=False,
+        ...     rtmp_meta=None
+        ... )
     """
     # 既存判定
     qdst: str = shlex.quote(remote_path)

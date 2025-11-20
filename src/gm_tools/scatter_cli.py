@@ -1,4 +1,28 @@
-# -*- coding:utf-8 -*-
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
+
+"""gm-scatter CLI の制御フローと補助処理をまとめたモジュールです。
+
+ローカルファイルを複数ホストへ展開するための引数解析、計画生成、
+SFTP/pack 経路の転送ファクトリ、GracefulStop を用いた協調停止などを提供します。
+
+Examples:
+    >>> from gm_tools import scatter_cli  # doctest: +SKIP
+    >>> hasattr(scatter_cli, "main")  # doctest: +SKIP
+    True  # doctest: +SKIP
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -6,6 +30,7 @@ import getpass
 import os
 import sys
 import logging
+import shutil
 from argparse import BooleanOptionalAction, Namespace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Final, Sequence, Set
@@ -69,6 +94,16 @@ from .core_signal_handling import (
 _NULL_REPORT: Final[NullTransferReport] = NullTransferReport()
 
 def build_parser() -> argparse.ArgumentParser:
+    """gm-scatter 用の引数パーサを構築します。
+
+    Returns:
+        argparse.ArgumentParser: コマンドライン引数を解析する ``ArgumentParser``。
+
+    Examples:
+        >>> parser = build_parser()  # doctest: +SKIP
+        >>> isinstance(parser, argparse.ArgumentParser)  # doctest: +SKIP
+        True  # doctest: +SKIP
+    """
     parser: argparse.ArgumentParser = argparse.ArgumentParser(
         prog="gm-scatter",
         description=_("gm-scatter: upload local files to remote DEST.\n"
@@ -148,15 +183,27 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional[str]]:
-    """
-    仕様:
-      - '/' で始まれば絶対
-      - 'X:\\'/'X:/' ( Windows ) で始まれば絶対
-      - '~/' は remote_home に展開
-      - 素の '~' は非対応 ( エラーメッセージを返す )
-      - '~user' は非対応 ( エラーメッセージを返す )
-      - 上記以外は remote_home からの相対
-    戻り値: (dest_abs, error_or_None)
+    """DEST トークンを scatter 仕様に沿って絶対パスへ解決します。
+
+    - ``/`` で始まる場合はそのまま絶対パスとして扱います。
+    - Windows 形式 ``X:/`` または ``X:\\`` で始まる場合も絶対パスとして返します。
+    - ``~/`` で始まる場合は ``remote_home`` へ連結します。
+    - 素の ``~`` はサポート外としてエラーメッセージを返します。
+    - ``~user`` 形式もサポート外としてエラーメッセージを返します。
+    - 上記に該当しない場合は ``remote_home`` からの相対パスとして扱います。
+
+    Args:
+        dest_raw (str): CLI で受け取った DEST 文字列。
+        remote_home (str): リモートユーザーのホームディレクトリ絶対パス。
+
+    Returns:
+        Tuple[str, Optional[str]]: ``(絶対パス, エラーメッセージまたはNone)`` の組。
+
+    Examples:
+        >>> _resolve_remote_dest('/srv/data', '/home/demo')
+        ('/srv/data', None)
+        >>> _resolve_remote_dest('~/logs', '/home/demo')
+        ('/home/demo/logs', None)
     """
     d: str = dest_raw.strip()
     if not d:
@@ -179,13 +226,28 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
     return f"{remote_home}/{d}", None
 
 def _rel_base_from_abs_for_dest(base_abs: str) -> str:
-    """
-    正規表現 SRC のとき、転送先レイアウトの基点（rel_root）を
-    「正規表現を除去した絶対パス base_abs」から算出するための補助関数。
-    例:
-      /foo/bar         -> "foo/bar"
-      \\foo\\bar       -> "foo/bar"
-      C:\\foo\\bar     -> "C:/foo/bar"
+    """正規表現 SRC からリモート相対基点を導出します。
+
+    解決済みの絶対パス ``base_abs`` から先頭の区切りと区切り文字種を統一し、
+    Windows のドライブレターは保持したまま、リモート配置規則 ``DEST/<rel>/...`` に適合する
+    相対パス ``<rel>`` を返します。
+    主な変換例は次のとおりです。
+
+    - ``/foo/bar`` は ``"foo/bar"`` へ変換します。
+    - ``\\foo\\bar`` は ``"foo/bar"`` へ変換します。
+    - ``C:\\foo\\bar`` は ``"C:/foo/bar"`` へ変換します。
+
+    Args:
+        base_abs (str): 正規表現展開後の絶対パス。
+
+    Returns:
+        str: リモート配置用の正規化された相対パス。
+
+    Examples:
+        >>> _rel_base_from_abs_for_dest('/foo/bar')
+        'foo/bar'
+        >>> _rel_base_from_abs_for_dest('C:/foo/bar')
+        'C:/foo/bar'
     """
     base_abs_str: str = str(base_abs)
     normalized: str = base_abs_str.replace("\\", "/")
@@ -213,11 +275,51 @@ def _build_plan_for_host(
     selinux_mode: SelinuxMode,
     verbose: bool,
 ) -> Tuple[Plan, Dict[str, object]]:
-    """
-    Plan + Meta per host ( Paramiko 直接依存なし, DI 用に接続を構築して meta に格納 ) 。
-    - SRC 正規表現混在の解決 ( ローカル )
-    - DEST の絶対解決 ( ~ 展開 )
-    - 配置規則: DEST/<rel>/... ( 絶対 SRC は先頭スラッシュを除去、相対 SRC は指定相対を保持 )
+    """単一ホスト向けの転送計画(``Plan``)とメタ情報を構築します。
+
+    Args:
+        host (str): 対象ホスト名。
+        dest_remote_raw (str): CLI から受け取った DEST トークン。
+        srcs_raw (List[str]): CLI で受け取った SRC トークン列。
+        ssh_user (str): SSH 接続に利用するユーザー名。
+        target_user (str): 転送先の所有者として想定するユーザー名。
+        port (int): SSH ポート番号。
+        key (Optional[str]): 秘密鍵ファイルパス。
+        password (Optional[str]): パスワード認証文字列。
+        timeout (float): SSH/SFTP 操作のタイムアウト秒数。
+        strict (bool): ホストキー検証を厳格化する場合は ``True``。
+        pack (bool): ``--pack`` 指定時は ``True``。
+        follow_symlinks (bool): ``--follow-symlinks`` 指定時は ``True``。
+        sudo_extract_flag (Optional[bool]): ``--sudo-extract`` の明示指定。``None`` は自動判定。
+        selinux_mode (SelinuxMode): ``--selinux`` オプションで選択されたモード。
+        verbose (bool): 詳細ログを有効化する場合は ``True``。
+
+    Returns:
+        Tuple[Plan, Dict[str, object]]: 構築した転送計画(``Plan``)と付随メタ情報の組。
+
+    Raises:
+        SystemExit: DEST/SRC の検証に失敗した場合。
+
+    Examples:
+        >>> plan, meta = _build_plan_for_host(  # doctest: +SKIP
+        ...     host='example',
+        ...     dest_remote_raw='/remote/dest',
+        ...     srcs_raw=['/tmp/data.txt'],
+        ...     ssh_user='demo',
+        ...     target_user='demo',
+        ...     port=22,
+        ...     key=None,
+        ...     password=None,
+        ...     timeout=30.0,
+        ...     strict=False,
+        ...     pack=False,
+        ...     follow_symlinks=False,
+        ...     sudo_extract_flag=None,
+        ...     selinux_mode='auto',
+        ...     verbose=False,
+        ... )
+        >>> isinstance(plan.entries, list)  # doctest: +SKIP
+        True  # doctest: +SKIP
     """
     cfg: SSHConfig = SSHConfig(
         host=host,
@@ -353,11 +455,51 @@ def _make_push_one_sftp(
     host: str,
     remote_rel_map: Dict[str, str],
 ) -> PushOne:
-    """
-    非 pack 経路 : PlanEntry 毎の逐次 PUT。
-    リモート配置は core_scatter.sftp_put_one が DEST/<local_abs_without_leading_slash> を作成。
+    """SFTP 経由で単一ファイルを逐次アップロードするクロージャを生成します。
+
+    Args:
+        ssh (SSHClientLike): リモート側で ``mkdir`` や ``chown`` を実行する SSH クライアント。
+        sftp (SFTPClientLike): 転送に利用する SFTP クライアント。
+        dest_abs_root (str): リモート DEST の絶対パス。
+        ssh_user (str): SSH 接続に使用するユーザー名。
+        target_user (str): 転送先の所有者として想定するユーザー名。
+        host (str): ログ出力で使用するホスト名。
+        remote_rel_map (Dict[str, str]): ローカル絶対パスとリモート相対パスの対応表。
+
+    Returns:
+        PushOne: 転送対象一件を表すデータ要素(``PlanEntry``) を受け取り、SFTP で 1 件ずつアップロードするクロージャ。
+
+    Examples:
+        >>> from unittest.mock import MagicMock  # doctest: +SKIP
+        >>> push_one = _make_push_one_sftp(  # doctest: +SKIP
+        ...     ssh=MagicMock(),
+        ...     sftp=MagicMock(),
+        ...     dest_abs_root='/remote/dest',
+        ...     ssh_user='demo',
+        ...     target_user='demo',
+        ...     host='example',
+        ...     remote_rel_map={},
+        ... )
+        >>> callable(push_one)  # doctest: +SKIP
+        True  # doctest: +SKIP
     """
     def _push_one(_sftp: SFTPClientLike, local_path: Path, _remote_root: str, is_dir: bool) -> None:
+        """ローカルファイル 1 件をリモートホストへアップロードします。
+
+        Args:
+            _sftp (SFTPClientLike): SFTP PUT を発行するクライアント。
+            local_path (Path): アップロード対象のローカル絶対パス。
+            _remote_root (str): 呼び出し側が提示するリモートルート（非 pack 経路では未使用）。
+            is_dir (bool): 対象がディレクトリであれば ``True``。
+
+        Returns:
+            None: 返り値はありません。
+
+        Examples:
+            >>> from pathlib import Path  # doctest: +SKIP
+            >>> isinstance(Path('/tmp/example'), Path)  # doctest: +SKIP
+            True  # doctest: +SKIP
+        """
         if is_dir:
             return
         _local_path_str: str = str(local_path)
@@ -393,12 +535,70 @@ def _make_push_one_pack(
     host: str,
     remote_rel_map: Dict[str, str],
 ) -> PushOne:
-    """
-    pack 経路 : 最初の 1 回だけ local pack  =>  upload  =>  remote extract。
+    """``--pack`` 経路で利用する ホストごとに1 度だけ実行されるアップロード用のクロージャを生成します。
+        生成したクロージャは以下の処理を行います。
+
+        1. ローカルホストでアーカイブを作成します。
+        2. SFTP 経由でリモートホストにアーカイブをアップロードします。
+        3. リモートホストでアーカイブを解凍し, アーカイブ解凍の成否に依らず, リモートに残ったアーカイブファイルを削除します。
+        4. アップロードに利用したローカルの一時アーカイブと一時ディレクトリを削除します。
+
+    Args:
+        ssh (SSHClientLike): リモートで展開処理を実行する SSH クライアント。
+        sftp (SFTPClientLike): アーカイブファイルを送信する SFTP クライアント。
+        pack_srcs (List[Path]): パック対象となるローカルファイルのパスのリスト。
+        dest_abs_root (str): リモート DEST の絶対パス。
+        sudo_extract (bool): リモート解凍時に ``sudo`` を利用する場合は ``True``。
+        follow_symlinks (bool): パック時にシンボリックリンクを辿る場合は ``True``。
+        target_user (str): 転送先ファイルの所有者として想定するユーザー名。
+        selinux_mode (SelinuxMode): SELinux ラベル復元モード。
+        _timeout (float): 将来のリトライ制御に備えたタイムアウト値。
+        host (str): ログで使用するホスト名。
+        remote_rel_map (Dict[str, str]): パック対象絶対パスからリモート相対パスへの対応。
+
+    Returns:
+        PushOne: 転送対象一件を表すデータ要素(``PlanEntry``) の最初の呼び出しで pack/upload/extract を実行するクロージャ。
+
+    Examples:
+        >>> from unittest.mock import MagicMock  # doctest: +SKIP
+        >>> push_one = _make_push_one_pack(  # doctest: +SKIP
+        ...     ssh=MagicMock(),
+        ...     sftp=MagicMock(),
+        ...     pack_srcs=[],
+        ...     dest_abs_root='/remote/dest',
+        ...     sudo_extract=False,
+        ...     follow_symlinks=False,
+        ...     target_user='demo',
+        ...     selinux_mode='auto',
+        ...     _timeout=30.0,
+        ...     host='example',
+        ...     remote_rel_map={},
+        ... )
+        >>> callable(push_one)  # doctest: +SKIP
+        True  # doctest: +SKIP
     """
     state: Dict[str, bool] = {"ran": False}
 
     def _push_one(_sftp: SFTPClientLike, _local_path: Path, _remote_root: str, _is_dir: bool) -> None:
+        """pack 経路で 1 度だけアーカイブ転送と解凍を実行します。
+
+        Args:
+            _sftp (SFTPClientLike): アーカイブファイルを送信するクライアント。
+            _local_path (Path): 転送対象一件を表すデータ要素(``PlanEntry``) が持つローカルパス（pack 経路では未使用）。
+            _remote_root (str): 転送対象一件を表すデータ要素(``PlanEntry``) が持つリモートルート（未使用）。
+            _is_dir (bool): エントリがディレクトリかどうか（未使用）。
+
+        Returns:
+            None: 返り値はありません。
+
+        Raises:
+            ValueError: ``remote_rel_map`` に pack ルートのキーが存在しない場合。
+
+        Examples:
+            >>> state = {'ran': False}  # doctest: +SKIP
+            >>> bool(state['ran'])  # doctest: +SKIP
+            False  # doctest: +SKIP
+        """
         if state["ran"]:
             return
         state["ran"] = True
@@ -424,29 +624,70 @@ def _make_push_one_pack(
         tar_path: str
         _src_manifest: List[str]
         tar_path, _src_manifest = tar_tuple
-        upload_pack_and_extract(
-            ssh,
-            sftp,
-            tar_path,
-            dest_abs_root,
-            sudo_extract,
-            host,
-            _NULL_REPORT,   # Null Object (読み捨て)
-            False,          # dry_run
-            target_user=target_user,
-            selinux_mode=selinux_mode,
-        )
+        tar_tmp_dir: str = os.path.dirname(tar_path)
+        try:
+            upload_pack_and_extract(
+                ssh,
+                sftp,
+                tar_path,
+                dest_abs_root,
+                sudo_extract,
+                host,
+                _NULL_REPORT,   # Null Object (読み捨て)
+                False,          # dry_run
+                target_user=target_user,
+                selinux_mode=selinux_mode,
+            )
+        finally:
+            try:
+                os.remove(tar_path)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+            # temp ディレクトリにはアーカイブ以外存在しない想定のため丸ごと削除
+            shutil.rmtree(tar_tmp_dir, ignore_errors=True)
 
     return _push_one
 
 
 def main() -> None:
+    """gm-scatter CLI のエントリーポイントを実装します。
 
-    # --pack の場合の SRC 正規化 :
-    #   - 正規表現入力は壊さない ( 末尾スラッシュ付与しない )
-    #   - リテラル入力については「実体がディレクトリ」のときのみ末尾スラッシュを付与
-    #      ( ファイルに付けてしまうと「x.txt/」となり不正 )
+    Returns:
+        None: 正常終了時は ``EXIT_OK`` コードでプロセスを終了します。
+
+    Raises:
+        SystemExit: 引数検証エラーやホスト未検出時に適切な終了コードで終了します。
+
+    Examples:
+        >>> import sys  # doctest: +SKIP
+        >>> if '--help' in sys.argv:  # doctest: +SKIP
+        ...     pass  # CLI 実行では ``main()`` を呼び出します
+    """
+
     def _normalize_pack_srcs(srcs: Sequence[str]) -> List[str]:
+        """pack 用 SRC を安全な表記へ揃えます。
+
+        安全な表記は次の手順で決定します。
+
+        1. 正規表現入力であると判定した場合は一切変更せず (末尾スラッシュも付与せず)そのまま返します。
+        2. 末尾がすでに区切り文字（ ``/`` または ``os.sep`` ）で終わる入力もそのまま返します。
+        3. リテラル入力で実体を確認できる場合のみ、実体がディレクトリであれば末尾に ``/`` を付与します。
+           例外や権限エラーなどで確認できない場合は安全側として付与しません。
+
+        これにより正規表現を壊さず、リテラルディレクトリのみを明示的に指定できる安全な SRC 表記を保ちます。
+
+        Args:
+            srcs (Sequence[str]): CLI から受け取った元の SRC トークン列。
+
+        Returns:
+            List[str]: pack 処理に適した SRC 表記のリスト。
+
+        Examples:
+            >>> _normalize_pack_srcs(['foo', 'bar/'])  # doctest: +SKIP
+            ['foo/', 'bar/']  # doctest: +SKIP
+        """
         out: List[str] = []
         s_in: str = ""
         v: str = ""
@@ -549,9 +790,25 @@ def main() -> None:
 
     # 事前確立済み接続の DI 工場
     def _open_ssh(host: str) -> SSHClientLike:
+        """ホスト名に対応する SSH 接続を返します。
+
+        Args:
+            host (str): 接続済みホスト名。
+
+        Returns:
+            SSHClientLike: 事前に ``_build_plan_for_host`` で確立した SSH クライアント。
+        """
         return meta_per_host[host]["ssh"]  # type: ignore[return-value]
 
     def _open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
+        """SSH クライアントに紐付く SFTP 接続を返します。
+
+        Args:
+            ssh (SSHClientLike): 取得元となる SSH クライアント。
+
+        Returns:
+            SFTPClientLike: ``ssh`` と同じ接続から生成した SFTP クライアント。
+        """
         for _h, m in meta_per_host.items():
             if m["ssh"] is ssh:
                 return m["sftp"]  # type: ignore[return-value]

@@ -1,8 +1,19 @@
-# -*- coding: utf-8 -*-
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
 """
 gm_tools package
 """
-# __init__.py  (差し替え推奨版)
 from __future__ import annotations
 
 import importlib
@@ -33,7 +44,12 @@ def __getattr__(name: str) -> Any:
     mod = _SUBMODULES.get(name)
     if mod is not None:
         return importlib.import_module(mod, __name__)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    try:
+        return importlib.import_module(f".{name}", __name__)
+    except ModuleNotFoundError as exc:
+        if exc.name in {f"{__name__}.{name}", name}:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+        raise
 
 def __dir__() -> list[str]:
     return sorted(list(globals().keys()) + __all__)

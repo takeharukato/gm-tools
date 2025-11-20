@@ -1,4 +1,24 @@
-# -*- coding:utf-8 -*-
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
+"""ACL/xattr 情報をリモートで取得・復元するためのユーティリティ群です。
+
+ACL と拡張属性 (xattr) を `getfacl`/`setfacl` および `getfattr`/`setfattr` コマンドで操作し、
+現在の所有者・グループ・モードを取得/復元する共通処理も提供します。各関数は Paramiko 互換
+SSH クライアントを介してコマンドを実行し、ダンプファイルを作成/適用するライフサイクルを
+簡潔に扱えるようにします。
+"""
+
 from __future__ import annotations
 
 import shlex
@@ -19,9 +39,21 @@ ACL_MKTEMP_TEMPLATE: str = "acl.XXXXXX"
 XATTR_MKTEMP_TEMPLATE: str = "xattr.XXXXXX"
 
 def check_acl_tools_available(ssh: SSHClientLike) -> bool:
-    """
-    リモートに ACL 操作用ツール (getfacl/setfacl) が存在するかを確認する。
-    どちらか一方でも欠ける場合は False。
+    """ACL 操作用コマンドが両方利用可能かを確認します。
+
+    Args:
+        ssh (SSHClientLike): リモートコマンドを実行するための Paramiko 互換クライアント。
+
+    Returns:
+        bool: ``getfacl`` と ``setfacl`` の両方が見つかれば ``True``、不足していれば ``False``。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     return (0, "", "")
+        >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
+        ...     check_acl_tools_available(object())
+        True
     """
 
     c: str
@@ -39,9 +71,21 @@ def check_acl_tools_available(ssh: SSHClientLike) -> bool:
 
 
 def check_xattr_tools_available(ssh: SSHClientLike) -> bool:
-    """
-    リモートに xattr 操作用ツール (getfattr/setfattr) が存在するかを確認する。
-    どちらか一方でも欠ける場合は False。
+    """xattr 操作用コマンドが両方利用可能かを確認します。
+
+    Args:
+        ssh (SSHClientLike): リモートコマンドを実行するための Paramiko 互換クライアント。
+
+    Returns:
+        bool: ``getfattr`` と ``setfattr`` の両方が見つかれば ``True``、不足していれば ``False``。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     return (0, "", "")
+        >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
+        ...     check_xattr_tools_available(object())
+        True
     """
 
     c: str
@@ -59,10 +103,26 @@ def check_xattr_tools_available(ssh: SSHClientLike) -> bool:
 
 
 def stat_owner_group_mode(ssh: SSHClientLike, path: str, *, use_sudo: bool) -> Tuple[str, str, int]:
-    """
-    対象パスのオーナ, グループ, モード(8進数) を取得する。
-    - stat(1) の -c '%U:%G:%a' を利用
-    - use_sudo=True の場合は sudo 経由で実行
+    """パスの所有者・グループ・モード(8進数)を取得します。
+
+    ``stat`` コマンドを ``stat -c '%U:%G:%a'`` 形式で呼び出し、
+    リモートホスト上の対象パスから所有者・グループ名およびモード(8進数)を取得します。
+
+    Args:
+        ssh (SSHClientLike): リモートで ``stat`` を実行する Paramiko 互換クライアント。
+        path (str): リモートホスト上で調査する絶対パスまたは相対パス。
+        use_sudo (bool): ``True`` の場合は ``sudo`` 経由で ``stat`` を実行します。
+
+    Returns:
+        Tuple[str, str, int]: ``(owner, group, mode)`` のタプル。モードは 8 進数を整数に変換した値。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     return (0, 'root:wheel:755\n', '')
+        >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
+        ...     stat_owner_group_mode(object(), '/tmp/demo', use_sudo=False)
+        ('root', 'wheel', 493)
     """
     q: str = shlex.quote(path)
 
@@ -105,11 +165,26 @@ def chown_chmod(
     mode: Optional[int],
     use_sudo: bool,
 ) -> None:
-    """
-    所有者・グループ・モードを復元する共通関数。
-    - owner/group は空文字や None の場合はスキップ。
-    - mode は None の場合はスキップ。数値は 8 進で解釈・適用 ( 例: 0o644 ) 。
-    - use_sudo=True のとき sudo 利用。
+    """所有者・グループ・モードを必要に応じて復元します。
+
+    Args:
+        ssh (SSHClientLike): ``chown``/``chmod`` をリモート実行する Paramiko 互換クライアント。
+        path (str): 属性を復元するファイルまたはディレクトリのパス。
+        owner (Optional[str]): 新しい所有者。``None`` または空文字を指定した場合は, 復元処理を行いません。
+        group (Optional[str]): 新しいグループ。``None`` または空文字を指定した場合は, 復元処理を行いません。
+        mode (Optional[int]): 適用するモード値 (8 進想定)。``None`` または ``0`` を指定した場合は, 復元処理を行いません。
+        use_sudo (bool): ``True`` の場合 ``sudo`` 経由でコマンドを実行します。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> executed = []
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     executed.append(' '.join(argv))
+        ...     return (0, '', '')
+        >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
+        ...     chown_chmod(object(), '/tmp/demo', owner='alice', group='staff', mode=0o640, use_sudo=False)
+        >>> bool(executed)
+        True
     """
     q: str = shlex.quote(path)
     sudo_argv_prefix: List[str] = ["sudo", "-n"] if use_sudo else []
@@ -153,6 +228,7 @@ def chown_chmod(
             timeout=CHOWN_CHMOD_TIMEOUT,
         )
 
+
 def capture_acl_dump(
     ssh: SSHClientLike,
     path: str,
@@ -160,10 +236,33 @@ def capture_acl_dump(
     *,
     use_sudo: bool,
 ) -> Optional[str]:
-    """
-    ACL をダンプしてファイルに保存し, そのダンプファイルのパスを返す。
-    - setfacl --restore で復元できる形式 ( getfacl -p または --absolute-names )
-    - ツールが無ければ呼出側でこの関数自体を呼ばない設計 ( check_acl_tools_available )
+    """ファイルの Access Control List (ACL) を ``getfacl`` の出力形式でダンプし, リモートホスト上に保存します。
+
+    - ``mktemp`` を用いて ``{dump_dir}/{ACL_MKTEMP_TEMPLATE}`` 形式の一時ファイルを確保したうえで,
+      ``getfacl`` に ``-p``/``--absolute-names`` を付与して絶対パスを保持したダンプを作成します。
+      このダンプは ``setfacl --restore`` で直接復元できる内容です。
+    - ``mktemp`` や ``getfacl`` の呼び出しが失敗した場合 (コマンドがリモートホストに無い, 実行権限が無い, 対象パスにアクセスできない等),
+       例外ではなく ``None`` を返して呼び出し側に処理を委ねます(ダンプファイルの削除は呼び出し側の責任で実施する想定です)。
+    - 復元後に ``rm`` などでダンプファイルを削除する責務を呼び出し側が負います。
+    - ``getfacl`` が利用可能であることを :func:`check_acl_tools_available` などで事前に確認してから呼び出してください。
+
+    Args:
+        ssh (SSHClientLike): ``getfacl`` を実行する Paramiko 互換クライアント。
+        path (str): ACL を抽出する対象パス。
+        dump_dir (str): ``mktemp`` でダンプファイルを生成するディレクトリ。
+        use_sudo (bool): ``True`` の場合 ``sudo`` 経由で ``getfacl`` を実行します。
+
+    Returns:
+        Optional[str]: ダンプファイルの絶対パス。失敗時は ``None``。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> responses = [(0, '/tmp/acl.ABC\n', ''), (0, '', '')]
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     return responses.pop(0)
+        >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
+        ...     capture_acl_dump(object(), '/remote/file', '/tmp', use_sudo=False)
+        '/tmp/acl.ABC'
     """
     qpath: str = shlex.quote(path)
     qdir: str = shlex.quote(dump_dir)
@@ -203,10 +302,27 @@ def restore_acl_dump(
     *,
     use_sudo: bool,
 ) -> None:
-    """
-    setfacl --restore=<file> で ACL を復元する。
-    - dump は capture_acl_dump() が作成したファイルを想定
-    - use_sudo=True のとき sudo 利用
+    """ダンプファイルを ``setfacl --restore`` で適用します。
+
+    - 復元後に ``rm`` などでダンプファイルを削除する責務を呼び出し側が負います。
+    - :func:`check_acl_tools_available` を用いて``getfacl``/``setfacl`` の両方がが利用可能であることを
+      事前に確認してから呼び出してください。
+
+    Args:
+        ssh (SSHClientLike): ``setfacl`` を実行する Paramiko 互換クライアント。
+        dump_file (str): ``capture_acl_dump`` が生成したダンプファイルのパス。
+        use_sudo (bool): ``True`` の場合 ``sudo`` 経由で ``setfacl`` を実行します。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> executed = []
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     executed.append(' '.join(argv))
+        ...     return (0, '', '')
+        >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
+        ...     restore_acl_dump(object(), '/tmp/acl.ABC', use_sudo=False)
+        >>> bool(executed)
+        True
     """
     qdump: str = shlex.quote(dump_file)
     argv: List[str] = (
@@ -219,6 +335,7 @@ def restore_acl_dump(
     _e: str
     _rc, _o, _e = run_remote_cmd_capture(ssh, argv, timeout=RESTORE_TIMEOUT)
 
+
 def capture_xattr_dump(
     ssh: SSHClientLike,
     path: str,
@@ -226,11 +343,31 @@ def capture_xattr_dump(
     *,
     use_sudo: bool,
 ) -> Optional[str]:
-    """
-    xattr をダンプしてファイルに保存し, そのダンプファイルのパスを返す。
-    - getfattr -d ( ダンプ形式 ) を利用 ( --absolute-names で絶対パス )
-    - setfattr --restore で復元可能な形式
-    - ツールが無ければ呼出側でこの関数自体を呼ばない設計 ( check_xattr_tools_available )
+    """拡張属性を ``getfattr`` の出力形式でダンプし, リモートホスト上に保存します。
+
+    - ``mktemp`` を用いて ``{dump_dir}/{XATTR_MKTEMP_TEMPLATE}`` 形式の一時ファイルを確保し, ``getfattr`` に ``-h`` と ``--absolute-names`` を付けて絶対パスを保持したダンプを作成します。この形式は ``setfattr --restore`` でそのまま復元できます。
+    - ``mktemp`` や ``getfacl`` の呼び出しが失敗した場合 (コマンドがリモートホストに無い, 実行権限が無い, 対象パスにアクセスできない等),
+       例外ではなく ``None`` を返して呼び出し側に処理を委ねます(ダンプファイルの削除は呼び出し側の責任で実施する想定です)。
+    - 復元後に ``rm`` などでダンプファイルを削除する責務を呼び出し側が負います。
+    - ``getfattr`` が利用可能であることを :func:`check_xattr_tools_available` などで事前に確認してから呼び出してください。
+
+    Args:
+        ssh (SSHClientLike): ``getfattr`` を実行する Paramiko 互換クライアント。
+        path (str): xattr を抽出する対象パス。
+        dump_dir (str): ``mktemp`` でダンプファイルを生成するディレクトリ。
+        use_sudo (bool): ``True`` の場合 ``sudo`` 経由で ``getfattr`` を実行します。
+
+    Returns:
+        Optional[str]: ダンプファイルの絶対パス。取得できない場合は ``None``。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> responses = [(0, '/tmp/xattr.ABC\n', ''), (0, '', '')]
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     return responses.pop(0)
+        >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
+        ...     capture_xattr_dump(object(), '/remote/file', '/tmp', use_sudo=False)
+        '/tmp/xattr.ABC'
     """
     qpath: str = shlex.quote(path)
     qdir: str = shlex.quote(dump_dir)
@@ -269,10 +406,26 @@ def restore_xattr_dump(
     *,
     use_sudo: bool,
 ) -> None:
-    """
-    setfattr --restore=<file> で xattr を復元する。
-    - dump は capture_xattr_dump() が作成したファイルを想定
-    - use_sudo=True のとき sudo 利用
+    """ダンプファイルを ``setfattr --restore`` で適用します。
+
+    - 事前に :func:`check_xattr_tools_available` で``setfattr`` が利用可能であることを確認してから呼び出すようにしてください。
+    - 復元後に ``rm`` などでダンプファイルを削除する責務を呼び出し側が負います。
+
+    Args:
+        ssh (SSHClientLike): ``setfattr`` を実行する Paramiko 互換クライアント。
+        dump_file (str): ``capture_xattr_dump`` が生成したダンプファイルのパス。
+        use_sudo (bool): ``True`` の場合 ``sudo`` 経由で ``setfattr`` を実行します。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> executed = []
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     executed.append(' '.join(argv))
+        ...     return (0, '', '')
+        >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
+        ...     restore_xattr_dump(object(), '/tmp/xattr.ABC', use_sudo=True)
+        >>> bool(executed)
+        True
     """
     qdump: str = shlex.quote(dump_file)
     argv: List[str] = (

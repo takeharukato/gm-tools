@@ -1,5 +1,24 @@
-# -*- coding:utf-8 -*-
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
+"""SELinux 機能検出とラベル復元を扱うリモート実行ヘルパーモジュールです。
+
+gm-scatter CLI の ``--selinux`` オプションで利用され、リモートホストが SELinux 対応かどうかの
+判定と ``restorecon`` コマンドの実行を統一的に提供します。
+"""
+
 from __future__ import annotations
+
 import shlex
 from typing import Iterable, Literal, List, Set
 
@@ -8,24 +27,43 @@ from .core_cmd_flavor import run_remote_cmd_capture
 
 SelinuxMode = Literal["auto", "policy", "ignore"]
 
-# --- constants (seconds / sizes) ---
+# --- 定数 (秒・サイズ) ---
 _SELINUX_DETECT_TIMEOUT: float = 5.0
 _RESTORECON_TIMEOUT: float = 180.0
-# keep conservative to avoid "Argument list too long"
+# "Argument list too long" を避けるため保守的な値を指定します。
 _RESTORECON_BATCH_SIZE: int = 64
 
-# --- command strings / flags (no Final, to match project style) ---
+# --- コマンド文字列とフラグ  ---
 _SELINUX_FS_TEST_CMD: str = "test -d /sys/fs/selinux"
 _SELINUX_MOUNT_CHECK_CMD: str = "mount | grep -q selinuxfs"
 _RESTORECON_CHECK_CMD: str = "command -v restorecon >/dev/null 2>&1"
 _RESTORECON_FLAGS: str = "-RF"
 
 def detect_selinux_capable(ssh: SSHClientLike) -> bool:
-    """
-    リモートホストが SELinux ラベリングの復元を実施可能かを判定する。
-    条件:
-      - /sys/fs/selinux の存在 または mount 出力に selinuxfs がある
-      - restorecon コマンドが存在
+    """リモートホストが SELinux ラベル復元に対応しているかを検査します。
+
+    gm-scatter CLI で ``restorecon`` を呼び出す前段階として利用し、最小限のリモートコマンド
+    実行でホストの機能可否を判定します。以下の条件をすべて満たした場合に対応しているとみなします。
+
+    - ``/sys/fs/selinux`` ディレクトリが存在する、または ``mount`` 出力に ``selinuxfs`` が含まれる
+    - ``restorecon`` コマンドが PATH 上で検出できる
+
+    Args:
+        ssh (SSHClientLike): ``run_remote_cmd_capture()`` 互換の ``exec_command`` を提供するクライアント。
+
+    Returns:
+        bool: 判定に成功した場合は ``True``、条件を満たせない場合は ``False``。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     cmd = " ".join(argv)
+        ...     if "mount" in cmd:
+        ...         return 0, "selinuxfs on /sys/fs/selinux", ""
+        ...     return 0, "", ""
+        >>> with patch('gm_tools.core_selinux.run_remote_cmd_capture', fake_run):
+        ...     detect_selinux_capable(object())
+        True
     """
 
     rc_fs1: int
@@ -64,12 +102,44 @@ def restorecon_recursive_if_needed(
     selinux_capable: bool,
     use_sudo: bool,
 ) -> None:
-    """
-    SELinux ラベル復元を必要に応じて実行する。
-    - mode == "ignore": 何もしない
-    - mode == "auto": capable=False ならスキップ, True なら restorecon -RF
-    - mode == "policy": capable=False なら例外 ( 全体中断 ) , True なら restorecon -RF
-    - 対象は NEW セットに限定して渡される前提 ( EXIST は呼び出し側で除外 )
+    """必要に応じて ``restorecon -RF`` をバッチ実行し SELinux ラベルを復元します。
+
+    gm-scatter の配置処理が ``mode`` に応じてラベリングを要求する場合に呼び出され、以下の挙動を取ります。
+
+    - ``mode == "ignore"``: 何も実施せず即座に処理を終了します。
+    - ``mode == "auto"``: ``selinux_capable`` が ``True`` のときのみ ``restorecon`` を実行します。
+    - ``mode == "policy"``: ``selinux_capable`` が ``False`` の場合は ``RuntimeError`` を送出します。
+
+    対象パスは新規または上書き対象に限定されている想定であり、空文字や重複を除外したうえで、
+    引数数が多くなり過ぎないようバッチ分割して ``restorecon`` を実行します。
+
+    Args:
+        ssh (SSHClientLike): ``restorecon`` を実行するリモートホストへのクライアント。
+        paths (Iterable[str]): ラベル復元候補のリモート絶対パス列。
+        mode (SelinuxMode): ユーザー指定 ``--selinux`` モード。
+        selinux_capable (bool): :func:`detect_selinux_capable` の判定結果。
+        use_sudo (bool): sudo 経由で ``restorecon`` を実行する場合は ``True``。
+
+    Raises:
+        RuntimeError: ``mode == "policy"`` かつ ``selinux_capable`` が ``False`` の場合、
+            または ``restorecon`` 実行が失敗した場合に送出します。
+
+    Examples:
+        >>> from unittest.mock import patch
+        >>> calls = []
+        >>> def fake_run(_ssh, argv, timeout):
+        ...     calls.append((argv, timeout))
+        ...     return 0, "", ""
+        >>> with patch('gm_tools.core_selinux.run_remote_cmd_capture', fake_run):
+        ...     restorecon_recursive_if_needed(
+        ...         ssh=object(),
+        ...         paths=["/tmp/demo", "/tmp/demo"],
+        ...         mode="auto",
+        ...         selinux_capable=True,
+        ...         use_sudo=False,
+        ...     )
+        >>> len(calls)
+        1
     """
     if mode == "ignore":
         return

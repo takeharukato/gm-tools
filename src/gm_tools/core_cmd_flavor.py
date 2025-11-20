@@ -1,9 +1,34 @@
-# -*- coding:utf-8 -*-
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
+
+"""リモートコマンド実行と tar フレーバ判定のラッパーを提供するモジュール。
+
+リモートホスト上で ``tar`` の実装種別を検出し、``sudo`` や ``PATH`` の違いを
+吸収したコマンド実行ヘルパーを提供する。
+
+Examples:
+    >>> from gm_tools.core_cmd_flavor import parse_tar_t_list_to_relpaths
+    >>> parse_tar_t_list_to_relpaths("foo/\nbar/\nfile.txt\n")
+    ['foo', 'bar', 'file.txt']
+"""
+
 from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass
-from typing import List, Literal, Optional, Set, Tuple, Any
+from typing import Any, List, Literal, Optional, Set, Tuple
+
 from .core_ssh import SSHClientLike
 
 
@@ -30,15 +55,44 @@ MKDIR_TIMEOUT: float = 60.0
 
 @dataclass(frozen=True)
 class CmdFlavor:
-    """
-    リモートホスト上の 'tar' 実装の種別を表す。
+    """リモートホスト上の ``tar`` 実装種別を保持するデータクラス。
+
+    Attributes:
+        tar (TarFlavor): 判定済みの ``tar`` フレーバ。
     """
     tar: TarFlavor
 
 
 def _exec_simple(ssh: SSHClientLike, cmd: str, timeout: Optional[float] = None) -> Tuple[int, str, str]:
-    """
-    依存の少ない実行ヘルパ。stdout/err を全読みして (rc, out, err) を返す。
+    """依存の少ないリモートコマンド実行ヘルパー。
+
+    指定したコマンドを SSH 経由で実行し、標準出力と標準エラーをすべて読み取って
+    戻り値コードとともに返す。読み取り後は可能な範囲でチャネルをクローズする。
+
+    Args:
+        ssh (SSHClientLike): コマンドを実行する SSH クライアント互換オブジェクト。
+        cmd (str): リモートで実行するシェル文字列。
+        timeout (Optional[float]): SSH 側のタイムアウト秒。 ``None`` で未指定。
+
+    Returns:
+        Tuple[int, str, str]: 戻り値コード、標準出力文字列、標準エラー文字列。
+
+    Examples:
+        >>> class _DummyChannel:
+        ...     def __init__(self) -> None:
+        ...         self.channel = self
+        ...     def read(self) -> bytes:
+        ...         return b""
+        ...     def close(self) -> None:
+        ...         return None
+        ...     def recv_exit_status(self) -> int:
+        ...         return 0
+        >>> class _DummySSH:
+        ...     def exec_command(self, *_args, **_kwargs):
+        ...         ch = _DummyChannel()
+        ...         return ch, ch, ch
+        >>> _exec_simple(_DummySSH(), "true")
+        (0, '', '')
     """
     _stdin: Any
     stdout: Any
@@ -60,8 +114,37 @@ def _exec_simple(ssh: SSHClientLike, cmd: str, timeout: Optional[float] = None) 
 
 
 def detect_tar_flavor_remote(ssh: SSHClientLike, *, timeout: float = 10.0) -> CmdFlavor:
-    """
-    リモートで `tar --version` を実行して GNU / bsdtar / unknown を判定する。
+    """リモートホストで ``tar`` の実装種別を判定する。
+
+    ``tar --version`` と ``tar --help`` の出力を解析して GNU tar、bsdtar、
+    未知のいずれかを推定する。
+
+    Args:
+        ssh (SSHClientLike): コマンドを実行する SSH クライアント互換オブジェクト。
+        timeout (float): リモートコマンド実行のタイムアウト秒。
+
+    Returns:
+        CmdFlavor: 判定結果を格納したデータクラス。
+
+    Examples:
+        >>> class _DummySSHFlavor:
+        ...     def __init__(self, text: str) -> None:
+        ...         self._text = text
+        ...     def exec_command(self, *_args, **_kwargs):
+        ...         class _Channel:
+        ...             def __init__(self, data: str) -> None:
+        ...                 self._data = data
+        ...                 self.channel = self
+        ...             def read(self) -> bytes:
+        ...                 return self._data.encode()
+        ...             def close(self) -> None:
+        ...                 return None
+        ...             def recv_exit_status(self) -> int:
+        ...                 return 0
+        ...         ch = _Channel(self._text)
+        ...         return ch, ch, ch
+        >>> detect_tar_flavor_remote(_DummySSHFlavor('tar (GNU tar)'))
+        CmdFlavor(tar='gnu')
     """
     _rc0: int
     out0: str
@@ -98,11 +181,30 @@ def build_tar_extract_cmd(
     use_sudo: bool,
     members_file: Optional[str] = None,
 ) -> List[str]:
-    """
-    tar.gz を dest_abs に展開するコマンド argv を返す。
-    - GNU/bsdtar 共通: -xzf, -C
-    - メンバー限定抽出: -T <members_file> を使用 ( GNU/bsdtar ともにサポート )
-       ( members_file は改行区切りの相対パス列。アーカイブ内パスと一致させる )
+    """tar アーカイブを展開するコマンド引数を生成する。
+
+    - GNU tar と bsdtar 共通で ``-xzf`` と ``-C`` を利用する。
+    - 抽出メンバーを限定する場合は ``-T <members_file>`` を追加する。
+      ``members_file`` は改行区切りの相対パス列で、アーカイブ内パスと一致させる。
+
+    Args:
+        flavor (TarFlavor): 判定済みの ``tar`` フレーバ。現状は将来拡張のため受け取る。
+        dest_abs (str): 展開先ディレクトリの絶対パス。
+        tar_gz_path (str): 展開対象の ``.tar.gz`` ファイルパス。
+        use_sudo (bool): ``True`` のとき ``sudo -n`` を argv 先頭へ付与する。
+        members_file (Optional[str]): メンバー限定抽出時に利用するファイルパス。
+
+    Returns:
+        List[str]: 実行用の argv 形式コマンド列。
+
+    Examples:
+        >>> build_tar_extract_cmd(
+        ...     flavor='gnu',
+        ...     dest_abs='/tmp/dest',
+        ...     tar_gz_path='/tmp/src.tar.gz',
+        ...     use_sudo=False,
+        ... )
+        ['tar', '-xzf', '/tmp/src.tar.gz', '-C', '/tmp/dest']
     """
     _ = flavor  # 現状は共通オプションで対応。分岐時の将来拡張用に受け取る。
 
@@ -117,8 +219,18 @@ def build_tar_extract_cmd(
 
 
 def build_tar_list_cmd(*, tar_gz_path: str, use_sudo: bool) -> List[str]:
-    """
-    アーカイブ内パスの列挙 ( 互換動作 ) 。`tar -tzf`。
+    """``tar -tzf`` のコマンド引数を生成する。
+
+    Args:
+        tar_gz_path (str): 列挙対象の ``.tar.gz`` ファイルパス。
+        use_sudo (bool): ``True`` のとき ``sudo -n`` を前置する。
+
+    Returns:
+        List[str]: ``tar -tzf`` を実行する argv 形式のコマンド列。
+
+    Examples:
+        >>> build_tar_list_cmd(tar_gz_path='/tmp/src.tar.gz', use_sudo=True)
+        ['sudo', '-n', 'tar', '-tzf', '/tmp/src.tar.gz']
     """
     sudo_prefix: List[str] = ["sudo", "-n"] if use_sudo else []
     cmd: List[str] = sudo_prefix + ["tar", "-tzf", tar_gz_path]
@@ -126,10 +238,20 @@ def build_tar_list_cmd(*, tar_gz_path: str, use_sudo: bool) -> List[str]:
 
 
 def _inject_path_for_bash_argv(cmd_argv: List[str]) -> List[str]:
-    """
-    ['bash','-lc', ...] 形式, または ['sudo', ...可変..., 'bash','-lc', ...] 形式に対して,
-    シェル文字列の先頭へ DEFAULT_PATH_EXPORT を注入する。
-    それ以外は argv を変更せず返す。
+    """``bash -lc`` 形式の argv に ``DEFAULT_PATH_EXPORT`` を注入する。
+
+    - ``['bash', '-lc', <cmd>, ...]`` と ``['sudo', ..., 'bash', '-lc', <cmd>, ...]`` のみ対象。
+    - 対象外の argv はコピーを返し、引数順序は維持する。
+
+    Args:
+        cmd_argv (List[str]): 変換対象のコマンド引数列。
+
+    Returns:
+        List[str]: 必要に応じて ``DEFAULT_PATH_EXPORT`` を先頭へ挿入した新しい argv。
+
+    Examples:
+        >>> _inject_path_for_bash_argv(['bash', '-lc', 'echo 1'])
+        ['bash', '-lc', 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH echo 1']
     """
     n: int = len(cmd_argv)
     idx: int = 0
@@ -180,10 +302,23 @@ def run_remote_cmd_capture(
     *,
     timeout: float = 60.0,
 ) -> Tuple[int, str, str]:
-    """
-    argv をシェル安全に結合して実行する。
-    ['bash','-lc', ...] または ['sudo',...,'bash','-lc', ...] 形式の場合のみ,
-    シェル文字列の先頭に DEFAULT_PATH_EXPORT を注入する。
+    """リモートで argv 形式コマンドを安全に実行し結果を取得する。
+
+    ``bash -lc`` 形式の場合は ``DEFAULT_PATH_EXPORT`` を注入し、それ以外は argv を
+    変更せず ``shlex.join`` で結合する。
+
+    Args:
+        ssh (SSHClientLike): コマンドを実行する SSH クライアント互換オブジェクト。
+        cmd_argv (List[str]): 実行したい argv 形式コマンド列。
+        timeout (float): リモートコマンド実行のタイムアウト秒。
+
+    Returns:
+        Tuple[int, str, str]: 戻り値コード、標準出力文字列、標準エラー文字列。
+
+    Examples:
+        >>> ssh = ...  # SSHClientLike を準備する
+        >>> run_remote_cmd_capture(ssh, ['bash', '-lc', 'true'])  # doctest: +SKIP
+        (0, '', '')
     """
     safe_argv: List[str] = _inject_path_for_bash_argv(cmd_argv)
     cmd_str: str = shlex.join(safe_argv)
@@ -197,9 +332,19 @@ def run_remote_cmd_capture(
 
 
 def parse_tar_t_list_to_relpaths(listing_text: str) -> List[str]:
-    """
-    `tar -tzf` の出力を相対パスの配列に正規化。
-    ディレクトリ末尾の `/` は除去する。
+    """``tar -tzf`` の出力を相対パス配列に正規化する。
+
+    空行を除外し、ディレクトリエントリ末尾の ``/`` を削除した形で返す。
+
+    Args:
+        listing_text (str): ``tar -tzf`` などの列挙結果文字列。
+
+    Returns:
+        List[str]: 正規化した相対パス一覧。
+
+    Examples:
+        >>> parse_tar_t_list_to_relpaths('dir/\nfile.txt\n')
+        ['dir', 'file.txt']
     """
     rels: List[str] = []
     line: str
@@ -221,10 +366,26 @@ def exec_remote(
     use_sudo: bool = False,
     timeout: Optional[float] = None,
 ) -> Tuple[int, str, str]:
-    """
-    リモートでコマンドを実行し, (rc, stdout, stderr) を返す。
-    use_sudo=True の場合は常に 'sudo -n' を前置 ( パスワードプロンプト禁止 ) 。
-    PATH の注入は行わない ( 非シェルコマンドもあるため ) 。bash 経路は run_remote_cmd_capture() を利用。
+    """リモートで任意のコマンドを実行し結果を取得する。
+
+    - ``use_sudo`` が ``True`` の場合は常に ``sudo -n`` を前置する。
+    - ``bash`` を経由するコマンドは :func:`run_remote_cmd_capture` を利用する。
+    - 非シェルコマンドを安全に実行するため、``PATH`` の注入は行わない。環境変数が必要な場合は
+            ``bash`` 経路を利用する。
+
+    Args:
+        ssh (SSHClientLike): コマンドを実行する SSH クライアント互換オブジェクト。
+        cmd (str): リモートで実行するシェル文字列。
+        use_sudo (bool): ``True`` のとき ``sudo -n`` を付与する。
+        timeout (Optional[float]): SSH 実行のタイムアウト秒。 ``None`` で未指定。
+
+    Returns:
+        Tuple[int, str, str]: 戻り値コード、標準出力文字列、標準エラー文字列。
+
+    Examples:
+        >>> ssh = ...  # SSHClientLike を準備する
+        >>> exec_remote(ssh, 'true')  # doctest: +SKIP
+        (0, '', '')
     """
     full_cmd: str = f"sudo -n {cmd}" if use_sudo else cmd
 
@@ -254,9 +415,21 @@ def remote_path_exists(
     use_sudo: bool,
     timeout: float = 60.0,
 ) -> bool:
-    """
-    test -e で存在確認。sudo 失敗 ( rc!=0 かつ 権限由来が明白 ) の場合は呼び出し側で中断判断可能。
-    ここでは True/False のみ返す。
+    """``test -e`` でリモートパスの存在有無を確認する。
+
+    Args:
+        ssh (SSHClientLike): コマンドを実行する SSH クライアント互換オブジェクト。
+        path (str): 存在確認したいリモートパス。
+        use_sudo (bool): ``True`` のとき ``sudo -n`` を前置する。
+        timeout (float): SSH 実行のタイムアウト秒。
+
+    Returns:
+        bool: パスが存在する場合は ``True``、存在しない場合は ``False``。
+
+    Examples:
+        >>> ssh = ...  # SSHClientLike を準備する
+        >>> remote_path_exists(ssh, '/tmp/example', use_sudo=False)  # doctest: +SKIP
+        True
     """
     qpath: str = shlex.quote(path)
 
@@ -276,8 +449,20 @@ def remote_mkdir_p(
     use_sudo: bool,
     timeout: float = MKDIR_TIMEOUT,
 ) -> None:
-    """
-    mkdir -p を sudo 有無で実行。失敗時は詳細を含む例外を送出 ( 上位で即時中断方針 ) 。
+    """リモートで ``mkdir -p`` を実行してディレクトリを作成する。
+
+    Args:
+        ssh (SSHClientLike): コマンドを実行する SSH クライアント互換オブジェクト。
+        path (str): 作成したいリモートパス。
+        use_sudo (bool): ``True`` のとき ``sudo -n`` を前置する。
+        timeout (float): SSH 実行のタイムアウト秒。
+
+    Raises:
+        RuntimeError: ``mkdir -p`` が失敗した場合。リターンコードと stderr を含む。
+
+    Examples:
+        >>> ssh = ...  # SSHClientLike を準備する
+        >>> remote_mkdir_p(ssh, '/tmp/example', use_sudo=False)  # doctest: +SKIP
     """
     qpath: str = shlex.quote(path)
 
@@ -299,9 +484,32 @@ def split_exist_new_by_remote_presence(
     use_sudo: bool = False,
     timeout: float = 60.0,
 ) -> Tuple[Set[str], Set[str]]:
-    """
-    DEST 配下の相対パス群について, 存在(EXIST) / 新規(NEW) を仕分ける。
-    use_sudo=True のとき sudo -n で test を実行。sudo 不能や権限エラー時は自動フォールバックしない。
+    """リモートの相対パス群を存在グループと新規グループへ分類する。
+
+    ``test -e`` を用いて判定し、存在するパスは ``exist_set``、存在しないパスは
+    ``new_set`` として返す。``sudo`` 実行時に権限拒否が発生した場合は例外を送出する。
+
+    Args:
+        ssh (SSHClientLike): コマンドを実行する SSH クライアント互換オブジェクト。
+        dest_abs (str): 判定対象のベースディレクトリ絶対パス。
+        rel_paths (List[str]): 判定したい相対パス一覧。
+        use_sudo (bool): ``True`` のとき ``sudo -n`` を前置する。
+        timeout (float): SSH 実行のタイムアウト秒。
+
+    Returns:
+        Tuple[Set[str], Set[str]]: ``(exist_set, new_set)`` のタプル。
+
+    Raises:
+        RuntimeError: ``sudo`` 実行時に権限拒否が判明した場合。
+
+    Examples:
+        >>> ssh = ...  # SSHClientLike を準備する
+        >>> split_exist_new_by_remote_presence(
+        ...     ssh,
+        ...     '/tmp',
+        ...     ['a.txt', 'b.txt'],
+        ... )  # doctest: +SKIP
+        (set(), {'a.txt', 'b.txt'})
     """
     exist_set: Set[str] = set()
     new_set: Set[str] = set()

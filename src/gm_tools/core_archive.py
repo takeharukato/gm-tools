@@ -1,18 +1,35 @@
-# -*- coding: utf-8 -*-
-"""
-gm_tools.core_archive
-=====================
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
 
-Local temporary artifact registry and archive helpers (pack/unpack).
+"""ローカル一時ファイル管理と tar アーカイブ操作を提供するモジュール。
 
-Goals
------
-- Provide *local* temp registration/cleanup separate from remote temp control.
-- Offer tar pack/unpack helpers with cooperative cancellation checkpoints.
-- Do NOT handle logging here; callers must log via CLI-side facilities.
-- Do NOT touch trial/processed counters; this layer is pure I/O utilities.
+ホスト単位のローカル一時ファイル登録・削除と、tar 形式での
+パッキング/アンパッキング補助関数をまとめて公開する。
 
-This module performs no side effects on import.
+Examples:
+    >>> from pathlib import Path
+    >>> import tempfile
+    >>> import tarfile
+    >>> from gm_tools.core_archive import pack_directory_to_tar
+    >>> with tempfile.TemporaryDirectory() as tmp:
+    ...     src = Path(tmp) / "src"
+    ...     src.mkdir()
+    ...     _ = (src / "hello.txt").write_text("hello", encoding="utf-8")
+    ...     tar_path = Path(tmp) / "bundle.tar"
+    ...     pack_directory_to_tar(src, tar_path)
+    ...     tarfile.open(tar_path).getnames()
+    ['src', 'src/hello.txt']
 """
 
 from __future__ import annotations
@@ -56,10 +73,12 @@ _LOG = logging.getLogger(__name__)
 # ---- Local temp registry (per host) -----------------------------------------
 
 class _PerHost:
+    """ホスト単位でローカル一時パス集合を保持する内部クラス。"""
+
     __slots__ = ("temps",)
 
     def __init__(self) -> None:
-        # Collection of absolute local paths (files or dirs) to be cleaned up.
+        """絶対パスの一時ファイル群を空集合で初期化する。"""
         self.temps: Set[Path] = set()
 
 
@@ -68,6 +87,21 @@ _registry: Dict[str, _PerHost] = {}  # host -> _PerHost
 
 
 def _bucket(host: str) -> _PerHost:
+    """ホスト名に対応する内部レジストリを取得する。
+
+    Args:
+        host (str): レジストリを参照したいホスト名。
+
+    Returns:
+        _PerHost: 指定ホストの一時パス集合を格納するバケット。
+
+    Examples:
+        >>> from gm_tools import core_archive
+        >>> core_archive.cleanup_all_local_temps()
+        >>> bucket = core_archive._bucket("example-host")
+        >>> isinstance(bucket, core_archive._PerHost)
+        True
+    """
     with _lock:
         b = _registry.get(host)
         if b is None:
@@ -77,14 +111,49 @@ def _bucket(host: str) -> _PerHost:
 
 
 def register_local_temp(host: str, path: Path) -> None:
-    """Register a *local* temporary file/dir path for later cleanup (idempotent)."""
+    """ローカル一時パスを登録し、後から確実に削除できるようにする。
+
+    Args:
+        host (str): 管理対象のホスト名。
+        path (Path): 登録したいファイルまたはディレクトリのパス。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tempfile
+        >>> from gm_tools import core_archive
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     p = Path(tmp) / "temp.txt"
+        ...     _ = p.write_text("x", encoding="utf-8")
+        ...     core_archive.register_local_temp("example", p)
+        ...     core_archive.cleanup_local_temp("example")
+        ...     p.exists()
+        False
+    """
     b = _bucket(host)
     with _lock:
         b.temps.add(Path(path).resolve())
 
 
 def register_local_temps(host: str, paths: Iterable[Path]) -> None:
-    """Register multiple local temporary paths (idempotent)."""
+    """複数のローカル一時パスをまとめて登録する。
+
+    Args:
+        host (str): 管理対象のホスト名。
+        paths (Iterable[Path]): 登録したい一時パスの反復可能オブジェクト。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tempfile
+        >>> from gm_tools import core_archive
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     files = [Path(tmp) / name for name in ("a", "b")]
+        ...     for f in files:
+        ...         _ = f.write_text("x", encoding="utf-8")
+        ...     core_archive.register_local_temps("example", files)
+        ...     core_archive.cleanup_local_temp("example")
+        ...     [f.exists() for f in files]
+        [False, False]
+    """
     b = _bucket(host)
     with _lock:
         for p in paths:
@@ -92,9 +161,28 @@ def register_local_temps(host: str, paths: Iterable[Path]) -> None:
 
 
 def create_local_temp(host: str, maker: Callable[[], Path]) -> Path:
-    """
-    Helper: create a local temp via `maker()` and register it.
-    The `maker` callable should create the resource and return its absolute path.
+    """`maker()` で作成した一時パスを登録して返す補助関数。
+
+    Args:
+        host (str): 登録対象のホスト名。
+        maker (Callable[[], Path]): 一時ファイル・ディレクトリを作成しパスを返すコールバック。
+
+    Returns:
+        Path: `maker()` が作成し登録した絶対パス。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tempfile
+        >>> from gm_tools import core_archive
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     def maker() -> Path:
+        ...         p = Path(tmp) / "created.txt"
+        ...         _ = p.write_text("data", encoding="utf-8")
+        ...         return p
+        ...     created = core_archive.create_local_temp("example", maker)
+        ...     created.exists()
+        True
+        >>> core_archive.cleanup_local_temp("example")
     """
     p: Path = Path(maker()).resolve()
     register_local_temp(host, p)
@@ -102,7 +190,22 @@ def create_local_temp(host: str, maker: Callable[[], Path]) -> Path:
 
 
 def _rm_rf(path: Path) -> None:
-    """Best-effort removal of file or directory (idempotent)."""
+    """ファイルまたはディレクトリを可能な範囲で削除する。
+
+    Args:
+        path (Path): 削除対象のファイルもしくはディレクトリのパス。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tempfile
+        >>> from gm_tools.core_archive import _rm_rf
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     target = Path(tmp) / "sub"
+        ...     target.mkdir()
+        ...     _rm_rf(target)
+        ...     target.exists()
+        False
+    """
     try:
         if path.is_dir():
             shutil.rmtree(path, ignore_errors=True)
@@ -120,7 +223,23 @@ def _rm_rf(path: Path) -> None:
 
 
 def cleanup_local_temp(host: str) -> None:
-    """Delete all registered local temps for a host (idempotent)."""
+    """指定ホストに登録された一時パスを削除する。
+
+    Args:
+        host (str): 登録を解放したいホスト名。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tempfile
+        >>> from gm_tools import core_archive
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     target = Path(tmp) / "temp.txt"
+        ...     _ = target.write_text("x", encoding="utf-8")
+        ...     core_archive.register_local_temp("example", target)
+        ...     core_archive.cleanup_local_temp("example")
+        ...     target.exists()
+        False
+    """
     with _lock:
         b = _registry.get(host)
         paths: List[Path] = list(b.temps) if b is not None else []
@@ -135,7 +254,23 @@ def cleanup_local_temp(host: str) -> None:
 
 
 def cleanup_all_local_temps() -> None:
-    """Delete registered local temps for all hosts (idempotent)."""
+    """登録済みの全ホストに対する一時パスを削除する。
+
+    `cleanup_local_temp()` と同様に冪等であり、既に削除済みでも安全に呼び出せる。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tempfile
+        >>> from gm_tools import core_archive
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     files = [Path(tmp) / name for name in ("h1.txt", "h2.txt")]
+        ...     for idx, f in enumerate(files):
+        ...         _ = f.write_text("x", encoding="utf-8")
+        ...         core_archive.register_local_temp(f"host{idx}", f)
+        ...     core_archive.cleanup_all_local_temps()
+        ...     any(f.exists() for f in files)
+        False
+    """
     with _lock:
         hosts = list(_registry.keys())
     for h in hosts:
@@ -145,12 +280,25 @@ def cleanup_all_local_temps() -> None:
 # ---- Tar helpers -------------------------------------------------------------
 
 def _tar_mode_for_path(tar_path: Path) -> TarWriteMode:
-    """
-    Choose tarfile mode from extension.
-    - .tar -> 'w'
-    - .tar.gz / .tgz -> 'w:gz'
-    - .tar.xz / .txz -> 'w:xz'
-    - .tar.bz2 / .tbz2 -> 'w:bz2'
+    """拡張子から tarfile の書き込みモードを推定する。
+
+    以下の規則でモードを切り替え、該当しない場合は ``'w'`` を返す。
+    - ``*.tar`` -> ``'w'``
+    - ``*.tar.gz`` / ``*.tgz`` -> ``'w:gz'``
+    - ``*.tar.xz`` / ``*.txz`` -> ``'w:xz'``
+    - ``*.tar.bz2`` / ``*.tbz2`` -> ``'w:bz2'``
+
+    Args:
+        tar_path (Path): 作成する tar アーカイブのパス。
+
+    Returns:
+        TarWriteMode: tarfile.open で利用する書き込みモード。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> from gm_tools.core_archive import _tar_mode_for_path
+        >>> _tar_mode_for_path(Path("bundle.tar.gz"))
+        'w:gz'
     """
     name = tar_path.name.lower()
     if name.endswith(".tar.gz") or name.endswith(".tgz"):
@@ -163,7 +311,20 @@ def _tar_mode_for_path(tar_path: Path) -> TarWriteMode:
 
 
 def _tar_read_mode_for_path(tar_path: Path) -> TarReadMode:
-    """Read mode counterpart of `_tar_mode_for_path`."""
+    """拡張子から tarfile の読み取りモードを推定する。
+
+    Args:
+        tar_path (Path): 読み込みたい tar アーカイブのパス。
+
+    Returns:
+        TarReadMode: tarfile.open で使用する読み取りモード。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> from gm_tools.core_archive import _tar_read_mode_for_path
+        >>> _tar_read_mode_for_path(Path("bundle.tar.xz"))
+        'r:xz'
+    """
     name = tar_path.name.lower()
     if name.endswith(".tar.gz") or name.endswith(".tgz"):
         return "r:gz"
@@ -175,6 +336,26 @@ def _tar_read_mode_for_path(tar_path: Path) -> TarReadMode:
 
 
 def _check_abort(abort_event: Optional[threading.Event]) -> None:
+    """中断イベントがセットされていれば ``CancelledError`` を送出する。
+
+    Args:
+        abort_event (Optional[threading.Event]): 中断判定に使用するイベント。 ``None`` なら無視する。
+
+    Raises:
+        CancelledError: ``abort_event`` がセットされている場合。
+
+    Examples:
+        >>> import threading
+        >>> from gm_tools.core_archive import _check_abort
+        >>> from gm_tools.core_ssh import CancelledError
+        >>> event = threading.Event()
+        >>> _check_abort(event)
+        >>> event.set()
+        >>> _check_abort(event)
+        Traceback (most recent call last):
+        ...
+        gm_tools.core_ssh.CancelledError: operation aborted by user request
+    """
     if abort_event is not None and abort_event.is_set():
         raise CancelledError("operation aborted by user request")
 
@@ -186,10 +367,38 @@ def pack_directory_to_tar(
     arcname: Optional[str] = None,
     abort_event: Optional[threading.Event] = None,
 ) -> None:
-    """
-    Pack a directory into a tar archive (format guessed by suffix).
-    - `src_dir` must exist and be a directory.
-    - `arcname` is the archive root name (default: basename of `src_dir`).
+    """ディレクトリ全体を tar アーカイブに梱包する。
+
+    出力フォーマットは ``tar_path`` の拡張子から推測されるため、拡張子に応じた
+    圧縮方式（``.tar.gz`` など）を指定する必要がある。 ``src_dir`` は事前に存在する
+    ディレクトリでなければならず、アーカイブ内でのルート名は ``arcname`` 引数で制御する。
+
+    - ``src_dir`` は存在するディレクトリであること。
+    - ``arcname`` を省略した場合は ``src_dir`` の末尾名が使用される。
+
+    Args:
+        src_dir (Path): アーカイブ対象のディレクトリ。
+        tar_path (Path): 出力する tar アーカイブのパス。
+        arcname (Optional[str]): アーカイブ内のルート名。 ``None`` なら ``src_dir`` の末尾名。
+        abort_event (Optional[threading.Event]): 中断検出用イベント。
+
+    Raises:
+        CancelledError: 中断が要求された場合。
+        FileNotFoundError: ``src_dir`` が存在しない場合。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tarfile
+        >>> import tempfile
+        >>> from gm_tools.core_archive import pack_directory_to_tar
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     src = Path(tmp) / "src"
+        ...     src.mkdir()
+        ...     _ = (src / "hello.txt").write_text("hello", encoding="utf-8")
+        ...     tar_path = Path(tmp) / "bundle.tar"
+        ...     pack_directory_to_tar(src, tar_path)
+        ...     tarfile.open(tar_path).getnames()
+        ['src', 'src/hello.txt']
     """
     _check_abort(abort_event)
     sd = Path(src_dir)
@@ -214,10 +423,34 @@ def pack_paths_to_tar(
     base_dir: Optional[Path] = None,
     abort_event: Optional[threading.Event] = None,
 ) -> None:
-    """
-    Pack multiple paths into a tar archive.
-    - If `base_dir` is provided, archive names will be relative to it.
-    - Otherwise each entry uses its own basename as `arcname`.
+    """複数パスを 1 つの tar アーカイブに集約する。
+
+    Args:
+        paths (Iterable[Path]): アーカイブ対象のファイルまたはディレクトリ群。
+        tar_path (Path): 出力する tar アーカイブのパス。
+        base_dir (Optional[Path]): 指定時はこのディレクトリからの相対パスで格納する。
+        abort_event (Optional[threading.Event]): 中断検出用イベント。
+
+    Raises:
+        CancelledError: 中断が要求された場合。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tarfile
+        >>> import tempfile
+        >>> from gm_tools.core_archive import pack_paths_to_tar
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     base = Path(tmp) / "base"
+        ...     base.mkdir()
+        ...     files = []
+        ...     for name in ("a.txt", "b.txt"):
+        ...         p = base / name
+        ...         _ = p.write_text("x", encoding="utf-8")
+        ...         files.append(p)
+        ...     tar_path = Path(tmp) / "bundle.tar.gz"
+        ...     pack_paths_to_tar(files, tar_path, base_dir=base)
+        ...     sorted(tarfile.open(tar_path).getnames())
+        ['a.txt', 'b.txt']
     """
     _check_abort(abort_event)
     tp = Path(tar_path)
@@ -245,10 +478,34 @@ def unpack_tar_to_directory(
     *,
     abort_event: Optional[threading.Event] = None,
 ) -> None:
-    """
-    Extract a tar archive to `dst_dir` (created if missing).
-    - Format guessed by suffix (.tar, .tar.gz, .tar.xz, ...).
-    - Caller is responsible for validation and path traversal checks if needed.
+    """tar アーカイブを指定ディレクトリへ展開する。
+
+    展開先ディレクトリ ``dst_dir`` が存在しない場合は自動作成される。
+    フォーマットは ``tar_path`` の拡張子から ``.tar`` / ``.tar.gz`` / ``.tar.xz`` / ``.tar.bz2`` 等を
+    自動判定する。パストラバーサル対策や展開後の検証は呼び出し側で適切に行うこと。
+
+    Args:
+        tar_path (Path): 読み出す tar アーカイブのパス。
+        dst_dir (Path): 展開先ディレクトリ。存在しない場合は作成される。
+        abort_event (Optional[threading.Event]): 中断検出用イベント。
+
+    Raises:
+        CancelledError: 中断が要求された場合。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tempfile
+        >>> from gm_tools.core_archive import pack_directory_to_tar, unpack_tar_to_directory
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     src = Path(tmp) / "src"
+        ...     src.mkdir()
+        ...     _ = (src / "file.txt").write_text("data", encoding="utf-8")
+        ...     tar_path = Path(tmp) / "src.tar"
+        ...     pack_directory_to_tar(src, tar_path)
+        ...     dst = Path(tmp) / "dst"
+        ...     unpack_tar_to_directory(tar_path, dst)
+        ...     (dst / "src" / "file.txt").read_text(encoding="utf-8")
+        'data'
     """
     _check_abort(abort_event)
     tp = Path(tar_path)
@@ -273,13 +530,35 @@ def remote_pack_paths(
     use_sudo: bool = False,
     follow_symlinks: bool = False,
 ) -> str:
-    """
-    絶対パス群をリモートで .tar.gz にまとめ, そのリモートパスを返す。
-      1) printfでリスト作成  =>  2) tar -cf  =>  3) gzip -f  =>  4) リスト削除
-    - アーカイブ内部パスは相対 ( -Pは使わない )
-    - follow_symlinks=True なら tar フレーバに応じて symlink を dereference
-      (GNU: -h, bsdtar: -L, unknown: 警告を出しフラグなしで実行し, symlinkはリンクとして保存)
-    - use_sudo=True なら 'sudo -n' で tar/gzip を実行
+    """リモートホストで絶対パス群を ``.tar.gz`` にまとめる。
+
+    1. ``printf`` でパス一覧ファイルを作成。
+    2. ``tar`` で ``.tar`` を生成。
+    3. ``gzip`` で圧縮。
+    4. 作業ファイルを削除し、生成したアーカイブパスを返す。
+
+    Args:
+        ssh (SSHClientLike): ``paramiko.SSHClient`` 互換オブジェクト。
+        abs_paths (List[str]): 収集対象のリモート絶対パス。
+        timeout (float): コマンド実行のタイムアウト秒。
+        use_sudo (bool): ``True`` なら ``sudo -n`` 経由で実行する。
+        follow_symlinks (bool): ``True`` なら判別した tar フレーバに応じて ``--dereference`` 相当を付与する。
+
+    Returns:
+        str: 作成した ``.tar.gz`` のリモート絶対パス。
+
+    Raises:
+        ValueError: ``abs_paths`` が空の場合。
+        RuntimeError: ``tar`` または ``gzip`` の実行が失敗した場合。
+
+    Examples:
+        >>> from gm_tools.core_archive import remote_pack_paths
+        >>> class DummySSH:
+        ...     pass
+        >>> remote_pack_paths(DummySSH(), [])
+        Traceback (most recent call last):
+        ...
+        ValueError: remote_pack_paths: no paths
     """
     if not abs_paths:
         raise ValueError("remote_pack_paths: no paths")
@@ -343,11 +622,27 @@ def remote_pack_paths(
     return tgz
 
 def _safe_members(base_dir: str, members: Iterable[tarfile.TarInfo]) -> List[tarfile.TarInfo]:
-    """
-    Tar 展開のパストラバーサル対策。
-      - 絶対/ルート始まりを除外
-      - '..' バックトラックを除外
-      - 展開先が base_dir 配下に収まることを保証
+    """tar 展開時のパストラバーサル対策として安全なメンバーのみ抽出する。
+
+    - 先頭 ``/`` や ``\\`` を含む絶対パス・ルート始まりは除外する。
+    - ``..`` を含むバックトラック要素を除去する。
+    - 展開先が ``base_dir`` 配下に収まることを ``os.path.abspath`` で検証する。
+
+    Args:
+        base_dir (str): 展開先ベースディレクトリの絶対パス。
+        members (Iterable[tarfile.TarInfo]): tarfile が列挙したメンバー。
+
+    Returns:
+        List[tarfile.TarInfo]: ``base_dir`` 配下に安全に展開できるメンバー。
+
+    Examples:
+        >>> import tarfile
+        >>> from gm_tools.core_archive import _safe_members
+        >>> base = "/tmp"
+        >>> ok = tarfile.TarInfo("safe/file.txt")
+        >>> bad = tarfile.TarInfo("../evil.txt")
+        >>> [m.name for m in _safe_members(base, [ok, bad])]
+        ['safe/file.txt']
     """
     base_abs = os.path.abspath(base_dir)
     safe: List[tarfile.TarInfo] = []
@@ -373,11 +668,59 @@ def download_and_extract_tar(
     *,
     verbose: bool = False,
 ) -> Tuple[int, List[str]]:
-    """
-    リモート .tar.gz をローカルに保存し, extract_base/subdir に安全展開。
-    戻り値: (extracted_count, extracted_paths)
-      - extracted_count は「通常ファイル（GNU tar の最適化由来 hardlink のデマテリアライズ含む）」をカウント
-      - extracted_paths は tar 内の相対パス（正規化後）一覧
+    """リモート ``.tar.gz`` を取得し安全に展開する。
+
+        - リモートから ``.tar.gz`` を受信し、 ``extract_base/subdir`` に安全展開する。
+        - パストラバーサルや symlink の混入を避けるためのハードニングを適用する。
+        - GNU tar の最適化で生成される hardlink も通常ファイルとして復元する。
+        - 戻り値は ``(extracted_count, extracted_paths)`` のタプル。
+            ``extracted_count`` は通常ファイル（hardlink デマテリアライズ含む）の数、
+            ``extracted_paths`` は正規化済み相対パス一覧。
+
+    Args:
+        sftp (SFTPClientLike): ``paramiko.SFTPClient`` 互換オブジェクト。
+        remote_tar_gz (str): リモート上の ``.tar.gz`` ファイルパス。
+        extract_base (str): 展開のベースディレクトリ。
+        subdir (str): 展開先サブディレクトリ名。
+        verbose (bool): デバッグログを冗長に出す場合 ``True``。
+
+    Returns:
+        Tuple[int, List[str]]: 抽出した通常ファイル数と正規化済み相対パスの一覧。
+
+    Raises:
+        OSError: ローカルへの保存や展開で失敗した場合。
+
+    Examples:
+        >>> import shutil
+        >>> import tarfile
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> from gm_tools.core_archive import download_and_extract_tar, pack_directory_to_tar
+        >>> class DummySFTP:
+        ...     def __init__(self, source: Path) -> None:
+        ...         self.source = source
+        ...     def get(self, remote: str, local: str) -> None:
+        ...         shutil.copy(self.source, local)
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     src_dir = Path(tmp) / "src"
+        ...     src_dir.mkdir()
+        ...     _ = (src_dir / "x.txt").write_text("1", encoding="utf-8")
+        ...     tar_path = Path(tmp) / "bundle.tar.gz"
+        ...     pack_directory_to_tar(src_dir, tar_path)
+        ...     dest_base = Path(tmp) / "dest"
+        ...     sftp = DummySFTP(tar_path)
+        ...     count, rels = download_and_extract_tar(
+        ...         sftp,
+        ...         str(tar_path),
+        ...         str(dest_base),
+        ...         "extract",
+        ...     )
+        ...     count
+        1
+        >>> sorted(rels)
+        ['src/x.txt']
+        >>> (dest_base / "extract" / "src" / "x.txt").read_text(encoding="utf-8")
+        '1'
     """
 
     tmp_path = None
@@ -404,13 +747,24 @@ def download_and_extract_tar(
 
     # ---- Helpers for hardened extraction -----------------------------------
     def _normalize_archive_relpath_for_local(name: str) -> str:
-        """
-        アーカイブ内の相対パスをローカル安全名へ正規化。
-          - '\\'→'/'、先頭'/'除去
-          - 'X:/...' → 'X_/...'
-          - 連続'//'・'.' の整理
-          - Windows 禁止記号置換、末尾スペース/ドット除去、予約デバイス名回避
-          - 空要素/UNC 由来の空セグメントは '_' として保持
+        """アーカイブ内相対パスをローカル安全名に正規化する。
+
+        以下のようなハードニングを順番に適用する。
+        - ``\\`` を ``/`` に置換し、先頭 ``/`` を除去する。
+        - ``X:/`` 形式を ``X_/`` に変換して Windows ドライブ記法を無効化する。
+        - 連続する ``//`` や ``.`` の整理、および ``..`` を含む要素の除外を行う。
+        - Windows 禁止文字の置換、末尾スペース/ドットの削除、予約デバイス名からの退避を実施する。
+        - 空要素や UNC 由来の空セグメントは ``_`` として保持する。
+
+        Args:
+            name (str): tar アーカイブに記録されたエントリ名。
+
+        Returns:
+            str: OS 依存の危険要素を除去した相対パス。
+
+        Examples:
+            >>> _normalize_archive_relpath_for_local("C:/tmp/..\\evil?.txt")  # doctest: +SKIP
+            'C_/tmp/evil_.txt'
         """
         p = name.replace("\\", "/")
         p = p.lstrip("/")
@@ -444,8 +798,26 @@ def download_and_extract_tar(
         return "/".join(out)
 
     def _parent_chain_has_symlink(base_dir: str, relpath: str) -> bool:
-        """
-        親ディレクトリ連鎖に symlink が混ざっていないかを lstat で確認する。
+        """親ディレクトリにシンボリックリンクが含まれるかを確認する。
+
+        展開対象の親ディレクトリを ``os.lstat`` で順次検査し、途中にシンボリックリンクが
+        混在していないかを確認して安全な展開を保証する。
+
+        Args:
+            base_dir (str): 展開ベースディレクトリの絶対パス。
+            relpath (str): チェック対象の相対パス。
+
+        Returns:
+            bool: シンボリックリンクを検出した場合 ``True``。
+
+        Examples:
+            >>> import tempfile
+            >>> from pathlib import Path
+            >>> with tempfile.TemporaryDirectory() as tmp:  # doctest: +SKIP
+            ...     base = Path(tmp)
+            ...     (base / "dir").mkdir()
+            ...     _parent_chain_has_symlink(str(base), "dir")
+            False
         """
         base_abs = os.path.abspath(base_dir)
         cur = base_abs
@@ -594,12 +966,32 @@ def download_and_extract_tar(
 
 
 def list_tar_members_local(tar_path: str) -> Tuple[List[str], List[str]]:
-    """
-    ローカル tar.gz のメンバーをハードニングして列挙する。
-    戻り値は (regular_files, empty_dirs) のタプル。
-      - regular_files: 通常ファイルのみ ( symlink/ハードリンク/デバイス等は含めない )
-      - empty_dirs   : 空ディレクトリ ( 配下にメンバーを持たないディレクトリ )
-    いずれもアーカイブ内の相対パス ( 先頭の '/' は除去 ) で返す。
+    """ローカル tar アーカイブの通常ファイルと空ディレクトリを列挙する。
+
+    戻り値は ``(regular_files, empty_dirs)`` のタプルで、それぞれアーカイブ内の相対パス。
+    - ``regular_files`` は symlink・hardlink・特殊ファイルを除外した通常ファイルのみ。
+    - ``empty_dirs`` は配下にメンバーを持たないディレクトリのみ。
+    - 先頭 ``/`` は除去し、必要に応じて末尾 ``/`` を調整して返す。
+
+    Args:
+        tar_path (str): 読み出す tar アーカイブのパス。
+
+    Returns:
+        Tuple[List[str], List[str]]: 通常ファイル名リストと空ディレクトリ名リスト。
+
+    Examples:
+        >>> import tempfile
+        >>> from pathlib import Path
+        >>> from gm_tools.core_archive import list_tar_members_local, pack_directory_to_tar
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     src = Path(tmp) / "src"
+        ...     src.mkdir()
+        ...     _ = (src / "a.txt").write_text("A", encoding="utf-8")
+        ...     (src / "empty").mkdir()
+        ...     tar_path = Path(tmp) / "src.tar"
+        ...     pack_directory_to_tar(src, tar_path)
+        ...     list_tar_members_local(str(tar_path))
+        (['src/a.txt'], ['src/empty'])
     """
     regular_files: List[str] = []
     dirs: List[str] = []

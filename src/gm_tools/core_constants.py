@@ -1,62 +1,79 @@
-# -*- coding: utf-8 -*-
-"""
-gm_tools.core_constants
-=======================
+# -*- mode: python; coding: utf-8; line-endings: unix -*-
+# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (c) 2025 TAKEHARU KATO
+#
+# This file is distributed under the two-clause BSD license.
+# For the full text of the license, see the LICENSE file in the project root directory.
+# このファイルは2条項BSDライセンスの下で配布されています。
+# ライセンス全文はプロジェクト直下の LICENSE を参照してください。
+#
+# OpenAI's ChatGPT partially generated this code.
+# Author has modified some parts.
+# OpenAIのChatGPTがこのコードの一部を生成しました。
+# 著者が修正している部分があります。
 
-Centralized, typed constants for gm-tools.
+"""gm-tools で使用する定数群を集中管理するモジュール。
 
-Policy:
-- No magic numbers/strings in code outside this module.
-- Keep names stable; add new constants here instead of scattering literals.
-- NOTE: As requested, we *do not* use typing.Final for these constants.
+アプリケーション全域で利用される終了コード、ログ整形キー、ホスト名の正規化規則
+などを 1 箇所に定義し、他モジュールでのマジックナンバー利用を避ける。既存ポリシーに
+従い、``typing.Final`` は使用せず、定数値を変更する場合は互換性影響を考慮する。
+
+Examples:
+    >>> from gm_tools.core_constants import EXIT_OK, KEYS_PREFIX
+    >>> EXIT_OK
+    0
+    >>> 'timestamp' in KEYS_PREFIX
+    True
 """
 
 from __future__ import annotations
 from typing import Tuple
 
+# プロジェクトポリシーにより typing.Final は使用しない。
+
 # ---------------------------------------------------------------------------
-# Exit codes
+# 終了コード
 # ---------------------------------------------------------------------------
 
-#: Normal termination.
+#: 正常終了を表す終了コード。
 EXIT_OK: int = 0
 
-#: Termination due to no hosts specified.
+#: ホスト未指定により処理を打ち切る際の終了コード。
 EXIT_ERR_NO_HOSTS: int = 1
 
-#: Generic error (e.g., internal exception not mapped to specific code).
+#: 汎用エラー終了コード（個別コードへ分類できない内部例外など）。
 EXIT_ERR_GENERIC: int = 2
 
-#: Termination due to invalid tilde user in remote path.
+#: リモートパスのチルダ展開でユーザが不正だった場合の終了コード。
 EXIT_ERR_TILDE_USER: int = 3
 
-#: Termination due to invalid arguments.
+#: 引数不正で処理を打ち切る際の終了コード。
 EXIT_ERR_ARGS: int = 4
 
 # ---------------------------------------------------------------------------
-# Hosts file
+# ホストファイル
 # ---------------------------------------------------------------------------
 DEFAULT_HOSTS_FILE: str = "hostfile"
 
 # ---------------------------------------------------------------------------
-# Parallelism
+# 並列実行
 # ---------------------------------------------------------------------------
 
-#: Default parallelism for host-level execution when -j/--parallel is omitted.
+#: ``-j/--parallel`` を省略した場合に使用するホスト単位の並列数。
 DEFAULT_PARALLEL_HOSTS: int = 4
 
 # ---------------------------------------------------------------------------
-# Regex patterns
+# 正規表現パターン
 # ---------------------------------------------------------------------------
 
-# Regex pattern for sanitizing hostnames for filesystem use.
+# ファイルシステム格納用にホスト名を正規化するための正規表現。
 RE_SAFE_HOST_PTN: str = r"[^A-Za-z0-9._-]"
 
 # ---------------------------------------------------------------------------
-# Logging keys and schema
+# ログキーとスキーマ
 # ---------------------------------------------------------------------------
 
-#: Fixed-leading keys in log records (key order requirement).
+#: ログレコード先頭に必ず並ぶキー群（順序保持が必須）。
 KEYS_PREFIX: Tuple[str, ...] = (
     "timestamp",
     "level",
@@ -68,7 +85,7 @@ KEYS_PREFIX: Tuple[str, ...] = (
     "total",
 )
 
-#: Optional keys that may appear depending on context.
+#: コンテキストに応じて付加される任意キー群。
 KEYS_OPTIONAL: Tuple[str, ...] = (
     "warnings",
     "errors",
