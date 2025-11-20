@@ -20,9 +20,28 @@ doc_DATA = \
 	gm-scatter-spec.md \
 	common-spec.md
 
-dist_man_MANS = \
+dist_man1_MANS = \
 	man/gm-gather.1 \
 	man/gm-scatter.1
+
+JA_MAN1_PAGES = \
+	man/ja/gm-gather.1 \
+	man/ja/gm-scatter.1
+
+install-data-local:
+	@$(MKDIR_P) $(DESTDIR)$(mandir)/ja/man1
+	@list='$(JA_MAN1_PAGES)'; \
+	for f in $$list; do \
+		$(INSTALL_DATA) $(srcdir)/$$f $(DESTDIR)$(mandir)/ja/man1/`basename $$f`; \
+	done
+
+uninstall-local:
+	@list='$(JA_MAN1_PAGES)'; \
+	for f in $$list; do \
+		rm -f $(DESTDIR)$(mandir)/ja/man1/`basename $$f`; \
+	done
+	-@rmdir $(DESTDIR)$(mandir)/ja/man1 2>/dev/null || true
+	-@rmdir $(DESTDIR)$(mandir)/ja 2>/dev/null || true
 
 ## 配布アーカイブに含めるファイル
 EXTRA_DIST = \
@@ -47,4 +66,5 @@ EXTRA_DIST = \
 	sphinx/design/index.rst \
 	sphinx/design/modules/gm_tools.rst \
 	sphinx/design/modules/modules.rst \
-	$(dist_man_MANS)
+	$(dist_man1_MANS) \
+	$(JA_MAN1_PAGES)
