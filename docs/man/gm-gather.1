@@ -1,0 +1,117 @@
+.TH GM-GATHER 1 “2025-11-21” “gm-tools” “User Commands”
+.SH NAME
+gm-gather \- Utility to gather files from remote hosts to local
+.SH SYNOPSIS
+.B gm-gather
+\fR[\-h|\-\-help] [\-H|\-\-hosts \fIFILE\fR] [\-u|\-\-user \fIUSER\fR] [\-s|\-\-ssh-user \fIUSER\fR]
+.br
+\fR[\-P|\-\-port \fIPORT\fR] [\-K|\-\-key \fIPATH\fR] [\-W|\-\-password \fIPASS\fR] [\-T|\-\-timeout \fISEC\fR]
+.br
+\fR[\-S|\-\-strict-host-key-checking] [\-j|\-\-parallel \fIN\fR] [\-n|\-\-dry-run] [\-v|\-\-verbose]
+.br
+\fR[\-\-pack] [\-\-follow-symlinks] [\-x|\-\-sudo-collect|\-\-no-sudo-collect]
+.br
+\fRSRC... DEST
+.SH DESCRIPTION
+\fBgm-gather\fR collects regular files from multiple remote hosts listed in the host list and saves them to the specified local directory. It supports two transfer methods: sequential transfer using SSH/SFTP, and pack processing, which creates temporary archives per host for download. Logs are output in structured key=value format, allowing tracking of collected items and warning/error counts.
+.SH ARGUMENTS
+.TP
+\fBSRC...\fR
+Specifies one or more retrieval patterns. Details on literals, regular expressions, and tilde expansion are in the “Path and Regular Expression Specifications”. Invalid patterns are excluded from collection.
+.TP
+\fBDEST\fR
+The local output directory. Relative paths are converted to absolute paths relative to the current directory at execution time. `~` or `~user` formats will cause an error.
+.SH OPTIONS
+.SS Connection and Authentication
+.TP
+\fB\-H\fR, \fB\-\-hosts\fR \fIFILE\fR
+Specifies a host file listing the target hosts for operations. By default, it reads \fBhostfile\fR in the current directory.
+.TP
+\fB\-u\fR, \fB\-\-user\fR \fIUSER\fR
+The username to collect data for. Used for `~/` expansion in `SRC` and permission checks; defaults to the command execution user.
+.TP
+\fB\-s\fR, \fB\-\-ssh-user\fR \fIUSER\fR
+The username used for SSH login. If omitted, it defaults to the same as `\fB\-\-user\fR` and is used to determine whether to automatically use sudo.
+.TP
+\fB\-P\fR, \fB\-\-port\fR \fIPORT\fR
+The SSH port number. Default is 22.
+.TP
+\fB\-K\fR, \fB\-\-key\fR \fIPATH\fR
+SSH private key file. If unspecified, known keys under $HOME/.ssh/ are tried sequentially; if the SSH agent is enabled, registered keys are also used. Explicitly specify the key path to ensure public key authentication is used.
+.TP
+\fB\-W\fR, \fB\-\-password\fR \fIPASS\fR
+SSH password. Key-based authentication is recommended as passwords are logged in the shell history.
+.SS Execution Control
+.TP
+\fB\-T\fR, \fB\-\-timeout\fR \fISEC\fR
+SSH session and remote command timeout in seconds. Default is 30 seconds; uses the same value from home directory detection to archive deletion.
+.TP
+\fB\-S\fR, \fB\-\-strict-host-key-checking\fR
+Rejects unknown host keys and does not connect to hosts not in known_hosts. If omitted, automatically registers unknown keys.
+.TP
+\fB\-j\fR, \fB\-\-parallel\fR \fIN\fR
+Number of parallel processes per host. Values less than 1 are rounded up to 1. Default is 4. Processing within each host is executed sequentially.
+.TP
+\fB\-n\fR, \fB\-\-dry-run\fR
+Performs only collection plan construction and item count aggregation; does not perform transfers. Exit code is always 0.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enables additional debug logging. Also applies during dry-run mode.
+.SS Transfer Method
+.TP
+\fB\-\-pack\fR
+Creates temporary tar.gz files on the remote host per host and extracts them all at once in a single download. If omitted, performs sequential transfer using SFTP.
+.TP
+\fB\-\-follow-symlinks\fR
+\fB\-\-pack\fR When used, follows symbolic links and collects the actual files at the link destinations. Always excludes links in SFTP mode.
+.TP
+\fB\-x\fR, \fB\-\-sudo-collect\fR
+Always performs file enumeration and tar/gzip execution on pack paths using `sudo -n`.
+.TP
+\fB\-\-no-sudo-collect\fR
+Does not use sudo on the pack path. If both options are omitted, `sudo -n` is automatically enabled only when the SSH login user differs from the target user.
+.SH TRANSFER MODES
+.SS SFTP Sequential Transfer
+.PP
+Calls SFTP `get` for each collection target. Directories are included in the target list but their contents are not transferred. Local destination directories are created as needed. Complete metadata restoration is not guaranteed.
+.SS Pack Transfer
+.PP
+Creates a tar.gz per host and extracts it after download. Detects available tar commands; if `--follow-symlinks` is enabled and supported, symbolic links are treated as regular files. During extraction, path traversal is rejected; if the parent directory is a symbolic link, the item is skipped. GNU tar hard link information is restored as regular files.
+.SS Target Differences
+.TP
+Regular Files
+SFTP retrieves only those identified as regular files. Pack mode restores regular files and hard links contained within the archive.
+.TP
+Directories
+SFTP includes them in the target list but does not transfer their contents. Pack mode recreates them during extraction, skipping if the parent directory is a symbolic link.
+.TP
+Symbolic Links
+Always excluded by SFTP. Pack method only captures the link target when \fB\-\-follow-symlinks\fR is specified; if it fails, the link itself is excluded.
+.TP
+Device/FIFO/Socket
+Excluded during enumeration by SFTP; excluded during safety checks at extraction by the pack method.
+.SH EXIT STATUS
+.TP
+\fB0\fR
+Normal exit, or when executing \fB\-\-dry-run\fR.
+.TP
+\fB1\fR
+Could not obtain a valid host from the host file.
+.TP
+\fB2\fR
+Hosts with transfer errors exist.
+.TP
+\fB3\fR
+Specified a path containing `~user`.
+.TP
+\fB4\fR
+Insufficient `SRC`/`DEST`, or specified `~` alone.
+.SH SIGNALS
+.PP
+Upon receiving SIGINT or SIGTERM, does not start new host processing and notifies ongoing hosts of cancellation. After interruption, outputs warning log “Interrupt requested; cancelling remaining transfers…” and returns exit code 0 or 2 based on completion status. The termination process closes open sessions and deletes temporary directories.
+.SH LOGGING
+.PP
+Logs output fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, followed by optional keys like `warnings`, `errors`, `duration`, `seq` in key=value format. `phase` uses `start`, `processing`, `done`. Aggregate lines append `host=-` and `msg=summary`.
+.SH SEE ALSO
+.PP
+gm-gather specification (docs/gm-gather-spec.md), gm-scatter(1)

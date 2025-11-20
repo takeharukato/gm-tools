@@ -1,0 +1,130 @@
+.TH GM-SCATTER 1 “2025-11-21” “gm-tools” “User Commands”
+.SH NAME
+gm-scatter \- Utility to distribute files from a local host to multiple hosts
+.SH SYNOPSIS
+.B gm-scatter
+\fR[\-h|\-\-help] [\-H|\-\-hosts \fIFILE\fR] [\-u|\-\-user \fIUSER\fR] [\-s|\-\-ssh-user \fIUSER\fR]
+.br
+\fR[\-P|\-\-port \fIPORT\fR] [\-K|\-\-key \fIPATH\fR] [\-W|\-\-password \fIPASS\fR]
+.br
+\fR[\-T|\-\-timeout \fISEC\fR] [\-S|\-\-strict-host-key-checking]
+.br
+\fR[\-j|\-\-parallel \fIN\fR] [\-n|\-\-dry-run] [\-v|\-\-verbose]
+.br
+\fR[\-\-pack] [\-\-follow-symlinks]
+.br
+\fR[\-x|\-\-sudo-extract|\-\-no-sudo-extract] [\-\-selinux {auto|policy|ignore}]
+.br
+\fRSRC... DEST
+.SH DESCRIPTION
+\fBgm-scatter\fR distributes local files to multiple remote hosts listed in the host list. It supports switching between sequential SFTP uploads and a pack method that creates a temporary archive locally before uploading, and includes options for restoring SELinux labels, ACLs, and more.
+.SH ARGUMENTS
+.TP
+\fBSRC...\fR
+One or more local paths or regular expression patterns. Refer to the “Path and Regular Expression Specifications” section in the gm-scatter specification document for the specification method. Non-existent literals are automatically excluded.
+.TP
+\fBDEST\fR
+Remote destination directory. Relative specifications are converted relative to the target user's home directory; `~` or `~user` will result in an error.
+.SH OPTIONS
+.SS Connection and Authentication
+.TP
+\fB\-H\fR, \fB\-\-hosts\fR \fIFILE\fR
+Specifies the host file for transfer. By default, reads \fBhostfile\fR in the current directory.
+.TP
+\fB\-u\fR, \fB\-\-user\fR \fIUSER\fR
+The target user for deployment. Sudo and SELinux checks are also performed based on this user. The default is the command execution user.
+.TP
+\fB\-s\fR, \fB\-\-ssh-user\fR \fIUSER\fR
+User used for SSH login. If omitted, it defaults to \fB\-\-user\fR and is used for automatic determination of whether to use sudo in the pack path.
+.TP
+\fB\-P\fR, \fB\-\-port\fR \fIPORT\fR
+SSH port number. Default is 22.
+.TP
+\fB\-K\fR, \fB\-\-key\fR \fIPATH\fR
+SSH private key file. If unspecified, known keys in $HOME/.ssh/ are tried sequentially; if the SSH agent is enabled, registered keys are also used.
+.TP
+\fB\-W\fR, \fB\-\-password\fR \fIPASS\fR
+SSH password. Key authentication is recommended as passwords may be logged.
+.SS Execution Control
+.TP
+\fB\-T\fR, \fB\-\-timeout\fR \fISEC\fR
+SSH session and remote command timeout in seconds. Default is 30 seconds; uses a common value from home detection to cleanup after extraction.
+.TP
+\fB\-S\fR, \fB\-\-strict-host-key-checking\fR
+Rejects unknown host keys and prevents connections to servers not registered in known_hosts.
+.TP
+\fB\-j\fR, \fB\-\-parallel\fR \fIN\fR
+Number of parallel connections per host. Values less than 1 are rounded up to 1. Default is 4. Transfers are sequential within each host.
+.TP
+\fB\-n\fR, \fB\-\-dry-run\fR
+Enumerates transfer candidates and counts items without performing the actual transfer. Always returns exit code 0.
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enables verbose logging. Also applies during dry-run mode.
+.SS Transfer Methods and Permissions
+.TP
+\fB\-\-pack\fR
+Creates a temporary tar.gz locally and extracts it remotely after upload. Allows bulk placement compared to SFTP.
+.TP
+\fB\-\-follow-symlinks\fR
+Follows symbolic links during packing and includes the linked files in the archive. Always excludes links in SFTP mode.
+.TP
+\fB\-x\fR, \fB\-\-sudo-extract\fR
+Always execute pack extraction, `mkdir`, and ownership changes using `sudo -n`.
+.TP
+\fB\-\-no-sudo-extract\fR
+Do not use sudo even in pack mode. If both are omitted, sudo is used automatically in pack mode when the SSH login user and target user differ.
+.TP
+\fB\-\-selinux\fR {auto|policy|ignore}
+SELinux label restoration policy for pack mode. `auto` runs `restorecon` only on compatible hosts; `policy` errors on non-compliant hosts. `ignore` always skips.
+.SH TRANSFER MODES
+.SS SFTP Sequential Transfer
+.PP
+Calls SFTP `put` for each transfer candidate. Executes `mkdir -p` if necessary. Uses sudo only for creating parent directories when the SSH login user and target user differ. New files are owned by the SSH login user, with permissions dependent on the remote umask.
+.SS Packed Transfer
+.PP
+Uploads a locally created tar.gz and extracts it remotely. If `--sudo-extract` is enabled, performs extraction, overwriting, ownership change, permission restoration, and SELinux label reset via `sudo -n`. Symbolic links with non-existent targets are excluded during archive creation.
+.SS Target Differences
+.TP
+Regular Files
+SFTP uploads them individually and restores ownership/permissions if necessary. Pack mode extracts them collectively and restores ownership/permissions even when overwriting via temporary space.
+.TP
+Directories
+SFTP creates them as needed but does not restore attributes. Pack mode automatically creates them during extraction and uses `chown` to match the target user when sudo is used.
+.TP
+Symbolic Links
+Always excluded via SFTP and logged. Pack method includes target only when `--follow-symlinks` is used.
+.TP
+Hard Links
+Placed as individual files via SFTP. Pack method restores as regular files based on GNU tar information.
+.TP
+Devices/FIFOs/Sockets
+Excluded from candidates via SFTP. Pack method excludes them from the archive and rejects them during extraction.
+.TP
+ACL/Extended Attributes
+SFTP uses sudo to create parent directories and restores existing files only if the necessary tools are present. Pack method restores existing files if `--sudo-extract` is enabled and the tools exist.
+.SH SELINUX
+.PP
+When `--selinux` is `auto` or `policy`, reset labels for files/directories newly created or updated by the pack method on hosts where `restorecon -RF` can be executed. Do not change labels when `ignore` is specified or in SFTP mode.
+.SH EXIT STATUS
+.TP
+\fB0\fR
+Normal exit, or when executing \fB\-\-dry-run\fR.
+.TP
+\fB1\fR
+No valid hosts exist in the host file.
+.TP
+\fB2\fR
+Hosts encountered errors during transfer.
+.TP
+\fB4\fR
+Insufficient positional arguments, or `~` specified alone.
+.SH SIGNALS
+.PP
+Receiving SIGINT/SIGTERM sets an interrupt flag and prevents starting new host processing. It notifies ongoing transfers of cancellation and outputs the warning log message “Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories).” The exit code returns 0 or 2 depending on the completion status.
+.SH LOGGING
+.PP
+The log format is key=value, consisting of fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, and optional keys `warnings`, `errors`, `duration`, `seq`. Lines with `host=-` represent overall totals and append `msg=summary`.
+.SH SEE ALSO
+.PP
+gm-scatter specification (docs/gm-scatter-spec.md), gm-gather(1)
