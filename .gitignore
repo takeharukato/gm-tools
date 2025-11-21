@@ -113,6 +113,9 @@ coverage/
 .venv/
 .env/
 
+# GitHub Actions artifacts
+!.github/workflows/release.yml
+
 # sphinx build directory
 docs/sphinx/_build/
 
