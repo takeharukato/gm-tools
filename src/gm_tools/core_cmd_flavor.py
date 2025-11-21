@@ -19,7 +19,7 @@
 
 Examples:
     >>> from gm_tools.core_cmd_flavor import parse_tar_t_list_to_relpaths
-    >>> parse_tar_t_list_to_relpaths("foo/\nbar/\nfile.txt\n")
+    >>> parse_tar_t_list_to_relpaths("foo/\\nbar/\\nfile.txt\\n")
     ['foo', 'bar', 'file.txt']
 """
 
@@ -343,7 +343,7 @@ def parse_tar_t_list_to_relpaths(listing_text: str) -> List[str]:
         List[str]: 正規化した相対パス一覧。
 
     Examples:
-        >>> parse_tar_t_list_to_relpaths('dir/\nfile.txt\n')
+        >>> parse_tar_t_list_to_relpaths('dir/\\nfile.txt\\n')
         ['dir', 'file.txt']
     """
     rels: List[str] = []

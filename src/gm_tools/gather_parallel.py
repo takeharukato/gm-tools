@@ -96,7 +96,7 @@ def execute(
     Args:
         hosts (Sequence[str]): 対象ホスト名のシーケンス。
         plan (Optional[Plan]): 全ホスト共通で利用する転送計画(``Plan``)。
-        plan_per_host (Optional[Dict[str, Plan]]): ホスト別の転送計画。指定があれば ``Plan``より優先されます。
+        plan_per_host (Optional[Dict[str, Plan]]): ホスト別の転送計画。指定があれば ``Plan`` より優先されます。
         remote_root (str): リモート側のルートパス。空文字列の場合は各エントリが絶対パスを保持します。
         dest_root (_Path): ローカル側の配置ルート。
         parallel (int): 並列実行するホスト数。0 以下は 1 として扱います。

@@ -2,3 +2,4 @@ paramiko
 pytest
 sphinx
 sphinx-rtd-theme
+sphinxcontrib-napoleon

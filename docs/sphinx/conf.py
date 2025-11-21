@@ -16,6 +16,7 @@ extensions = [
     "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
+    "sphinx.ext.doctest",
 ]
 autosummary_generate = True
 autosummary_imported_members = False
@@ -26,13 +27,15 @@ autodoc_default_options = {
     "undoc-members": False,
     "show-inheritance": True,
 }
-autodoc_typehints = "description"
+autodoc_typehints = "signature"
 
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 napoleon_include_init_with_doc = True
 napoleon_use_param = True
 napoleon_use_rtype = True
+napoleon_use_ivar = True
+napoleon_attr_annotations = True
 
 templates_path = ["_templates"]
 exclude_patterns = [

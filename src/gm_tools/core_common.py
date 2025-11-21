@@ -21,7 +21,7 @@ Hosts file 形式のテキストから空行やコメントを除外したリス
 Examples:
     >>> from pathlib import Path
     >>> import tempfile
-    >>> data = '# comment\nweb01.example.com  # primary\n\nweb02.example.com\n'
+    >>> data = '# comment\\nweb01.example.com  # primary\\n\\nweb02.example.com\\n'
     >>> with tempfile.TemporaryDirectory() as tmp:
     ...     hostfile = Path(tmp) / "hosts"
     ...     _ = hostfile.write_text(data, encoding="utf-8")
@@ -51,7 +51,7 @@ def parse_hosts_file(path: str) -> List[str]:
     Examples:
         >>> from pathlib import Path
         >>> import tempfile
-        >>> content = '# heading\nweb01.example.com\nweb02.example.com  # memo\n'
+        >>> content = '# heading\\nweb01.example.com\\nweb02.example.com  # memo\\n'
         >>> with tempfile.TemporaryDirectory() as tmp:
         ...     hostfile = Path(tmp) / "hosts"
         ...     _ = hostfile.write_text(content, encoding="utf-8")
