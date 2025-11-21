@@ -37,8 +37,8 @@ rpm:
 	@mkdir -p "$(top_builddir)/dist"
 	$(DOCKER) build -f $(RPM_DOCKERFILE) -t $(RPM_IMAGE) .
 	$(DOCKER) run --rm \
-	  -v "$(top_srcdir)":/src \
-	  -v "$(top_builddir)/dist":/dist \
+	-v "$(abs_top_srcdir)":/src \
+	-v "$(abs_top_builddir)/dist":/dist \
 	  $(RPM_IMAGE)
 
 ## ----------------------------------------
@@ -48,8 +48,8 @@ deb:
 	@mkdir -p "$(top_builddir)/dist"
 	$(DOCKER) build -f $(DEB_DOCKERFILE) -t $(DEB_IMAGE) .
 	$(DOCKER) run --rm \
-	  -v "$(top_srcdir)":/src \
-	  -v "$(top_builddir)/dist":/dist \
+	-v "$(abs_top_srcdir)":/src \
+	-v "$(abs_top_builddir)/dist":/dist \
 	  $(DEB_IMAGE)
 
 ## 配布アーカイブに含めたい Docker 関連ファイル
