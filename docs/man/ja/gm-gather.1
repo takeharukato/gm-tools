@@ -185,22 +185,32 @@ UNC パスもスラッシュ区切りへ揃える。
 .TP
 デバイス/FIFO/ソケット
 \fBSFTP逐次転送\fR では列挙段階で除外し, パック転送では展開時の安全チェックで除外する。
+
 .SH EXIT STATUS
+.PP
+
 .TP
 \fB0\fR
 正常終了, または \fB\-\-dry-run\fR 実行時。
+
 .TP
 \fB1\fR
 ホストファイルから有効なホストが得られなかった。
+
 .TP
 \fB2\fR
 転送中にエラーが発生したホストが存在する。
+
 .TP
 \fB3\fR
 \fI`~user`\fR を含むパスを指定した。
+
 .TP
 \fB4\fR
 \fI`SRC`\fR/\fI`DEST`\fR が不足, または \fI`~`\fR 単独を指定した。
+
+.PP
+
 .SH シグナル受信時の動作
 .PP
 SIGINT または SIGTERM を受信すると新しいホスト処理を開始せず, 進行中のホストにはキャンセルを通知する。中断後は警告ログ "Interrupt requested; cancelling remaining transfers..." を出力し, 完了状況に応じて終了コード 0 または 2 を返す。終了処理では開いているセッションを閉じ, 一時ディレクトリを削除する。

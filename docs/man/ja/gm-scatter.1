@@ -285,18 +285,29 @@ web02.example.com    # 任意の注記 ( 例: 設置場所 )
 \fBSFTP逐次転送\fR では SELinux ラベルの変更を行わない。
 
 .SH EXIT STATUS
+
 .TP
 \fB0\fR
 正常終了, または \fB\-\-dry-run\fR 実行時。
+
 .TP
 \fB1\fR
 ホストファイルに有効なホストが存在しない。
+
 .TP
 \fB2\fR
 転送中にエラーが発生したホストが存在する。
+
+.TP
+\fB3\fR
+\fI`~user`\fR を含むパスを指定した。
+
 .TP
 \fB4\fR
 位置引数が不足した, または `~` を単独で指定した。
+
+.PP
+
 .SH シグナル受信時の動作
 .PP
 SIGINT/SIGTERM を受信すると中断フラグを立て, 新しいホスト処理を開始しない。進行中の転送にはキャンセルを通知し, 警告ログ "Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories)." を出力する。終了コードは完了状況に応じて 0 または 2 を返す。

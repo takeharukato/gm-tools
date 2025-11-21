@@ -177,12 +177,12 @@ DEST/<SANITIZED_HOST>/<REMOTE_PATH_NORMALIZED>
 
 | メッセージ (msgid) | 発生条件 | 終了コード |
 | ------------------- | -------- | ---------- |
-| `"At least one SRC and a DEST are required."` | 位置引数が不足している。 | 4 |
-| `"bare tilde is not allowed"` | `SRC` または `DEST` に `~` を単独で指定した。 | 4 |
+| `"No hosts found in hosts file."` | ホストファイルに有効なホストが存在しない。 | 1 |
 | `"tilde with username is not supported"` | `SRC` または `DEST` に `~user` 形式を指定した。 | 3 |
-| `"No hosts found in hosts file."` | ホストファイルから有効なホストが得られない。 | 1 |
+| `"bare tilde is not allowed"` | `SRC` または `DEST` に `~` を単独で指定した。 | 4 |
+| `"At least one SRC and a DEST are required."` | 位置引数が不足している。 | 4 |
 
-- 実行中の転送でエラーが発生すると, ホスト単位の集計でエラー件数が 1 以上と記録され, プロセスの終了コードは 2 になる。
+- 転送中にエラーが発生した場合は, ホスト単位の集計でエラー件数が 1 以上と記録され, プロセスの終了コードは 2 になる。
 - `--dry-run` で計画生成のみ行った場合は, 常に終了コード 0 を返す。
 
 ## シグナル受信時の動作

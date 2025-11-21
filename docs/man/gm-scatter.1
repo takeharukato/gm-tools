@@ -283,18 +283,30 @@ SFTP: Restores ACL/xattr for existing files only when sudo is used for parent di
 .PP
 
 .SH EXIT STATUS
+.PP
+
 .TP
 \fB0\fR
 Normal exit, or when \fB\-\-dry-run\fR is executed.
+
 .TP
 \fB1\fR
 No valid host exists in the host file.
+
 .TP
 \fB2\fR
 An error occurred on a host during transfer.
+
+.TP
+\fB3\fR
+Specified a path containing \fI`~user`\fR.
+
 .TP
 \fB4\fR
 Insufficient positional arguments, or `~` specified alone.
+
+.PP
+
 .SH Behavior on Signal Reception
 .PP
 Upon receiving SIGINT/SIGTERM, sets an interrupt flag and does not start new host processing. Notifies ongoing transfers of cancellation and outputs the warning log "Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories)." The exit code is 0 or 2 depending on the completion status.

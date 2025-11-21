@@ -179,22 +179,32 @@ Symbolic Links
 .TP
 Devices/FIFOs/Sockets
 \fBSFTP sequential transfer\fR excludes them during enumeration; packed transfer excludes them during the safety check at extraction.
+
 .SH EXIT STATUS
+.PP
+
 .TP
 \fB0\fR
 Normal exit, or when \fB\-\-dry-run\fR is executed.
+
 .TP
 \fB1\fR
 Could not obtain a valid host from the host file.
+
 .TP
 \fB2\fR
 Hosts with errors encountered during transfer exist.
+
 .TP
 \fB3\fR
 Specified a path containing \fI`~user`\fR.
+
 .TP
 \fB4\fR
 \fI`SRC`\fR/\fI`DEST`\fR is missing, or \fI`~`\fR was specified alone.
+
+.PP
+
 .SH Behavior upon Signal Receipt
 .PP
 Upon receiving SIGINT or SIGTERM, no new host processing is initiated, and cancellation is notified to ongoing hosts. After interruption, the warning log "Interrupt requested; cancelling remaining transfers..." is output, and exit code 0 or 2 is returned based on completion status. Termination processing closes open sessions and deletes temporary directories.
