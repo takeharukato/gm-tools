@@ -103,23 +103,26 @@ def check_xattr_tools_available(ssh: SSHClientLike) -> bool:
 
 
 def stat_owner_group_mode(ssh: SSHClientLike, path: str, *, use_sudo: bool) -> Tuple[str, str, int]:
-    """パスの所有者・グループ・モード(8進数)を取得します。
+    """stat コマンドでファイルの所有者・グループ・モードを取得する。
 
-    ``stat`` コマンドを ``stat -c '%U:%G:%a'`` 形式で呼び出し,
-    リモートホスト上の対象パスから所有者・グループ名およびモード(8進数)を取得します。
+    ``stat -c '%U:%G:%a'`` を実行して取得した文字列を分解し、呼び出し側が再設定できる
+    形式に整形します。
+
+    - ``use_sudo=True`` の場合は ``sudo`` 経由で ``stat`` を呼び出します。
+    - コマンド失敗時は ``("", "", 0)`` を返し、呼び出し側で処理継続の可否を判断します。
 
     Args:
-        ssh (SSHClientLike): リモートで ``stat`` を実行する Paramiko 互換クライアント。
-        path (str): リモートホスト上で調査する絶対パスまたは相対パス。
-        use_sudo (bool): ``True`` の場合は ``sudo`` 経由で ``stat`` を実行します。
+        ssh (SSHClientLike): ``stat`` を実行する Paramiko 互換クライアント。
+        path (str): 属性を調査する対象パス。
+        use_sudo (bool): ``True`` の場合 ``sudo`` 経由で ``stat`` を呼び出します。
 
     Returns:
-        Tuple[str, str, int]: ``(owner, group, mode)`` のタプル。モードは 8 進数を整数に変換した値。
+        Tuple[str, str, int]: ``(所有者, グループ, モード値)``。モードは 8 進表記を整数に変換した値。
 
     Examples:
         >>> from unittest.mock import patch
         >>> def fake_run(_ssh, argv, timeout):
-        ...     return (0, 'root:wheel:755\n', '')
+        ...     return (0, 'root:wheel:755\\n', '')
         >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
         ...     stat_owner_group_mode(object(), '/tmp/demo', use_sudo=False)
         ('root', 'wheel', 493)
@@ -236,28 +239,28 @@ def capture_acl_dump(
     *,
     use_sudo: bool,
 ) -> Optional[str]:
-    """ファイルの Access Control List (ACL) を ``getfacl`` の出力形式でダンプし, リモートホスト上に保存します。
+    """Access Control List のダンプをリモートホスト上の一時ファイルへ保存する。
 
-    - ``mktemp`` を用いて ``{dump_dir}/{ACL_MKTEMP_TEMPLATE}`` 形式の一時ファイルを確保したうえで,
-      ``getfacl`` に ``-p``/``--absolute-names`` を付与して絶対パスを保持したダンプを作成します。
-      このダンプは ``setfacl --restore`` で直接復元できる内容です。
-    - ``mktemp`` や ``getfacl`` の呼び出しが失敗した場合 (コマンドがリモートホストに無い, 実行権限が無い, 対象パスにアクセスできない等),
-       例外ではなく ``None`` を返して呼び出し側に処理を委ねます(ダンプファイルの削除は呼び出し側の責任で実施する想定です)。
-    - 復元後に ``rm`` などでダンプファイルを削除する責務を呼び出し側が負います。
-    - ``getfacl`` が利用可能であることを :func:`check_acl_tools_available` などで事前に確認してから呼び出してください。
+    ``mktemp`` で確保した一時ファイルに対して ``getfacl`` を実行し、後続の ``setfacl`` 復元に
+    利用できるダンプを生成します。
+
+    - ``mktemp`` を用いて ``{dump_dir}/{ACL_MKTEMP_TEMPLATE}`` 形式の一時ファイルを確保します。
+    - ``getfacl`` に ``-p`` と ``--absolute-names`` を指定して絶対パスを保持したダンプを採取します。
+    - コマンドが失敗した場合は ``None`` を返し、呼び出し側でフォールバック処理を判断します。
+    - 生成したダンプファイルの削除は呼び出し側の責務です。
 
     Args:
         ssh (SSHClientLike): ``getfacl`` を実行する Paramiko 互換クライアント。
         path (str): ACL を抽出する対象パス。
-        dump_dir (str): ``mktemp`` でダンプファイルを生成するディレクトリ。
+        dump_dir (str): ``mktemp`` を実行する一時ディレクトリ。
         use_sudo (bool): ``True`` の場合 ``sudo`` 経由で ``getfacl`` を実行します。
 
     Returns:
-        Optional[str]: ダンプファイルの絶対パス。失敗時は ``None``。
+        Optional[str]: 成功時はダンプファイルの絶対パス、失敗時は ``None``。
 
     Examples:
         >>> from unittest.mock import patch
-        >>> responses = [(0, '/tmp/acl.ABC\n', ''), (0, '', '')]
+        >>> responses = [(0, '/tmp/acl.ABC\\n', ''), (0, '', '')]
         >>> def fake_run(_ssh, argv, timeout):
         ...     return responses.pop(0)
         >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
@@ -343,26 +346,28 @@ def capture_xattr_dump(
     *,
     use_sudo: bool,
 ) -> Optional[str]:
-    """拡張属性を ``getfattr`` の出力形式でダンプし, リモートホスト上に保存します。
+    """拡張属性ダンプをリモートホスト上の一時ファイルへ保存する。
 
-    - ``mktemp`` を用いて ``{dump_dir}/{XATTR_MKTEMP_TEMPLATE}`` 形式の一時ファイルを確保し, ``getfattr`` に ``-h`` と ``--absolute-names`` を付けて絶対パスを保持したダンプを作成します。この形式は ``setfattr --restore`` でそのまま復元できます。
-    - ``mktemp`` や ``getfacl`` の呼び出しが失敗した場合 (コマンドがリモートホストに無い, 実行権限が無い, 対象パスにアクセスできない等),
-       例外ではなく ``None`` を返して呼び出し側に処理を委ねます(ダンプファイルの削除は呼び出し側の責任で実施する想定です)。
-    - 復元後に ``rm`` などでダンプファイルを削除する責務を呼び出し側が負います。
-    - ``getfattr`` が利用可能であることを :func:`check_xattr_tools_available` などで事前に確認してから呼び出してください。
+    ``mktemp`` で一時ファイルを確保し、``getfattr`` を実行して ``setfattr --restore`` で再適用
+    できる形式のダンプを生成します。
+
+    - ``mktemp`` を使って ``{dump_dir}/{XATTR_MKTEMP_TEMPLATE}`` 形式の一時ファイルを確保します。
+    - ``getfattr`` に ``-h`` および ``--absolute-names`` を指定して絶対パスを保持したダンプを採取します。
+    - コマンドが失敗した場合は ``None`` を返し、呼び出し側にフォールバック処理を委ねます。
+    - 生成したダンプファイルの削除は呼び出し側の責務です。
 
     Args:
         ssh (SSHClientLike): ``getfattr`` を実行する Paramiko 互換クライアント。
         path (str): xattr を抽出する対象パス。
-        dump_dir (str): ``mktemp`` でダンプファイルを生成するディレクトリ。
+        dump_dir (str): ``mktemp`` を実行する一時ディレクトリ。
         use_sudo (bool): ``True`` の場合 ``sudo`` 経由で ``getfattr`` を実行します。
 
     Returns:
-        Optional[str]: ダンプファイルの絶対パス。取得できない場合は ``None``。
+        Optional[str]: 成功時はダンプファイルの絶対パス、失敗時は ``None``。
 
     Examples:
         >>> from unittest.mock import patch
-        >>> responses = [(0, '/tmp/xattr.ABC\n', ''), (0, '', '')]
+        >>> responses = [(0, '/tmp/xattr.ABC\\n', ''), (0, '', '')]
         >>> def fake_run(_ssh, argv, timeout):
         ...     return responses.pop(0)
         >>> with patch('gm_tools.core_xattr.run_remote_cmd_capture', side_effect=fake_run):
