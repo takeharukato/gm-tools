@@ -14,8 +14,8 @@
 
 """gather/scatter で共有するパス正規化ユーティリティ群。
 
-ホームディレクトリ展開、正規表現を含む SRC トークンの解釈、Windows/UNIX の
-パス差異吸収などをまとめて提供する。CLI から直接利用する際は、このモジュール
+ホームディレクトリ展開, 正規表現を含む SRC トークンの解釈, Windows/UNIX の
+パス差異吸収などをまとめて提供する。CLI から直接利用する際は, このモジュール
 を import して個別関数を呼び出す。
 
 Examples:
@@ -83,11 +83,11 @@ def _sanitize_remote_abs_for_local(remote_abs_path: str) -> str:
 
     変換時は以下のルールで安全化する。
     - バックスラッシュをスラッシュに統一する。
-    - 先頭スラッシュ 1 本は単純に除去し、"//" 以上は先頭に ``"_"`` を立てる。
+    - 先頭スラッシュ 1 本は単純に除去し, "//" 以上は先頭に ``"_"`` を立てる。
     - Windows ドライブレター ``"X:/"`` は ``"X_/"`` に置き換える。
     - 中間の空セグメント ``"//"`` は ``"_"`` に置換する。
-    - 末尾の ``"/"`` は除去し、末尾に ``"_"`` は付けない。
-    - 禁止記号 ( ``<>:"\\|?*`` ) を ``"_"`` に置換し、末尾のスペース・ドットを削る。
+    - 末尾の ``"/"`` は除去し, 末尾に ``"_"`` は付けない。
+    - 禁止記号 ( ``<>:"\\|?*`` ) を ``"_"`` に置換し, 末尾のスペース・ドットを削る。
     - Windows 予約デバイス名は ``"_"`` を接頭して安全化する。
     - すべて空になった場合は ``"_"`` を返す。
 
@@ -230,7 +230,7 @@ def tilde_username(s: str) -> Optional[str]:
         s (str): 判定対象の文字列。
 
     Returns:
-        Optional[str]: ``"~user"`` 形式であれば ``"user"``、該当しない場合は ``None``。
+        Optional[str]: ``"~user"`` 形式であれば ``"user"``, 該当しない場合は ``None``。
 
     Examples:
         >>> tilde_username('~alice/project')
@@ -272,7 +272,7 @@ def local_path_for_download(dest_dir: str, host: str, remote_abs_path: str) -> s
     ルートを指す。
 
     保存先は ``DEST/<HOST>/<relative>`` の形式に正規化される。
-    例えば ``dest_dir="/tmp/out"``、 ``host="node1"``、 ``remote_abs_path="/etc/hosts"``
+    例えば ``dest_dir="/tmp/out"``,  ``host="node1"``,  ``remote_abs_path="/etc/hosts"``
     の場合は ``"/tmp/out/node1/etc/hosts"`` を返す。
 
     Args:
@@ -303,18 +303,18 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
     - ``"~/"`` から始まる場合は ``ホームディレクトリの絶対パス`` に接続する。
     - ``"/"`` で始まる UNIX 絶対パスはそのまま。
     - Windows ドライブレター始まりは ``"C:/"`` 形式に統一する。
-    - 相対表現は ``ホームディレクトリの絶対パス`` 配下へ連結し、 ``".."`` による逸脱を禁止する。
-    - バックスラッシュや ``"./"``、 ``"//"`` は正規化するが、正規表現メタ部は保持する。
+    - 相対表現は ``ホームディレクトリの絶対パス`` 配下へ連結し,  ``".."`` による逸脱を禁止する。
+    - バックスラッシュや ``"./"``,  ``"//"`` は正規化するが, 正規表現メタ部は保持する。
 
     安全化:
-        - ``".."`` セグメントは事前に検出し、ホームディレクトリの絶対パスからの逸脱を防ぐ。
-        - Windows ドライブレターのバリエーションは ``"C:/"`` 形式へ統一し、パスの揺らぎを抑える。
+        - ``".."`` セグメントは事前に検出し, ホームディレクトリの絶対パスからの逸脱を防ぐ。
+        - Windows ドライブレターのバリエーションは ``"C:/"`` 形式へ統一し, パスの揺らぎを抑える。
 
     備考:
-        - 正規表現メタ文字以降の tail 部は無改変で返すため、呼び出し元でのパターン解釈がそのまま維持される。
-        - ``ホームディレクトリの絶対パス`` は CLI 側で安全に決定済みであり、本関数は追加のファイル存在確認を行わない。
+        - 正規表現メタ文字以降の tail 部は無改変で返すため, 呼び出し元でのパターン解釈がそのまま維持される。
+        - ``ホームディレクトリの絶対パス`` は CLI 側で安全に決定済みであり, 本関数は追加のファイル存在確認を行わない。
 
-    例えば ``src="~/logs/*.log"``、 ``ホームディレクトリの絶対パス="/home/collect"`` の場合は
+    例えば ``src="~/logs/*.log"``,  ``ホームディレクトリの絶対パス="/home/collect"`` の場合は
     ``"/home/collect/logs/*.log"`` に展開される。また Windows 形式の
     ``"C\\Temp\\*.txt"`` は ``"C:/Temp/*.txt"`` へと正規化される。
 
@@ -337,7 +337,7 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
         'C:/Temp'
     """
     s = src
-    # 1) tilde-self（tail を壊さない：そのまま連結）
+    # 1) tilde-self ( tail を壊さない : そのまま連結 )
     if s.startswith('~/'):
         return home_abs_for_tilde.rstrip('/') + '/' + s[2:]
     # 2) Windows drive abs
@@ -345,19 +345,19 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
         drive = s[:2]                # 'C:'
         rest = s[2:].replace('\\', '/')
         return drive + rest          # 'C:/...'
-    # 3) UNIX abs（そのまま返す：tail の regex を保存）
+    # 3) UNIX abs ( そのまま返す : tail の regex を保存 )
     if s.startswith('/'):
         return s
 
     # 4) relative : anchor to home_abs_for_tilde
-    #    正規表現 tail を壊さないため、最初のメタ以降は **無改変**で保持し、
-    #    メタ以前（パス部）のみを正規化する。
+    #    正規表現 tail を壊さないため, 最初のメタ以降は **無改変**で保持し,
+    #    メタ以前 ( パス部 ) のみを正規化する。
     m = CORE_PATH_HANDLING_REGEX_META_COMPILED.search(s)
     cut = m.start() if m else len(s)
-    head_rel_raw = s[:cut]          # パス部（相対）
-    tail_rel_raw = s[cut:]          # 正規表現部（無改変）
+    head_rel_raw = s[:cut]          # パス部 ( 相対 )
+    tail_rel_raw = s[cut:]          # 正規表現部 ( 無改変 )
 
-    # パス部の正規化：'./' 折り畳み、'//' 1 本化、'\'
+    # パス部の正規化 : './' 折り畳み, '//' 1 本化, '\'
     head_rel = head_rel_raw.replace('\\', '/')
     head_rel = RE_REL_LEADING_DOT.sub("", head_rel)
     head_rel = RE_MULTI_SLASH.sub("/", head_rel).lstrip("/")
@@ -369,7 +369,7 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
             raise ValueError(f"Relative SRC escapes HOME: {src!r}")
     head_clean = "/".join(parts)
 
-    # 連結（head が空なら HOME 直下に tail をぶら下げる）
+    # 連結 ( head が空なら HOME 直下に tail をぶら下げる )
     base = (home_abs_for_tilde.rstrip('/') or '/')
     if head_clean:
         return base + '/' + head_clean + tail_rel_raw
@@ -379,16 +379,16 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
 def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
     """絶対パスパターンを列挙用の root と tail に分割する。
 
-    メタ文字を含まない場合は ``root, '^basename$'`` を返し、メタ文字を含む場合は
-    最初のメタ文字直前でディレクトリを分離した上で、残りを tail として返却する。
+    メタ文字を含まない場合は ``root, '^basename$'`` を返し, メタ文字を含む場合は
+    最初のメタ文字直前でディレクトリを分離した上で, 残りを tail として返却する。
 
     ルール:
-        - Windows ドライブ始まり ``"C:/"`` は ``root="C:/"`` に固定し、残りを tail とする。
-        - メタ文字を含まないリテラルは末尾の ``"/"`` で分割し、basename に ``^...$`` を付与する。
-        - メタ文字を含む場合は最初のメタの直前で ``root`` と ``tail`` を分離し、tail は無改変で返す。
+        - Windows ドライブ始まり ``"C:/"`` は ``root="C:/"`` に固定し, 残りを tail とする。
+        - メタ文字を含まないリテラルは末尾の ``"/"`` で分割し, basename に ``^...$`` を付与する。
+        - メタ文字を含む場合は最初のメタの直前で ``root`` と ``tail`` を分離し, tail は無改変で返す。
 
     注意:
-        - 入力は ``normalize_src_abs()`` 済みであることを前提としており、本関数は追加の正規化を行わない。
+        - 入力は ``normalize_src_abs()`` 済みであることを前提としており, 本関数は追加の正規化を行わない。
         - ``tail`` が空の場合は ``r".*"`` を返して「ディレクトリ直下すべて」を表現する。
 
     Args:
@@ -572,8 +572,8 @@ def scatter_expand_tilde_for_exec_user(raw: str) -> str:
     """scatter 用に ``~/`` を実行ユーザーの HOME に展開する。
 
     注意:
-        - ``"~user"`` 形式は scatter の仕様上サポートしないため、本関数は ``ValueError`` を送出して早期に拒否する。
-        - 本関数では、素の ``"~"`` も ``os.path.expanduser('~')`` により展開され、結果的に ``"~/"`` 指定と同じホームディレクトリへ解決される。
+        - ``"~user"`` 形式は scatter の仕様上サポートしないため, 本関数は ``ValueError`` を送出して早期に拒否する。
+        - 本関数では, 素の ``"~"`` も ``os.path.expanduser('~')`` により展開され, 結果的に ``"~/"`` 指定と同じホームディレクトリへ解決される。
         - 素の ``"~"`` の扱いをホームディレクトリに変換しない場合の処理は本関数外で実施すること。
 
     Args:
@@ -614,8 +614,8 @@ def normalize_rel_for_dest(rel: str) -> str:
     ここで言う ``DEST`` は scatter CLI の位置引数 ``DEST`` で指定されるリモート配置ルートを指す。
 
     - ``"\\"`` を ``"/"`` に統一する。
-    - 先頭 ``"./"`` を折り畳み、 ``"//"`` を 1 本化する。
-    - 先頭 ``"/"`` を除去し、絶対パスを相対パスへ変換する。
+    - 先頭 ``"./"`` を折り畳み,  ``"//"`` を 1 本化する。
+    - 先頭 ``"/"`` を除去し, 絶対パスを相対パスへ変換する。
     - ``".."`` による CWD 逸脱を検出すると ``ValueError`` を送出する。
 
     Args:
@@ -740,7 +740,7 @@ def resolve_token_for_scatter(token: ScatterSrcToken, cwd: Optional[str] = None)
         cwd (Optional[str]): 相対パス解決に使う基準ディレクトリ。 ``None`` なら ``os.getcwd()``。
 
     Returns:
-        ScatterResolvedToken: 絶対パス、DEST 相対パス、絶対指定かどうかの情報を持つレコード。
+        ScatterResolvedToken: 絶対パス, DEST 相対パス, 絶対指定かどうかの情報を持つレコード。
 
     Raises:
         ValueError: ``~user`` 形式や Windows 絶対パスが非対応 OS 上で指定された場合など。
@@ -781,7 +781,7 @@ def looks_like_regex(text: str) -> bool:
     """正規表現メタ文字を含むかの軽量判定を行う。
 
     ``CORE_PATH_HANDLING_REGEX_META_CHARS`` に含まれるいずれかの文字が ``text`` に
-    現れた時点で「正規表現と推測できる」と見なし ``True`` を返し、1 文字も含まれない
+    現れた時点で「正規表現と推測できる」と見なし ``True`` を返し, 1 文字も含まれない
     場合は ``False`` を返す。
 
     Args:

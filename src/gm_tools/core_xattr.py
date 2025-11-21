@@ -13,9 +13,9 @@
 # 著者が修正している部分があります。
 """ACL/xattr 情報をリモートで取得・復元するためのユーティリティ群です。
 
-ACL と拡張属性 (xattr) を `getfacl`/`setfacl` および `getfattr`/`setfattr` コマンドで操作し、
+ACL と拡張属性 (xattr) を `getfacl`/`setfacl` および `getfattr`/`setfattr` コマンドで操作し,
 現在の所有者・グループ・モードを取得/復元する共通処理も提供します。各関数は Paramiko 互換
-SSH クライアントを介してコマンドを実行し、ダンプファイルを作成/適用するライフサイクルを
+SSH クライアントを介してコマンドを実行し, ダンプファイルを作成/適用するライフサイクルを
 簡潔に扱えるようにします。
 """
 
@@ -45,7 +45,7 @@ def check_acl_tools_available(ssh: SSHClientLike) -> bool:
         ssh (SSHClientLike): リモートコマンドを実行するための Paramiko 互換クライアント。
 
     Returns:
-        bool: ``getfacl`` と ``setfacl`` の両方が見つかれば ``True``、不足していれば ``False``。
+        bool: ``getfacl`` と ``setfacl`` の両方が見つかれば ``True``, 不足していれば ``False``。
 
     Examples:
         >>> from unittest.mock import patch
@@ -77,7 +77,7 @@ def check_xattr_tools_available(ssh: SSHClientLike) -> bool:
         ssh (SSHClientLike): リモートコマンドを実行するための Paramiko 互換クライアント。
 
     Returns:
-        bool: ``getfattr`` と ``setfattr`` の両方が見つかれば ``True``、不足していれば ``False``。
+        bool: ``getfattr`` と ``setfattr`` の両方が見つかれば ``True``, 不足していれば ``False``。
 
     Examples:
         >>> from unittest.mock import patch
@@ -105,7 +105,7 @@ def check_xattr_tools_available(ssh: SSHClientLike) -> bool:
 def stat_owner_group_mode(ssh: SSHClientLike, path: str, *, use_sudo: bool) -> Tuple[str, str, int]:
     """パスの所有者・グループ・モード(8進数)を取得します。
 
-    ``stat`` コマンドを ``stat -c '%U:%G:%a'`` 形式で呼び出し、
+    ``stat`` コマンドを ``stat -c '%U:%G:%a'`` 形式で呼び出し,
     リモートホスト上の対象パスから所有者・グループ名およびモード(8進数)を取得します。
 
     Args:

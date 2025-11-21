@@ -2,7 +2,7 @@
 
 ## 概要
 
-gm-tools は複数ホスト間でのファイル収集・配布を支援する `gm-gather` と `gm-scatter` を提供するツールセットです。SSH 経由での転送を標準とし、ログの構造化出力や国際化対応など運用現場向けの機能を備えています。
+gm-tools は複数ホスト間でのファイル収集・配布を支援する `gm-gather` と `gm-scatter` を提供するツールセットです。SSH 経由での転送を標準とし, ログの構造化出力や国際化対応など運用現場向けの機能を備えています。
 
 使用方法の詳細は, [gm-gather 仕様](docs/gm-gather-spec.md), および, [gm-scatter 仕様](docs/gm-scatter-spec.md)を参照ください。
 
@@ -46,7 +46,7 @@ make install
 
 `po`ディレクトリでは, 以下のmake ターゲットが定義されています。
 
-- `make update-po` POT ファイル (`gm-tools.pot`) の再生成と各言語 PO ファイル (`*.po`) へのマージ、さらに `.gmo` ( バイナリ辞書 ) を更新します。
+- `make update-po` POT ファイル (`gm-tools.pot`) の再生成と各言語 PO ファイル (`*.po`) へのマージ, さらに `.gmo` ( バイナリ辞書 ) を更新します。
 
 - `make gm-tools.pot-update` POT ファイルだけを再生成します ( make update-po 内部でも呼び出されます ) 。
 - `make update-gmo` 既存の PO から .gmo を作り直します。PO を手で編集した後に mo ファイルだけ再生成したい場合に使えます。

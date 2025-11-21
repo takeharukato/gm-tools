@@ -12,7 +12,7 @@
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
 """
-SELinux の検出、テスト用ディレクトリ構築、属性スナップショット取得を行うユーティリティ。
+SELinux の検出, テスト用ディレクトリ構築, 属性スナップショット取得を行うユーティリティ。
 
 Notes:
 - リモートでの SSH / sudo 実行によりファイルシステムを変更する副作用があります。
@@ -56,7 +56,7 @@ def get_selinux_mode(cfg: Config, host: str) -> str:
 
 def ensure_dirs_for_case(cfg: Config, host: str, base: str, owner_user: str) -> None:
     """
-    ケース用のベースディレクトリを再作成し、所有者を設定します。
+    ケース用のベースディレクトリを再作成し, 所有者を設定します。
 
     Args:
     - cfg (Config): 実行時構成。

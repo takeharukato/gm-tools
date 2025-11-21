@@ -14,7 +14,7 @@
 
 """転送処理の結果を集約・照会するレポートユーティリティ群。
 
-gather/scatter の計画フェーズおよび転送フェーズで発生した各項目を追跡し、
+gather/scatter の計画フェーズおよび転送フェーズで発生した各項目を追跡し,
 失敗のグルーピングなどレポート用途の抽出を提供する。必要に応じて Null Object
 として扱える ``NullTransferReport`` も備える。
 """
@@ -156,7 +156,7 @@ class TransferReport:
         """失敗した項目をリモートパスごとにホスト一覧へ集計する。
 
         Returns:
-            Dict[str, List[str]]: ``remote_path`` をキーに、失敗したホストを配列でまとめた辞書。
+            Dict[str, List[str]]: ``remote_path`` をキーに, 失敗したホストを配列でまとめた辞書。
 
         Examples:
             >>> report = TransferReport()
@@ -179,7 +179,7 @@ class NullTransferReport(TransferReport):
     メソッドはすべて空の結果を返す。
     """
 
-    # items は使わないが、親クラスとの互換性維持のため属性は保持する
+    # items は使わないが, 親クラスとの互換性維持のため属性は保持する
     def __init__(self) -> None:
         """空の項目リストで初期化する。"""
 

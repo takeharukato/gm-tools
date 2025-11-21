@@ -14,11 +14,11 @@
 # 著者が修正している部分があります。
 #
 # tests/tests_py/runner_step4.py
-# Step4 smoke/regression runner（共通フレームワーク統合版）
+# Step4 smoke/regression runner ( 共通フレームワーク統合版 )
 # - ssh呼び出し順序は「ssh <opts> -- user@host <argv...>」で統一
 # - 「~」展開は使わず getent passwd で得た絶対パスを使用
-# - gather の SRC 相対解釈（-u のホーム相対）
-# - scatter の DEST は「絶対パス推奨」。相対はリモート HOME 基準に解決（dry-run も受理）
+# - gather の SRC 相対解釈 ( -u のホーム相対 )
+# - scatter の DEST は「絶対パス推奨」。相対はリモート HOME 基準に解決 ( dry-run も受理 )
 # - Ubuntu 側の SELinux=auto は「対応していなければ成功扱いでスキップ」
 # - Alma 側は getenforce の結果を報告
 from __future__ import annotations
@@ -48,11 +48,11 @@ from .test_common_paths import walk_find_first, as_posix_rel
 
 from .test_common_hosts import write_temp_hosts as _write_temp_hosts
 
-# 収集用グローバル（ベストエフォート）
+# 収集用グローバル ( ベストエフォート )
 _STEP4_PREFLIGHT_CMDS: List[str] = []
 
 def cleanup_local_temps(cfg: Config) -> None:
-    # 共有のクリーンアップ関数に委譲（Step4は相対作業ディレクトリも併せて削除）
+    # 共有のクリーンアップ関数に委譲 ( Step4は相対作業ディレクトリも併せて削除 )
     _cleanup_local_temps(cfg, rel_dirs=["nf_rel", "nonpack_rel_dir", "sc_layout_rel_src"])
 
 
@@ -115,7 +115,7 @@ def _prepare_remote_sample_tree(cfg: Config, host: str, user: str, rel_root_name
 
 def _preflight(cfg: Config) -> None:
     """
-    sudo/NOPASSWD チェックと作業領域の準備、/tmp/gm_pack_case の生成（pack ケース用）。
+    sudo/NOPASSWD チェックと作業領域の準備, /tmp/gm_pack_case の生成 ( pack ケース用 ) 。
     """
     i: int = 0
     n: int = len(cfg.hosts_both)
@@ -135,7 +135,7 @@ def _preflight(cfg: Config) -> None:
             ["chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", cfg.remote_dest_root]
         )
         assert_rc(f"{h}: chown remote_dest_root", r4.rc, expect_zero=True)
-        # 収集（ベストエフォート）
+        # 収集 ( ベストエフォート )
         try:
             _STEP4_PREFLIGHT_CMDS.append(f"{h}: sudo -V")
             _STEP4_PREFLIGHT_CMDS.append(f"{h}: sudo -n true")
@@ -185,7 +185,7 @@ def is_selinux_available(cfg: Config, host: str) -> Tuple[bool, str]:
     """
     SELinux 可否とモード:
       - getenforce が失敗 or 空文字 or "Disabled": (False, "")
-      - それ以外（Permissive/Enforcing）: (True, mode)
+      - それ以外 ( Permissive/Enforcing ) : (True, mode)
     """
     r: CommandResult = _ssh_run_common(cfg, host, ["getenforce"])
     if r.rc != 0:
@@ -198,7 +198,7 @@ def is_selinux_available(cfg: Config, host: str) -> Tuple[bool, str]:
 
 def case_selinux_auto_ubuntu_skip(cfg: Config) -> CaseResult:
     """
-    Ubuntu 側（SELinux 非対応）で --selinux auto を指定した scatter の dry-run を成功として扱い、
+    Ubuntu 側 ( SELinux 非対応 ) で --selinux auto を指定した scatter の dry-run を成功として扱い,
     ただし「対応していないため skip」判定を併記する。
     """
     name: str = "selinux_auto_ubuntu_skip"
@@ -252,14 +252,14 @@ def case_selinux_mode_alma(cfg: Config) -> CaseResult:
 
 
 # =========================
-# パス解釈（roundtrip）ケース
+# パス解釈 ( roundtrip ) ケース
 # =========================
 
 def case_path_semantics(cfg: Config) -> CaseResult:
     """
-    gather: (Ubuntu) ~/<rel_root>/src (ターゲットユーザのホームディレクトリ絶対パス)→ ローカル
-    scatter: (Alma)   ローカル → /tmp/gm_step4_dest_round（絶対パス）
-    いずれも --follow-symlinks と -n（dry-run）で Plan の生成だけを確認。
+    gather: (Ubuntu) ~/<rel_root>/src (ターゲットユーザのホームディレクトリ絶対パス) =>  ローカル
+    scatter: (Alma)   ローカル  =>  /tmp/gm_step4_dest_round ( 絶対パス )
+    いずれも --follow-symlinks と -n ( dry-run ) で Plan の生成だけを確認。
     """
     name: str = "path_semantics_roundtrip"
 
@@ -313,7 +313,7 @@ def case_path_semantics(cfg: Config) -> CaseResult:
     )
 
 # ---------------------------------------------------------------------------
-# 1) gather の SRC が「/」始まりの絶対パスで受理される（dry-run）
+# 1) gather の SRC が「/」始まりの絶対パスで受理される ( dry-run )
 # ---------------------------------------------------------------------------
 
 def case_gather_src_abs_slash_ok(cfg: Config) -> CaseResult:
@@ -354,7 +354,7 @@ def case_gather_src_abs_slash_ok(cfg: Config) -> CaseResult:
 
 
 # ---------------------------------------------------------------------------
-# 2) gather の SRC が「~/...」で受理され、ホームに展開される（dry-run）
+# 2) gather の SRC が「~/...」で受理され, ホームに展開される ( dry-run )
 # ---------------------------------------------------------------------------
 
 def case_gather_src_abs_tilde_ok(cfg: Config) -> CaseResult:
@@ -396,12 +396,12 @@ def case_gather_src_abs_tilde_ok(cfg: Config) -> CaseResult:
 
 
 # ---------------------------------------------------------------------------
-# 3) gather の SRC が 相対パスの場合、-u のホーム相対として解釈される
+# 3) gather の SRC が 相対パスの場合, -u のホーム相対として解釈される
 # ---------------------------------------------------------------------------
 
 def case_gather_src_rel_home_ok(cfg: Config) -> CaseResult:
     """
-    仕様: 相対SRCは -u のリモートHOME基準で受理される（HOME逸脱不可）。
+    仕様: 相対SRCは -u のリモートHOME基準で受理される ( HOME逸脱不可 ) 。
     dry-runで rc==0 を確認する。
     """
     name: str = "gather_src_rel_home_ok"
@@ -434,7 +434,7 @@ def case_gather_src_rel_home_ok(cfg: Config) -> CaseResult:
     )
 
 # ---------------------------------------------------------------------------
-# 4) gather の SRC が ~user/...（他人のホーム相対）はエラー
+# 4) gather の SRC が ~user/... ( 他人のホーム相対 ) はエラー
 # ---------------------------------------------------------------------------
 
 def case_gather_src_tilde_user_error(cfg: Config) -> CaseResult:
@@ -471,9 +471,9 @@ def case_gather_src_tilde_user_error(cfg: Config) -> CaseResult:
 def case_gather_src_bare_tilde_rejected(cfg: Config) -> CaseResult:
         """
         目的:
-            gather の SRC に "~"（単独）を指定した場合にエラー（rc!=0）になることを検証（dry-run）。
+            gather の SRC に "~" ( 単独 ) を指定した場合にエラー ( rc!=0 ) になることを検証 ( dry-run ) 。
         期待:
-            rc!=0。メッセージはロケール依存のため、英語既定文言の有無は参考情報として details に格納。
+            rc!=0。メッセージはロケール依存のため, 英語既定文言の有無は参考情報として details に格納。
         """
         name: str = "gather_src_bare_tilde_rejected"
         ubuntu: str = cfg.host_ubuntu
@@ -512,7 +512,7 @@ def case_gather_src_bare_tilde_rejected(cfg: Config) -> CaseResult:
 def case_gather_dest_bare_tilde_rejected(cfg: Config) -> CaseResult:
     """
     目的:
-        gather の DEST に "~"（単独）を指定した場合にエラー（rc!=0）になることを検証（dry-run）。
+        gather の DEST に "~" ( 単独 ) を指定した場合にエラー ( rc!=0 ) になることを検証 ( dry-run ) 。
     期待:
         rc!=0。英語既定文言の有無は参考情報として details に格納。
     """
@@ -549,16 +549,16 @@ def case_gather_dest_bare_tilde_rejected(cfg: Config) -> CaseResult:
     )
 
 # ---------------------------------------------------------------------------
-# 5) scatter の DEST 相対→remote_home 展開（--pack / 非dry-run）
+# 5) scatter の DEST 相対 => remote_home 展開 ( --pack / 非dry-run )
 # ---------------------------------------------------------------------------
 
 def case_scatter_dest_relative_ok_to_home(cfg: Config) -> CaseResult:
     """
     目的:
-      scatter の DEST が相対指定のとき、ターゲットユーザの remote_home 配下へ
-      解決されることを検証（--pack）。
+      scatter の DEST が相対指定のとき, ターゲットユーザの remote_home 配下へ
+      解決されることを検証 ( --pack ) 。
     仕様整合:
-      - DEST="relative/dest" の場合、実体は
+      - DEST="relative/dest" の場合, 実体は
          <remote_home>/relative/dest/<abs_without_leading_of_local_src>/x.txt
         に作成される。
     """
@@ -571,7 +571,7 @@ def case_scatter_dest_relative_ok_to_home(cfg: Config) -> CaseResult:
     wf: IO[str]
     with open(os.path.join(local_src, "x.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("X\n")
-    # 期待は「SRC を絶対指定した場合のレイアウト」なので、実行引数も絶対パスで渡す
+    # 期待は「SRC を絶対指定した場合のレイアウト」なので, 実行引数も絶対パスで渡す
     local_src_abs: str = os.path.abspath(local_src)
     abs_local_src_rel: str = as_posix_rel(local_src_abs)
 
@@ -613,7 +613,7 @@ def case_scatter_dest_relative_ok_to_home(cfg: Config) -> CaseResult:
 
 
 # ---------------------------------------------------------------------------
-# 6) scatter の DEST 絶対/~/Windows 変種（--pack / 非dry-run）
+# 6) scatter の DEST 絶対/~/Windows 変種 ( --pack / 非dry-run )
 # ---------------------------------------------------------------------------
 
 def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
@@ -621,10 +621,10 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
     仕様整合チェック:
       - /abs         : 絶対パス -> そのまま DEST 配下に展開される
       - ~/...        : remote_home へ展開される
-      - Windows 風   : “Windows 絶対”として扱われ rc==0 となる（レイアウトは実装依存）
+      - Windows 風   : “Windows 絶対”として扱われ rc==0 となる ( レイアウトは実装依存 )
     検証方針:
       - /abs と ~/: 期待パスに x.txt があることまで確認
-      - Windows 風: rc==0 のみ確認（実装依存のため位置は検証しない）
+      - Windows 風: rc==0 のみ確認 ( 実装依存のため位置は検証しない )
     """
     name: str = "scatter_dest_abs_variants"
     alma: str = cfg.host_alma
@@ -635,7 +635,7 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
     wf: IO[str]
     with open(os.path.join(local_src, "x.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("X\n")
-    # 期待は「SRC を絶対指定した場合のレイアウト」なので、実行引数も絶対パスで渡す
+    # 期待は「SRC を絶対指定した場合のレイアウト」なので, 実行引数も絶対パスで渡す
     local_src_abs: str = os.path.abspath(local_src)
     abs_local_rel: str = as_posix_rel(local_src_abs)
 
@@ -706,20 +706,20 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
     )
 
 # ---------------------------------------------------------------------------
-# 7) gather --follow-symlinks 有無で結果差（非dry-run）
+# 7) gather --follow-symlinks 有無で結果差 ( 非dry-run )
 # ---------------------------------------------------------------------------
 
 def case_gather_follow_symlinks_files(cfg: Config) -> CaseResult:
     """
     仕様:
       --pack 時のみ有効。
-      non-follow: src/f.txt は収集され、src/l.txt は収集されない。
-      follow    : シンボリックリンク名（l.txt）のまま**通常ファイル**として収集され、
-                  内容はリンク先（実体）と同一の "Z\n" であること。
+      non-follow: src/f.txt は収集され, src/l.txt は収集されない。
+      follow    : シンボリックリンク名 ( l.txt ) のまま**通常ファイル**として収集され,
+                  内容はリンク先 ( 実体 ) と同一の "Z\n" であること。
 
     検査:
       - non-follow 側: src/f.txt が存在, src/l.txt が不在
-      - follow 側    : src/l.txt が**通常ファイル**として存在し、その内容が "Z\n"
+      - follow 側    : src/l.txt が**通常ファイル**として存在し, その内容が "Z\n"
 
     追加採取:
       out_no / out_yes のレイアウトを `find` / `tree -a` で採取し details に格納
@@ -830,16 +830,16 @@ def case_gather_follow_symlinks_files(cfg: Config) -> CaseResult:
     )
 
 
-# 8) scatter --follow-symlinks 有無で結果差（--pack + 展開動作）
+# 8) scatter --follow-symlinks 有無で結果差 ( --pack + 展開動作 )
 
 def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
     """
     仕様:
-      non-follow: シンボリックリンクは展開しない（= l.txt は作られない）
-      follow    : リンクの実体を展開（l.txt は通常ファイル、内容は "Q\n"）
+      non-follow: シンボリックリンクは展開しない ( = l.txt は作られない )
+      follow    : リンクの実体を展開 ( l.txt は通常ファイル, 内容は "Q\n" )
 
     検査:
-      - non-follow 側: DEST/.../l.txt が不在（test -e が失敗）
+      - non-follow 側: DEST/.../l.txt が不在 ( test -e が失敗 )
       - follow 側    : DEST/.../l.txt が通常ファイルで "Q\n"
     """
     name: str = "scatter_follow_symlinks_files"
@@ -857,7 +857,7 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
         os.unlink(link_local)
     os.symlink("f.txt", link_local)
 
-    # 期待は「SRC を絶対指定した場合のレイアウト」なので、実行引数も絶対パスで渡す
+    # 期待は「SRC を絶対指定した場合のレイアウト」なので, 実行引数も絶対パスで渡す
     local_src_abs: str = os.path.abspath(local_src)
     abs_local_src: str = as_posix_rel(local_src_abs)
 
@@ -927,7 +927,7 @@ def case_scatter_follow_symlinks_files(cfg: Config) -> CaseResult:
 
 
 # ---------------------------------------------------------------------------
-# 11) scatter --pack + ユーザ展開（所有者がユーザ）
+# 11) scatter --pack + ユーザ展開 ( 所有者がユーザ )
 # ---------------------------------------------------------------------------
 
 def case_scatter_pack_extract_user(cfg: Config) -> CaseResult:
@@ -947,7 +947,7 @@ def case_scatter_pack_extract_user(cfg: Config) -> CaseResult:
     _ = _ssh_run_sudo_common(cfg, alma, ["chown", "-R", "--", f"{user}:{user}", dest_dir])
 
     hosts_path: str = _write_temp_hosts([alma])
-    # 期待は絶対SRCのレイアウトなので、実行引数も絶対にする
+    # 期待は絶対SRCのレイアウトなので, 実行引数も絶対にする
     local_src_abs: str = os.path.abspath(local_src)
     argv: List[str] = (
         cfg.gm_scatter_cmd
@@ -972,13 +972,13 @@ def case_scatter_pack_extract_user(cfg: Config) -> CaseResult:
         details={"rc": run.rc, "owner": owner, "argv": " ".join(shlex.quote(a) for a in argv)}
     )
 
-# 12) scatter --pack --sudo-extract（未存在 → ユーザ権限で作成される仕様）
+# 12) scatter --pack --sudo-extract ( 未存在  =>  ユーザ権限で作成される仕様 )
 
 def case_scatter_pack_extract_sudo(cfg: Config) -> CaseResult:
     """
-    仕様（ご提示）:
+    仕様 ( ご提示 ) :
       既存ファイルが『なければ』ユーザ権限で作成される。
-      よって、--sudo-extract 指定でも新規作成物は <user>:<user> になる。
+      よって, --sudo-extract 指定でも新規作成物は <user>:<user> になる。
 
     検査:
       - DEST は root:root・0700 のまま
@@ -1003,7 +1003,7 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> CaseResult:
 
     hosts_path: str = _write_temp_hosts([alma])
 
-    # 期待は絶対SRCのレイアウトなので、実行引数も絶対にする
+    # 期待は絶対SRCのレイアウトなので, 実行引数も絶対にする
     local_src_abs: str = os.path.abspath(local_src)
     argv: List[str] = (
         cfg.gm_scatter_cmd
@@ -1030,14 +1030,14 @@ def case_scatter_pack_extract_sudo(cfg: Config) -> CaseResult:
                  "argv": " ".join(shlex.quote(a) for a in argv)}
     )
 
-# 12b) scatter --pack --sudo-extract（既存ファイルあり → root 展開されることを検証）
+# 12b) scatter --pack --sudo-extract ( 既存ファイルあり  =>  root 展開されることを検証 )
 
 def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> CaseResult:
     """
     追加ケース:
       既存ファイルが『ある』場合に --sudo-extract で root 展開されることを検証。
-      期待: 既存の r.txt は root:root のまま（または root に設定される）。
-            （オプション）内容の更新が入る実装なら "R2\n" を確認。
+      期待: 既存の r.txt は root:root のまま ( または root に設定される ) 。
+             ( オプション ) 内容の更新が入る実装なら "R2\n" を確認。
 
     手順:
       1) DEST/<abs_local_src>/r.txt を root:root で事前作成
@@ -1069,7 +1069,7 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> CaseResult:
 
     hosts_path: str = _write_temp_hosts([alma])
 
-    # 期待は絶対SRCのレイアウトなので、実行引数も絶対にする
+    # 期待は絶対SRCのレイアウトなので, 実行引数も絶対にする
     local_src_abs: str = os.path.abspath(local_src)
     argv: List[str] = (
         cfg.gm_scatter_cmd
@@ -1101,13 +1101,13 @@ def case_scatter_pack_extract_sudo_existing_root(cfg: Config) -> CaseResult:
     )
 
 # ---------------------------------------------------------------------------
-# 13) Ubuntu: --selinux policy はエラー、--selinux ignore は成功（dry-run）
+# 13) Ubuntu: --selinux policy はエラー, --selinux ignore は成功 ( dry-run )
 # ---------------------------------------------------------------------------
 
 def case_selinux_policy_ignore_on_ubuntu(cfg: Config) -> CaseResult:
     """
-    Ubuntu 側（SELinux 非対応）で --selinux {policy,ignore} を指定した scatter の dry-run は、
-    いずれも rc=0 で成功扱い（実装準拠）。
+    Ubuntu 側 ( SELinux 非対応 ) で --selinux {policy,ignore} を指定した scatter の dry-run は,
+    いずれも rc=0 で成功扱い ( 実装準拠 ) 。
     """
     name: str = "selinux_policy_ignore_on_ubuntu"
     ubuntu: str = cfg.host_ubuntu
@@ -1153,13 +1153,13 @@ def case_selinux_policy_ignore_on_ubuntu(cfg: Config) -> CaseResult:
 def case_gather_double_nesting_regression(cfg: Config) -> CaseResult:
     """
     目的:
-      gather の展開先レイアウトが DEST/<HOST>/<abs_without_leading_slash>/... であることを検証し、
+      gather の展開先レイアウトが DEST/<HOST>/<abs_without_leading_slash>/... であることを検証し,
       DEST/<HOST>/<HOST>/... のような「二重ネスト」が発生しないことを回帰テストする。
 
     前提:
-      - 現行実装の local_path_for_download(...) に従い、絶対パスの収集結果は
+      - 現行実装の local_path_for_download(...) に従い, 絶対パスの収集結果は
         <dest>/<host>/<abs_without_leading_slash>/... に配置される。
-      - ここでは Ubuntu ホスト (cfg.host_ubuntu) 上に /tmp/gm_nest_src を作り、
+      - ここでは Ubuntu ホスト (cfg.host_ubuntu) 上に /tmp/gm_nest_src を作り,
         その配下 (a.txt, b/b.txt) を --pack で収集する。
       - SRC はディレクトリ意図のため末尾 '/' を必ず付与する。
 
@@ -1167,7 +1167,7 @@ def case_gather_double_nesting_regression(cfg: Config) -> CaseResult:
       1) 期待するパス:
          <out>/localhost/tmp/gm_nest_src/a.txt
          <out>/localhost/tmp/gm_nest_src/b/b.txt
-      2) 禁止するパス（回帰確認）:
+      2) 禁止するパス ( 回帰確認 ) :
          <out>/localhost/localhost/...
       3) <out> 直下の1階層目ディレクトリは "localhost" のみであること
 
@@ -1266,7 +1266,7 @@ def case_gather_double_nesting_regression(cfg: Config) -> CaseResult:
     )
 
 def _remote_script_snapshot(ssh_user: str, host: str, port: int, strict: Union[bool, str], base: str) -> Dict[str, str]:
-    """共有ヘルパに委譲して、リモートの find/tree スナップショットを取得する。"""
+    """共有ヘルパに委譲して, リモートの find/tree スナップショットを取得する。"""
     return _remote_find_tree_script(ssh_user, host, port, strict, base, maxdepth=8)
 
 def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
@@ -1275,7 +1275,7 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
       scatter のレイアウト仕様を検証する回帰テスト。
         - SRC が絶対パス指定の場合    : DEST/<local_abs_without_leading_slash>
         - SRC が相対パス指定の場合    : DEST/<指定された相対パス>
-      を、それぞれ実ファイルの生成位置で確認する。
+      を, それぞれ実ファイルの生成位置で確認する。
 
     前提:
       - scatter は --pack 経路で実行する。
@@ -1344,7 +1344,7 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
     exp_rel_a: str = os.path.join(dest_abs, rel_src_basename, "a.txt")
     exp_rel_b: str = os.path.join(dest_abs, rel_src_basename, "sub", "b.txt")
 
-    # DEST 配下のみを確実に観測する（HOMEを走査しない）
+    # DEST 配下のみを確実に観測する ( HOMEを走査しない )
     snap_dest: Dict[str, str] = _remote_script_snapshot(cfg.ssh_user, ubuntu, cfg.ssh_port, cfg.ssh_strict, dest_abs)
 
     snap = _snapshot_scatter_dest_verbose(
@@ -1392,10 +1392,10 @@ def case_scatter_src_path_layout_semantics(cfg: Config) -> CaseResult:
 def case_scatter_dest_relative_to_remote_home(cfg: Config) -> CaseResult:
     """
     目的:
-      scatter の DEST が「相対」のとき、ターゲットユーザの remote_home 配下に
-      解決されることを検証（--pack）。
+      scatter の DEST が「相対」のとき, ターゲットユーザの remote_home 配下に
+      解決されることを検証 ( --pack ) 。
     期待:
-      DEST="gm_rel_dest" とすると、展開先が
+      DEST="gm_rel_dest" とすると, 展開先が
         <remote_home>/gm_rel_dest/<abs_without_leading>/a.txt
       に配置される。
     """
@@ -1443,7 +1443,7 @@ def case_scatter_dest_relative_to_remote_home(cfg: Config) -> CaseResult:
 def case_scatter_dest_tilde_username_rejected(cfg: Config) -> CaseResult:
     """
     目的:
-      scatter の DEST に ~user 形式が来た場合にエラー（rc!=0）になることを検証（dry-run）。
+      scatter の DEST に ~user 形式が来た場合にエラー ( rc!=0 ) になることを検証 ( dry-run ) 。
     期待:
       rc!=0 かつ エラーメッセージに "tilde with username is not supported" を含む。
     """
@@ -1485,9 +1485,9 @@ def case_scatter_dest_tilde_username_rejected(cfg: Config) -> CaseResult:
 def case_scatter_dest_bare_tilde_rejected(cfg: Config) -> CaseResult:
     """
     目的:
-      scatter の DEST に "~"（単独）が来た場合にエラー（rc!=0）になることを検証（dry-run）。
+      scatter の DEST に "~" ( 単独 ) が来た場合にエラー ( rc!=0 ) になることを検証 ( dry-run ) 。
     期待:
-      rc!=0。メッセージは実装依存（ロケール依存）のため、存在チェックは任意情報として details に格納。
+      rc!=0。メッセージは実装依存 ( ロケール依存 ) のため, 存在チェックは任意情報として details に格納。
     """
     name: str = "scatter_dest_bare_tilde_rejected"
     host: str = cfg.host_alma
@@ -1510,7 +1510,7 @@ def case_scatter_dest_bare_tilde_rejected(cfg: Config) -> CaseResult:
     )
     run: LocalRun = _run_local_argv(argv)
     out_all: str = (run.stderr or "") + (run.stdout or "")
-    # 参考情報（ロケールにより翻訳されるため pass 条件にはしない）
+    # 参考情報 ( ロケールにより翻訳されるため pass 条件にはしない )
     marker: bool = ("bare tilde is not allowed" in out_all)
 
     passed: bool = (run.rc != 0)
@@ -1532,7 +1532,7 @@ def case_scatter_dest_bare_tilde_rejected(cfg: Config) -> CaseResult:
 def case_scatter_src_bare_tilde_rejected(cfg: Config) -> CaseResult:
     """
     目的:
-      scatter の SRC に "~"（単独）が含まれる場合にエラー（rc!=0）になることを検証（dry-run、Ubuntu ホスト）。
+      scatter の SRC に "~" ( 単独 ) が含まれる場合にエラー ( rc!=0 ) になることを検証 ( dry-run, Ubuntu ホスト ) 。
     期待:
       rc!=0。英語既定文言の有無は参考情報として details に格納。
     """
@@ -1572,9 +1572,9 @@ def case_scatter_src_bare_tilde_rejected(cfg: Config) -> CaseResult:
 def case_scatter_nonpack_file_only_layout(cfg: Config) -> CaseResult:
     """
     目的:
-      非 pack（SFTP逐次PUT）のレイアウトと挙動を検証。
+      非 pack ( SFTP逐次PUT ) のレイアウトと挙動を検証。
         - ファイル SRC は転送される。
-        - ディレクトリ SRC はスキップされる（実装で continue）。
+        - ディレクトリ SRC はスキップされる ( 実装で continue ) 。
         - 絶対ファイル SRC: DEST/<abs_without_leading>/…
         - 相対ファイル SRC: DEST/<指定相対>/…
     """
@@ -1642,8 +1642,8 @@ def case_scatter_nonpack_file_only_layout(cfg: Config) -> CaseResult:
 def case_scatter_mixed_sources_two_hosts(cfg: Config) -> CaseResult:
     """
     目的:
-      複数ホスト一括 scatter（--pack）の回帰。
-      hosts ファイルに Ubuntu/Alma を同時に渡し、両方で所定パスに展開されること。
+      複数ホスト一括 scatter ( --pack ) の回帰。
+      hosts ファイルに Ubuntu/Alma を同時に渡し, 両方で所定パスに展開されること。
     """
     name: str = "scatter_mixed_sources_two_hosts"
 
@@ -1720,9 +1720,9 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
     """
     目的:
       --pack 時の _dedup_roots_for_pack による重複ルート除去を検証。
-      親ディレクトリとその子を同時指定しても、展開結果に二重ネストが生じないこと。
+      親ディレクトリとその子を同時指定しても, 展開結果に二重ネストが生じないこと。
     期待:
-      DEST/.../dup_root/sub/n.txt が「1個だけ」存在（dup_root/sub/sub/... のような重複は生じない）。
+      DEST/.../dup_root/sub/n.txt が「1個だけ」存在 ( dup_root/sub/sub/... のような重複は生じない ) 。
     """
     name: str = "scatter_pack_dedup_roots"
     host: str = cfg.host_ubuntu
@@ -1736,14 +1736,14 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
     with open(os.path.join(dup_sub, "n.txt"), "w", encoding="utf-8") as wf:
         _ = wf.write("N\n")
 
-    # テストごとに一意な DEST を使い、前回残骸や並列実行の干渉を排除
+    # テストごとに一意な DEST を使い, 前回残骸や並列実行の干渉を排除
     dest_abs: str = f"/tmp/gm_scatter_dedup_dest_{os.getpid()}_{int.from_bytes(os.urandom(2),'big')}"
     _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", dest_abs])
     _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dest_abs])
     _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", dest_abs])
 
     hosts_path: str = _write_temp_hosts([host])
-    # ホスト行数（診断用）
+    # ホスト行数 ( 診断用 )
     _hosts_cnt: int = 0
     try:
         with open(hosts_path, "r", encoding="utf-8") as hf:
@@ -1762,12 +1762,12 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    # OS 非依存の相対化（先頭スラッシュ除去 + 区切り '/' 化）で一貫性を確保
+    # OS 非依存の相対化 ( 先頭スラッシュ除去 + 区切り '/' 化 ) で一貫性を確保
     dup_root_rel: str = as_posix_rel(dup_root_abs)
     base: str = os.path.join(dest_abs, dup_root_rel)
     exp: str = os.path.join(base, "sub", "n.txt")
 
-    # 期待パス(exp)の存在を確認したうえで、「exp 以外の n.txt が無い」ことを確認
+    # 期待パス(exp)の存在を確認したうえで, 「exp 以外の n.txt が無い」ことを確認
     q_dest = shlex.quote(dest_abs)
     q_exp  = shlex.quote(exp)
 
@@ -1788,7 +1788,7 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
     cnt_total: int = _to_int(r_total.stdout)
     cnt_others: int = _to_int(r_others.stdout)
 
-    # DEST全体のスナップショット（HOMEではなくDEST固定）
+    # DEST全体のスナップショット ( HOMEではなくDEST固定 )
     snap_dest: Dict[str, str] = _remote_script_snapshot(cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, dest_abs)
 
     r_isfile: CommandResult = _ssh_run_common(cfg, host, ["test", "-f", exp])
@@ -1823,7 +1823,7 @@ def case_scatter_pack_dedup_roots(cfg: Config) -> CaseResult:
 def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> CaseResult:
     """
     目的:
-      非 pack で、同名 basename のファイル（絶対/相対が混在）を同一 DEST に送っても
+      非 pack で, 同名 basename のファイル ( 絶対/相対が混在 ) を同一 DEST に送っても
       リモートで別パスに正しく配置され衝突しないことを検証。
     期待:
       - 絶対 SRC: DEST/<abs_without_leading>/x.txt が存在
@@ -1884,8 +1884,8 @@ def case_scatter_nonpack_same_basename_collision_free(cfg: Config) -> CaseResult
 def case_gather_src_regex_absolute(cfg: Config) -> CaseResult:
     """
     目的:
-      gather の SRC を正規表現として解釈する（絶対パス）挙動の検証。
-      - 例: <abs>/src/dir1/.*\\.txt -> dir1/b.txt のみが対象（a.txt は対象外）
+      gather の SRC を正規表現として解釈する ( 絶対パス ) 挙動の検証。
+      - 例: <abs>/src/dir1/.*\\.txt -> dir1/b.txt のみが対象 ( a.txt は対象外 )
     """
     name: str = "gather_src_regex_absolute"
     host: str = cfg.host_ubuntu
@@ -1902,7 +1902,7 @@ def case_gather_src_regex_absolute(cfg: Config) -> CaseResult:
     _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(src_dir, "a.txt"), "A\n", sudo=False)
     _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(dir1, "b.txt"), "B\n", sudo=False)
 
-    # 正規表現 SRC（絶対）: dir1 配下の *.txt のみ
+    # 正規表現 SRC ( 絶対 ) : dir1 配下の *.txt のみ
     pattern: str = os.path.join(src_dir, "dir1") + "/.*\\.txt"
 
     # ローカル出力先
@@ -1943,7 +1943,7 @@ def case_gather_src_regex_absolute(cfg: Config) -> CaseResult:
 def case_gather_src_regex_relative(cfg: Config) -> CaseResult:
     """
     目的:
-      gather の SRC 正規表現（相対パス）挙動の検証（-u の HOME 相対）。
+      gather の SRC 正規表現 ( 相対パス ) 挙動の検証 ( -u の HOME 相対 ) 。
       - 例: gm_step4_regex_rel/src/dir1/.* -> dir1/b.txt のみが対象
     """
     name: str = "gather_src_regex_relative"
@@ -1962,7 +1962,7 @@ def case_gather_src_regex_relative(cfg: Config) -> CaseResult:
     _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(src_dir, "a.txt"), "A\n", sudo=False)
     _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(dir1, "b.txt"), "B\n", sudo=False)
 
-    # 正規表現 SRC（相対）: dir1 配下のみ
+    # 正規表現 SRC ( 相対 ) : dir1 配下のみ
     pattern_rel: str = f"{rel_top}/src/dir1/.*"
 
     out_dir: str = os.path.join(cfg.local_root, "g_regex_rel_out")
@@ -1978,7 +1978,7 @@ def case_gather_src_regex_relative(cfg: Config) -> CaseResult:
     run: LocalRun = _run_local_argv(argv)
 
     host_label: str = host
-    # gather のローカル配置は「解決済みの絶対パス」を用いるため、相対SRCでも
+    # gather のローカル配置は「解決済みの絶対パス」を用いるため, 相対SRCでも
     # <out>/<host>/<home>/<rel_top>/... 配下に出力される
     exp_b: str = os.path.join(out_dir, host_label, os.path.join(dir1, "b.txt").lstrip(os.sep))
     exp_a: str = os.path.join(out_dir, host_label, os.path.join(src_dir, "a.txt").lstrip(os.sep))
@@ -2001,8 +2001,8 @@ def case_gather_src_regex_relative(cfg: Config) -> CaseResult:
 def case_gather_src_regex_negative(cfg: Config) -> CaseResult:
     """
     目的:
-      誤マッチ防止（アンカー ^/$）の検証（絶対パス）。
-      - 例: <abs>/src/^x\\.txt$ -> x.txt のみを許容し、x.txt.bak は除外。
+      誤マッチ防止 ( アンカー ^/$ ) の検証 ( 絶対パス ) 。
+      - 例: <abs>/src/^x\\.txt$ -> x.txt のみを許容し, x.txt.bak は除外。
     """
     name: str = "gather_src_regex_negative"
     host: str = cfg.host_ubuntu
@@ -2055,7 +2055,7 @@ def case_gather_src_regex_negative(cfg: Config) -> CaseResult:
 def case_scatter_src_regex_absolute(cfg: Config) -> CaseResult:
     """
     目的:
-      scatter の SRC を正規表現として解釈する（絶対パス）挙動の検証。
+      scatter の SRC を正規表現として解釈する ( 絶対パス ) 挙動の検証。
       - 例: <abs_src_dir>/sub/.*\\.txt -> sub/b.txt のみが対象
     """
     name: str = "scatter_src_regex_absolute"
@@ -2071,7 +2071,7 @@ def case_scatter_src_regex_absolute(cfg: Config) -> CaseResult:
     with open(os.path.join(abs_src_dir, "sub", "b.txt"), "w", encoding="utf-8") as wf:
         wf.write("B\n")
 
-    # 正規表現 SRC（絶対）: sub 配下の *.txt のみ
+    # 正規表現 SRC ( 絶対 ) : sub 配下の *.txt のみ
     pattern: str = os.path.join(abs_src_dir, "sub") + "/.*\\.txt"
 
     dest_abs: str = "/tmp/gm_scatter_regex_abs_dest"
@@ -2110,7 +2110,7 @@ def case_scatter_src_regex_absolute(cfg: Config) -> CaseResult:
 def case_scatter_src_regex_relative(cfg: Config) -> CaseResult:
     """
     目的:
-      scatter の SRC 正規表現（相対パス）挙動の検証。
+      scatter の SRC 正規表現 ( 相対パス ) 挙動の検証。
       - 例: sc_layout_rel_src/sub/.* -> sub/b.txt のみが対象
     """
     name: str = "scatter_src_regex_relative"
@@ -2127,7 +2127,7 @@ def case_scatter_src_regex_relative(cfg: Config) -> CaseResult:
     with open(os.path.join(rel_dir_abs, "sub", "b.txt"), "w", encoding="utf-8") as wf:
         wf.write("B\n")
 
-    # 正規表現 SRC（相対）: sub 配下のみ
+    # 正規表現 SRC ( 相対 ) : sub 配下のみ
     pattern: str = rel_base + "/sub/.*"
 
     dest_abs: str = "/tmp/gm_scatter_regex_rel_dest"
@@ -2144,7 +2144,7 @@ def case_scatter_src_regex_relative(cfg: Config) -> CaseResult:
     )
     run: LocalRun = _run_local_argv(argv)
 
-    # 期待パス: base_abs を起点に絶対→_as_posix_rel()で DEST 直下にぶら下がる
+    # 期待パス: base_abs を起点に絶対 => _as_posix_rel()で DEST 直下にぶら下がる
     exp_b: str = os.path.join(dest_abs, as_posix_rel(os.path.join(rel_dir_abs, "sub", "b.txt")))
     exp_a: str = os.path.join(dest_abs, as_posix_rel(os.path.join(rel_dir_abs, "a.txt")))
 
@@ -2160,7 +2160,7 @@ def case_scatter_src_regex_relative(cfg: Config) -> CaseResult:
     snap_dest: Dict[str, str] = _remote_script_snapshot(
         cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, dest_abs
     )
-    # 期待パスの存在チェックとツリー/メタ情報を一括採取（whoami/pwd/umask なども含む）
+    # 期待パスの存在チェックとツリー/メタ情報を一括採取 ( whoami/pwd/umask なども含む )
     snap_verbose: Dict[str, str] = _snapshot_scatter_dest_verbose(
         cfg.ssh_user, host, cfg.ssh_port, cfg.ssh_strict, dest_abs,
         expected_paths=[exp_b, exp_a]
@@ -2187,8 +2187,8 @@ def case_scatter_src_regex_relative(cfg: Config) -> CaseResult:
 def case_scatter_src_regex_negative(cfg: Config) -> CaseResult:
     """
     目的:
-      誤マッチ防止（アンカー ^/$）の検証。厳密一致のみ許容されること。
-      - 例: <abs_src_dir>/^x\\.txt$ -> x.txt のみを許容し、x.txt.bak は除外。
+      誤マッチ防止 ( アンカー ^/$ ) の検証。厳密一致のみ許容されること。
+      - 例: <abs_src_dir>/^x\\.txt$ -> x.txt のみを許容し, x.txt.bak は除外。
     """
     name: str = "scatter_src_regex_negative"
     host: str = cfg.host_ubuntu
@@ -2202,7 +2202,7 @@ def case_scatter_src_regex_negative(cfg: Config) -> CaseResult:
     with open(os.path.join(abs_src_dir, "x.txt.bak"), "w", encoding="utf-8") as wf:
         wf.write("XB\n")
 
-    # アンカー付き（basename 厳密一致）
+    # アンカー付き ( basename 厳密一致 )
     pattern: str = os.path.join(abs_src_dir, "^x\\.txt$")
 
     dest_abs: str = "/tmp/gm_scatter_regex_neg_dest"
@@ -2284,7 +2284,7 @@ def main() -> int:
     from ._local_types import SummaryDict, SummaryResultEntry
     summary: SummaryDict = run_cases(step_number=4, cfg=cfg, cases=cases)
     cleanup_local_temps(cfg)  # runner 固有クリーンアップ
-    # exit code: すべて passed か skipped なら 0、それ以外は 1
+    # exit code: すべて passed か skipped なら 0, それ以外は 1
     results: List[SummaryResultEntry] = summary["results"]
     all_ok: bool = all(r["passed"] or r["skipped"] for r in results)
     return 0 if all_ok else 1

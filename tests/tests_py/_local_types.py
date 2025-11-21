@@ -12,10 +12,10 @@
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
 """
-テスト実行に関わるデータ構造（dataclass / TypedDict）を定義します。
+テスト実行に関わるデータ構造 ( dataclass / TypedDict ) を定義します。
 
 Notes:
-- `Config` は実行時構成、`CaseResult` はテストケース結果、`SummaryDict` はサマリのJSON表現です。
+- `Config` は実行時構成, `CaseResult` はテストケース結果, `SummaryDict` はサマリのJSON表現です。
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -35,7 +35,7 @@ class LocalRun:
 
 @dataclass
 class CommandResult:
-    """コマンド実行結果を表すコンテナ（API/SSH 実行の戻り値など）。
+    """コマンド実行結果を表すコンテナ ( API/SSH 実行の戻り値など ) 。
 
     Attributes:
     - rc (int): プロセスの終了コード。
@@ -53,7 +53,7 @@ class HostConfig:
     Attributes:
     - name (str): ホスト名。
     - is_selinux_supported (bool): SELinux コマンドの利用可否。
-    - selinux_mode (str): SELinux モード（"Enforcing"/"Permissive"/"Disabled"/"Unknown"）。
+    - selinux_mode (str): SELinux モード ( "Enforcing"/"Permissive"/"Disabled"/"Unknown" ) 。
     """
     name: str
     is_selinux_supported: bool
@@ -74,9 +74,9 @@ class Config:
     - ssh_strict_bool (bool): 上記のブール正規化。
     - remote_dest_root (str): リモートの出力ルート。
     - local_work_root (str): ローカルの作業ルート。
-    - local_root (str): ローカルの作業ルート（互換エイリアス）。
-    - gm_gather_cmd (List[str]): gather CLI コマンド（分割済）。
-    - gm_scatter_cmd (List[str]): scatter CLI コマンド（分割済）。
+    - local_root (str): ローカルの作業ルート ( 互換エイリアス ) 。
+    - gm_gather_cmd (List[str]): gather CLI コマンド ( 分割済 ) 。
+    - gm_scatter_cmd (List[str]): scatter CLI コマンド ( 分割済 ) 。
     - verbose (bool): 冗長出力フラグ。
     - parallel (int): 並列度。
     """

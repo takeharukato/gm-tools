@@ -14,8 +14,8 @@
 
 """キュー駆動の構造化ログを提供するモジュール。
 
-キューリスナー経由で標準出力/標準エラーにレベルごとのログを送出し、
-``core_constants.KEYS_PREFIX`` で定めたキー順序を維持する。import 時に副作用はなく、
+キューリスナー経由で標準出力/標準エラーにレベルごとのログを送出し,
+``core_constants.KEYS_PREFIX`` で定めたキー順序を維持する。import 時に副作用はなく,
 CLI などで :func:`init_logging` を呼び出して初期化する。
 
 Examples:
@@ -157,7 +157,7 @@ class _StructuredFormatter(logging.Formatter):
         # level を続けて追加
         out_parts.append(f'level="{record.levelname}"')
 
-        # 必須キーは既定値つきで KEYS_PREFIX の順に処理する（timestamp/level は上で処理済み）
+        # 必須キーは既定値つきで KEYS_PREFIX の順に処理する ( timestamp/level は上で処理済み )
         prefix_defaults: Mapping[str, object] = {
             "host": "-",
             "op": "-",
@@ -188,7 +188,7 @@ class _StructuredFormatter(logging.Formatter):
 def init_logging(*, verbose: bool) -> None:
     """キュー駆動の構造化ロギングを初期化する。
 
-    ``verbose`` が ``True`` の場合は DEBUG レベルまで出力し、 ``False`` では INFO 以上を扱う。
+    ``verbose`` が ``True`` の場合は DEBUG レベルまで出力し,  ``False`` では INFO 以上を扱う。
     既に初期化済みの場合は何もせず復帰する。
 
     Args:
@@ -270,7 +270,7 @@ def _emit(level: int, msg: str, **kv: object) -> None:
         init_logging(verbose=False)
     assert _logger is not None
 
-    # 既知のキーのみ extra に保持し、それ以外はメッセージ側で扱う
+    # 既知のキーのみ extra に保持し, それ以外はメッセージ側で扱う
     extra: Dict[str, object] = {}
     for k in ("host", "op", "phase", "trial", "processed", "total", *KEYS_OPTIONAL):
         if k in kv:

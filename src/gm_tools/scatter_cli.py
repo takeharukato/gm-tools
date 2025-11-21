@@ -14,8 +14,8 @@
 
 """gm-scatter CLI の制御フローと補助処理をまとめたモジュールです。
 
-ローカルファイルを複数ホストへ展開するための引数解析、計画生成、
-SFTP/pack 経路の転送ファクトリ、GracefulStop を用いた協調停止などを提供します。
+ローカルファイルを複数ホストへ展開するための引数解析, 計画生成,
+SFTP/pack 経路の転送ファクトリ, GracefulStop を用いた協調停止などを提供します。
 
 Examples:
     >>> from gm_tools import scatter_cli  # doctest: +SKIP
@@ -37,7 +37,7 @@ from typing import Dict, List, Optional, Tuple, Final, Sequence, Set
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    # 型チェッカー向けのダミー定義（実行時には評価されない）
+    # 型チェッカー向けのダミー定義 ( 実行時には評価されない )
     from gettext import gettext as _
 
 from .core_common import parse_hosts_file
@@ -228,8 +228,8 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
 def _rel_base_from_abs_for_dest(base_abs: str) -> str:
     """正規表現 SRC からリモート相対基点を導出します。
 
-    解決済みの絶対パス ``base_abs`` から先頭の区切りと区切り文字種を統一し、
-    Windows のドライブレターは保持したまま、リモート配置規則 ``DEST/<rel>/...`` に適合する
+    解決済みの絶対パス ``base_abs`` から先頭の区切りと区切り文字種を統一し,
+    Windows のドライブレターは保持したまま, リモート配置規則 ``DEST/<rel>/...`` に適合する
     相対パス ``<rel>`` を返します。
     主な変換例は次のとおりです。
 
@@ -251,7 +251,7 @@ def _rel_base_from_abs_for_dest(base_abs: str) -> str:
     """
     base_abs_str: str = str(base_abs)
     normalized: str = base_abs_str.replace("\\", "/")
-    # 先頭のスラッシュ 1 つだけを除去（Windows ドライブレターは残す）
+    # 先頭のスラッシュ 1 つだけを除去 ( Windows ドライブレターは残す )
     stripped: str = normalized[1:] if normalized.startswith("/") else normalized
     rel_base: str = normalize_rel_for_dest(stripped)
     return rel_base
@@ -356,7 +356,7 @@ def _build_plan_for_host(
             print(_("tilde with username is not supported"), file=sys.stderr)
             raise SystemExit(EXIT_ERR_ARGS)
 
-    # SRC を scatter 仕様に基づいて解決 ( ~/ は実行ユーザ HOME 展開、相対は cwd 起点 )
+    # SRC を scatter 仕様に基づいて解決 ( ~/ は実行ユーザ HOME 展開, 相対は cwd 起点 )
     # 元トークン (ScatterSrcToken) と解決結果 (ScatterResolvedToken) をペアで保持する
     tokens_and_resolved: List[Tuple[ScatterSrcToken, ScatterResolvedToken]] = []
     s_in: str
@@ -392,11 +392,11 @@ def _build_plan_for_host(
             base_abs: str = os.path.abspath(res.abs_root)
 
         # rel_root の決定:
-        #   - 正規表現 SRC: base_abs から算出（正規表現テキストを含めない）
+        #   - 正規表現 SRC: base_abs から算出 ( 正規表現テキストを含めない )
         #   - リテラル SRC: 従来どおり resolve_token_for_scatter の res.rel_root を使用
         rel_base: str = _rel_base_from_abs_for_dest(base_abs) if is_regex else str(res.rel_root)
 
-        # pack ルートが候補列挙に出ない実装に備えて、先にマップだけは保証しておく（起点で登録）
+        # pack ルートが候補列挙に出ない実装に備えて, 先にマップだけは保証しておく ( 起点で登録 )
         remote_rel_map[base_abs] = rel_base
         pack_roots_abs_local.append(base_abs)
         cand_list: List[str] = list(enumerate_candidates_local([token_for_enum]))
@@ -423,7 +423,7 @@ def _build_plan_for_host(
             entries.append(PlanEntry(path=Path(p), relpath=remote_rel, is_dir=st_is_dir))
 
     plan: Plan = Plan(entries=entries)
-    # --pack 用のルートは、正規表現なら split で得た root、リテラルなら従来の abs を使用
+    # --pack 用のルートは, 正規表現なら split で得た root, リテラルなら従来の abs を使用
     pack_roots_abs: List[str] = [os.path.abspath(p) for p in pack_roots_abs_local]
 
     meta: Dict[str, object] = {
@@ -440,7 +440,7 @@ def _build_plan_for_host(
         "verbose": bool(verbose),
         # ローカル絶対パス -> リモート相対の対応
         "remote_rel_map": remote_rel_map,
-        # pack ルート（解決済みトークンの abs_root のみ）
+        # pack ルート ( 解決済みトークンの abs_root のみ )
         "pack_roots_abs": pack_roots_abs,
     }
     return plan, meta
@@ -467,7 +467,7 @@ def _make_push_one_sftp(
         remote_rel_map (Dict[str, str]): ローカル絶対パスとリモート相対パスの対応表。
 
     Returns:
-        PushOne: 転送対象一件を表すデータ要素(``PlanEntry``) を受け取り、SFTP で 1 件ずつアップロードするクロージャ。
+        PushOne: 転送対象一件を表すデータ要素(``PlanEntry``) を受け取り, SFTP で 1 件ずつアップロードするクロージャ。
 
     Examples:
         >>> from unittest.mock import MagicMock  # doctest: +SKIP
@@ -489,7 +489,7 @@ def _make_push_one_sftp(
         Args:
             _sftp (SFTPClientLike): SFTP PUT を発行するクライアント。
             local_path (Path): アップロード対象のローカル絶対パス。
-            _remote_root (str): 呼び出し側が提示するリモートルート（非 pack 経路では未使用）。
+            _remote_root (str): 呼び出し側が提示するリモートルート ( 非 pack 経路では未使用 ) 。
             is_dir (bool): 対象がディレクトリであれば ``True``。
 
         Returns:
@@ -584,9 +584,9 @@ def _make_push_one_pack(
 
         Args:
             _sftp (SFTPClientLike): アーカイブファイルを送信するクライアント。
-            _local_path (Path): 転送対象一件を表すデータ要素(``PlanEntry``) が持つローカルパス（pack 経路では未使用）。
-            _remote_root (str): 転送対象一件を表すデータ要素(``PlanEntry``) が持つリモートルート（未使用）。
-            _is_dir (bool): エントリがディレクトリかどうか（未使用）。
+            _local_path (Path): 転送対象一件を表すデータ要素(``PlanEntry``) が持つローカルパス ( pack 経路では未使用 ) 。
+            _remote_root (str): 転送対象一件を表すデータ要素(``PlanEntry``) が持つリモートルート ( 未使用 ) 。
+            _is_dir (bool): エントリがディレクトリかどうか ( 未使用 ) 。
 
         Returns:
             None: 返り値はありません。
@@ -672,11 +672,11 @@ def main() -> None:
         安全な表記は次の手順で決定します。
 
         1. 正規表現入力であると判定した場合は一切変更せず (末尾スラッシュも付与せず)そのまま返します。
-        2. 末尾がすでに区切り文字（ ``/`` または ``os.sep`` ）で終わる入力もそのまま返します。
-        3. リテラル入力で実体を確認できる場合のみ、実体がディレクトリであれば末尾に ``/`` を付与します。
+        2. 末尾がすでに区切り文字 (  ``/`` または ``os.sep``  ) で終わる入力もそのまま返します。
+        3. リテラル入力で実体を確認できる場合のみ, 実体がディレクトリであれば末尾に ``/`` を付与します。
            例外や権限エラーなどで確認できない場合は安全側として付与しません。
 
-        これにより正規表現を壊さず、リテラルディレクトリのみを明示的に指定できる安全な SRC 表記を保ちます。
+        これにより正規表現を壊さず, リテラルディレクトリのみを明示的に指定できる安全な SRC 表記を保ちます。
 
         Args:
             srcs (Sequence[str]): CLI から受け取った元の SRC トークン列。
@@ -834,13 +834,13 @@ def main() -> None:
         if bool(meta["pack"]):  # type: ignore[index]
 
             # 重要: pack 入力は「ベースディレクトリ群」ではなく
-            #       「Plan.entries の実マッチ結果（ファイル/ディレクトリ）群」を用いる。
+            #       「Plan.entries の実マッチ結果 ( ファイル/ディレクトリ ) 群」を用いる。
             #       これにより正規表現でヒットした個々のエントリが確実にアーカイブへ入る。
             plan_for_host: Optional[Plan] = plan_per_host.get(host)
             if plan_for_host is None:
                 plan_for_host = Plan(entries=[])
 
-            # Plan.entries から絶対パス（順序保持・重複排除）を作成
+            # Plan.entries から絶対パス ( 順序保持・重複排除 ) を作成
             entry_abs_list: List[str] = []
             seen_abs: Set[str] = set()
             e: PlanEntry

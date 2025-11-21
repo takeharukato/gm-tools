@@ -14,8 +14,8 @@
 
 """gettext を利用した国際化初期化をまとめたモジュール。
 
-CLI エントリポイントで :func:`setup_gettext` を 1 度呼び出し、ユーザー向けメッセージは
-``_()`` でラップする。例外オブジェクトの ``str(e)`` 自体は翻訳せず、周辺メッセージのみ
+CLI エントリポイントで :func:`setup_gettext` を 1 度呼び出し, ユーザー向けメッセージは
+``_()`` でラップする。例外オブジェクトの ``str(e)`` 自体は翻訳せず, 周辺メッセージのみ
 翻訳する。モジュール import 時に副作用は発生しない。
 
 Examples:
@@ -68,15 +68,15 @@ def _compute_default_locale_dir() -> Path:
     """翻訳ファイルのデフォルトディレクトリを算出する。
 
     ``gm_tools._config`` に定義された ``PREFIX`` や ``LOCALEDIR`` は GNU 形式の
-    テンプレートを含む可能性があるため、``${prefix}`` 等の変数を展開しながら
+    テンプレートを含む可能性があるため, ``${prefix}`` 等の変数を展開しながら
     実際のパスへ変換する。展開結果に未解決の ``${...}`` が残った場合はフォールバックで
     ``prefix/share/locale`` を採用する。
 
     フォールバックの優先順位は以下の通り。
-    1. ``prefix`` は ``_config.PREFIX``、未設定なら ``sys.prefix``。
-    2. ``exec_prefix`` は ``_config.EXEC_PREFIX``、未設定なら ``${prefix}``、さらに失敗時は ``sys.exec_prefix``。
-    3. ``datarootdir`` は ``_config.DATAROOTDIR``、未設定なら ``${prefix}/share``。
-    4. ``localedir`` は ``_config.LOCALEDIR``、未設定なら ``${datarootdir}/locale``。
+    1. ``prefix`` は ``_config.PREFIX``, 未設定なら ``sys.prefix``。
+    2. ``exec_prefix`` は ``_config.EXEC_PREFIX``, 未設定なら ``${prefix}``, さらに失敗時は ``sys.exec_prefix``。
+    3. ``datarootdir`` は ``_config.DATAROOTDIR``, 未設定なら ``${prefix}/share``。
+    4. ``localedir`` は ``_config.LOCALEDIR``, 未設定なら ``${datarootdir}/locale``。
     5. 展開後に ``${...}`` が残っていれば ``prefix/share/locale`` へフォールバックする。
 
     Returns:

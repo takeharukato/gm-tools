@@ -21,13 +21,13 @@ from ._local_types import CommandResult, Config
 
 def _run_local_argv(argv: List[str]) -> CommandResult:
         """
-        任意の argv をローカルで実行します（内部ヘルパ）。
+        任意の argv をローカルで実行します ( 内部ヘルパ ) 。
 
         Args:
         - argv (List[str]): 実行するコマンドと引数。
 
         Returns:
-        - CommandResult: 実行結果（rc/stdout/stderr）。
+        - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
         """
         print("[DEBUG] _run_local_argv argv:",
             " ".join(shlex.quote(x) for x in argv), flush=True)
@@ -36,14 +36,14 @@ def _run_local_argv(argv: List[str]) -> CommandResult:
 
 def gm_run_local_with_argv(argv: List[str]) -> CommandResult:
     """
-    公開 API。gm ツールのローカル実行を行い、rc/stdout/stderr を返します。
+    公開 API。gm ツールのローカル実行を行い, rc/stdout/stderr を返します。
     既存の `_run_local_argv` を安定インターフェースとしてエクスポートします。
 
     Args:
     - argv (List[str]): 実行するコマンドライン。
 
     Returns:
-    - CommandResult: 実行結果（rc/stdout/stderr）。
+    - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
     """
     return _run_local_argv(argv)
 
@@ -60,10 +60,10 @@ def run_gather(cfg: Config, host: str, user: str, src: str, dest: str, extra: Li
     - extra (List[str]): 追加の CLI オプション。
 
     Returns:
-    - CommandResult: 実行結果（rc/stdout/stderr）。
+    - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
 
     Notes:
-    - 一時ファイル（hosts）を作成します。
+    - 一時ファイル ( hosts ) を作成します。
     - サブプロセスを起動します。
     """
     argv: List[str] = list(cfg.gm_gather_cmd) + ["-u", user, "-n"]
@@ -94,10 +94,10 @@ def run_scatter(cfg: Config, host: str, user: str, src: str, dest: str, extra: L
     - extra (List[str]): 追加の CLI オプション。
 
     Returns:
-    - CommandResult: 実行結果（rc/stdout/stderr）。
+    - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
 
     Notes:
-    - 一時ファイル（hosts）を作成します。
+    - 一時ファイル ( hosts ) を作成します。
     - サブプロセスを起動します。
     """
     argv: List[str] = list(cfg.gm_scatter_cmd) + ["-u", user, "-n"]

@@ -14,9 +14,9 @@
 # 著者が修正している部分があります。
 """gm-gather CLI エントリポイントの制御フローと補助関数群をまとめたモジュールです。
 
-コマンドライン引数の解析、ホスト単位の Plan 構築、SFTP/pack の実行に係る
-補助クロージャ生成、および GracefulStop を用いた協調的停止処理を提供します。
-内部動作は gather_parallel と組み合わせてホスト並列収集を実現しつつ、既存 CLI
+コマンドライン引数の解析, ホスト単位の Plan 構築, SFTP/pack の実行に係る
+補助クロージャ生成, および GracefulStop を用いた協調的停止処理を提供します。
+内部動作は gather_parallel と組み合わせてホスト並列収集を実現しつつ, 既存 CLI
 との互換性を維持する設計です。
 """
 
@@ -38,7 +38,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    # 型チェッカー向けのダミー定義（実行時には評価されない）
+    # 型チェッカー向けのダミー定義 ( 実行時には評価されない )
     from gettext import gettext as _
 
 from .core_ssh import (
@@ -265,7 +265,7 @@ def _make_pull_one_pack(
         dest_host_root (Path): 展開先となる ``DEST/<HOST>`` ルートディレクトリ。
 
     Returns:
-        Callable[[SFTPClientLike, str, Path, bool], None]: 最初の呼び出しで ``pack``→``download``→``extract`` を行い、以降は no-op とするクロージャ関数。
+        Callable[[SFTPClientLike, str, Path, bool], None]: 最初の呼び出しで ``pack`` => ``download`` => ``extract`` を行い, 以降は no-op とするクロージャ関数。
 
     Examples:
         >>> pull_one = _make_pull_one_pack(  # doctest: +SKIP
@@ -284,7 +284,7 @@ def _make_pull_one_pack(
     state: Dict[str, Union[int, bool]] = {"ran": False, "extracted": 0}
 
     def _pull_one(_sftp: SFTPClientLike, _remote: str, _local: Path, _is_dir: bool) -> None:
-        """パッキング済みアーカイブを取得して展開し、後始末を行います。
+        """パッキング済みアーカイブを取得して展開し, 後始末を行います。
 
         Args:
             _sftp (SFTPClientLike): SFTP クライアント (未使用だがシグネチャ整合のため受け取る)。
@@ -320,13 +320,13 @@ def _make_pull_one_pack(
             ssh, pack_list, timeout=timeout, use_sudo=use_sudo, follow_symlinks=follow_symlinks
         )
         _LOG.debug("[debug][pack][sender] host=%s remote_tar_gz=%s", host, remote_gz)
-        # 常に DEST/<HOST> 直下に展開（_local から親を推測しない）
+        # 常に DEST/<HOST> 直下に展開 ( _local から親を推測しない )
         _LOG.debug(
             "[debug][pack][receiver] enter remote_tar_gz=%s extract_base=%s subdir=%s verbose=%s",
             remote_gz, str(dest_host_root), "", False,
         )
 
-        # 常に DEST/<HOST> 直下に展開（_local から親を推測しない）
+        # 常に DEST/<HOST> 直下に展開 ( _local から親を推測しない )
         # 第4引数subdirはdownload_and_extract_tar内で2重にパスを作らないよう
         # 空文字列を指定している。
         extracted, _ = download_and_extract_tar(_sftp, remote_gz, str(dest_host_root), "")
@@ -347,22 +347,22 @@ def _split_remote_root_for_abs(
     """絶対パスを ``remote_root`` と ``remote_rel`` に分割します。
 
     gather の計画情報 (`PlanEntry`) に元の絶対パスを再構築できる材料を残すための
-    前処理で、リモート側の「ルート部分」と「ルート以降の相対部分」を切り分けます。
+    前処理で, リモート側の「ルート部分」と「ルート以降の相対部分」を切り分けます。
     具体的には以下の優先順位で判定します。
 
     1. Windows のドライブレターで始まる (`C:/` や `C:\\`) 場合はドライブを
-       ``remote_root`` とし、残りをスラッシュ正規化した相対パスに変換します。
+       ``remote_root`` とし, 残りをスラッシュ正規化した相対パスに変換します。
     2. ``~/`` で始まる場合は呼び出し元で検出したホームディレクトリ ``home_abs`` を
-       ``remote_root`` とし、残りを ``remote_rel`` にします。
-    3. `/` から始まる通常の UNIX 絶対パスはルート `/` を ``remote_root`` とし、
+       ``remote_root`` とし, 残りを ``remote_rel`` にします。
+    3. `/` から始まる通常の UNIX 絶対パスはルート `/` を ``remote_root`` とし,
        残りを ``remote_rel`` にします。
 
     入出力の対応関係の例:
 
-    - ``'/var/log/messages'`` → ``('/', 'var/log/messages')``
-    - ``'~/work/foo.txt'`` → ``(home_abs, 'work/foo.txt')``
-    - ``'C:/Windows/System32'`` → ``('C:/', 'Windows/System32')``
-    - ``'C:\\Windows\\Temp'`` → ``('C:/', 'Windows/Temp')``
+    - ``'/var/log/messages'``  =>  ``('/', 'var/log/messages')``
+    - ``'~/work/foo.txt'``  =>  ``(home_abs, 'work/foo.txt')``
+    - ``'C:/Windows/System32'``  =>  ``('C:/', 'Windows/System32')``
+    - ``'C:\\Windows\\Temp'``  =>  ``('C:/', 'Windows/Temp')``
 
     Args:
         p (str): リモート上の絶対パス文字列。
@@ -432,8 +432,8 @@ def _build_plan_for_host(
 
     Returns:
         Tuple[Plan, Dict[str, object]]: 収集対象 ``Plan`` と付随メタ情報。
-        ``meta`` には ``ssh``、``sftp``、``home_abs``、``use_sudo``、
-        ``pack_list``、``dest_host_root`` など実行時に必要な鍵を格納します。
+        ``meta`` には ``ssh``, ``sftp``, ``home_abs``, ``use_sudo``,
+        ``pack_list``, ``dest_host_root`` など実行時に必要な鍵を格納します。
 
     Examples:
         >>> plan, meta = _build_plan_for_host(  # doctest: +SKIP
@@ -505,7 +505,7 @@ def _build_plan_for_host(
             # 事前検査エラーは対象外扱い ( 進捗は run_host_gather 側でERROR加算 )
             pass
 
-    # Plan 構築：relpath はローカル相対 ( DEST/<HOST>/relpath )
+    # Plan 構築 : relpath はローカル相対 ( DEST/<HOST>/relpath )
     entries: List[PlanEntry] = []
     safe_host = re.sub(RE_SAFE_HOST_PTN, "_", host).lstrip(".") or "_"
     dest_host_root: str = os.path.join(dest_local, safe_host)
@@ -574,11 +574,11 @@ def main() -> None:
     parser: argparse.ArgumentParser = build_parser()
     args: argparse.Namespace = parser.parse_args()
 
-    # --- デバッグ常時表示のため、最初にロギング初期化（既存handlerが無ければ） ---
+    # --- デバッグ常時表示のため, 最初にロギング初期化 ( 既存handlerが無ければ )  ---
     root_logger = logging.getLogger()
     if not root_logger.handlers:
         # 既存の core_logging のフォーマットを使いたい場合は init_logging を使う
-        # （run_parallel 側でも初期化されるが、重複追加しない実装なら問題なし）
+        #  ( run_parallel 側でも初期化されるが, 重複追加しない実装なら問題なし )
         init_logging(verbose=True)
     else:
         # 既に何かしらの初期化が済んでいる環境でも INFO を出す
@@ -732,7 +732,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # 開始前の finalize ではなく、終了時に必ず後片付けを行う
+    # 開始前の finalize ではなく, 終了時に必ず後片付けを行う
     try:
         main()
     finally:

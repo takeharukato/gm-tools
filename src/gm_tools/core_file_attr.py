@@ -14,8 +14,8 @@
 
 """ローカルファイルに対する属性解決と適用ユーティリティを提供するモジュール。
 
-パーミッションや所有者を表すデータクラスを定義し、既存ファイルの属性取得や
-ユーザー/グループ解決、ベストエフォート方式での属性適用処理を提供する。
+パーミッションや所有者を表すデータクラスを定義し, 既存ファイルの属性取得や
+ユーザー/グループ解決, ベストエフォート方式での属性適用処理を提供する。
 
 Examples:
     >>> from gm_tools.core_file_attr import FileAttrs
@@ -40,7 +40,7 @@ class FileAttrs:
     ``None`` を設定した項目は変更対象から除外される。
 
     Attributes:
-        mode (Optional[int]): POSIX パーミッションビット（例: ``0o644``）。
+        mode (Optional[int]): POSIX パーミッションビット ( 例: ``0o644`` ) 。
         uid (Optional[int]): 所有者 UID。 ``None`` なら変更しない。
         gid (Optional[int]): グループ GID。 ``None`` なら変更しない。
     """
@@ -72,14 +72,14 @@ class ApplyResult:
 def get_current_attrs(path: str) -> FileAttrs:
     """現在のファイル属性を取得する。
 
-    シンボリックリンクを辿らず、指定パスのパーミッション・UID・GID を取得して
+    シンボリックリンクを辿らず, 指定パスのパーミッション・UID・GID を取得して
     :class:`FileAttrs` にまとめて返す。
 
     Args:
         path (str): 属性を取得したいファイルまたはディレクトリ。
 
     Returns:
-        FileAttrs: 現在のパーミッション、UID、GID を格納したデータクラス。
+        FileAttrs: 現在のパーミッション, UID, GID を格納したデータクラス。
 
     Raises:
         FileNotFoundError: 対象パスが存在しない場合。
@@ -107,7 +107,7 @@ def resolve_user(user: Optional[Union[int, str, None]]) -> Optional[int]:
     - 解決できない場合は ``None`` を返す。
 
     Args:
-        user (Optional[Union[int, str, None]]): UID またはユーザー名、未指定は ``None``。
+        user (Optional[Union[int, str, None]]): UID またはユーザー名, 未指定は ``None``。
 
     Returns:
         Optional[int]: 解決した UID。解決不可の場合は ``None``。
@@ -133,11 +133,11 @@ def resolve_user(user: Optional[Union[int, str, None]]) -> Optional[int]:
 def resolve_group(group: Optional[Union[int, str, None]]) -> Optional[int]:
     """グループ指定を GID に解決する。
 
-    数値 GID はそのまま返し、グループ名は ``grp.getgrnam`` で解決する。
+    数値 GID はそのまま返し, グループ名は ``grp.getgrnam`` で解決する。
     解決できない場合は ``None``。
 
     Args:
-        group (Optional[Union[int, str, None]]): GID またはグループ名、未指定は ``None``。
+        group (Optional[Union[int, str, None]]): GID またはグループ名, 未指定は ``None``。
 
     Returns:
         Optional[int]: 解決した GID。解決不可の場合は ``None``。
@@ -162,7 +162,7 @@ def resolve_group(group: Optional[Union[int, str, None]]) -> Optional[int]:
 def apply_attrs_best_effort(path: str, attrs: FileAttrs) -> ApplyResult:
     """可能な範囲でモード・所有者・グループを適用する。
 
-    - どれかの操作で失敗しても残りは継続し、ベストエフォートで適用する。
+    - どれかの操作で失敗しても残りは継続し, ベストエフォートで適用する。
     - シンボリックリンクは辿らずに ``chmod`` と ``chown`` を行う。
     - 最後に発生したエラーを ``error`` フィールドへ格納する。
 

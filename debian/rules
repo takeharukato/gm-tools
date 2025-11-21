@@ -14,7 +14,7 @@ override_dh_auto_build:
 override_dh_auto_install:
 	$(MAKE) DESTDIR=$(CURDIR)/debian/gm-tools install
 
-# dh_install は何もしない（すでに debian/gm-tools に入れているため）
+# dh_install は何もしない ( すでに debian/gm-tools に入れているため )
 override_dh_install:
 	# Files already installed into debian/gm-tools; nothing to do.
 	:

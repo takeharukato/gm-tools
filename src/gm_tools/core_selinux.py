@@ -13,7 +13,7 @@
 # 著者が修正している部分があります。
 """SELinux 機能検出とラベル復元を扱うリモート実行ヘルパーモジュールです。
 
-gm-scatter CLI の ``--selinux`` オプションで利用され、リモートホストが SELinux 対応かどうかの
+gm-scatter CLI の ``--selinux`` オプションで利用され, リモートホストが SELinux 対応かどうかの
 判定と ``restorecon`` コマンドの実行を統一的に提供します。
 """
 
@@ -42,17 +42,17 @@ _RESTORECON_FLAGS: str = "-RF"
 def detect_selinux_capable(ssh: SSHClientLike) -> bool:
     """リモートホストが SELinux ラベル復元に対応しているかを検査します。
 
-    gm-scatter CLI で ``restorecon`` を呼び出す前段階として利用し、最小限のリモートコマンド
+    gm-scatter CLI で ``restorecon`` を呼び出す前段階として利用し, 最小限のリモートコマンド
     実行でホストの機能可否を判定します。以下の条件をすべて満たした場合に対応しているとみなします。
 
-    - ``/sys/fs/selinux`` ディレクトリが存在する、または ``mount`` 出力に ``selinuxfs`` が含まれる
+    - ``/sys/fs/selinux`` ディレクトリが存在する, または ``mount`` 出力に ``selinuxfs`` が含まれる
     - ``restorecon`` コマンドが PATH 上で検出できる
 
     Args:
         ssh (SSHClientLike): ``run_remote_cmd_capture()`` 互換の ``exec_command`` を提供するクライアント。
 
     Returns:
-        bool: 判定に成功した場合は ``True``、条件を満たせない場合は ``False``。
+        bool: 判定に成功した場合は ``True``, 条件を満たせない場合は ``False``。
 
     Examples:
         >>> from unittest.mock import patch
@@ -104,13 +104,13 @@ def restorecon_recursive_if_needed(
 ) -> None:
     """必要に応じて ``restorecon -RF`` をバッチ実行し SELinux ラベルを復元します。
 
-    gm-scatter の配置処理が ``mode`` に応じてラベリングを要求する場合に呼び出され、以下の挙動を取ります。
+    gm-scatter の配置処理が ``mode`` に応じてラベリングを要求する場合に呼び出され, 以下の挙動を取ります。
 
     - ``mode == "ignore"``: 何も実施せず即座に処理を終了します。
     - ``mode == "auto"``: ``selinux_capable`` が ``True`` のときのみ ``restorecon`` を実行します。
     - ``mode == "policy"``: ``selinux_capable`` が ``False`` の場合は ``RuntimeError`` を送出します。
 
-    対象パスは新規または上書き対象に限定されている想定であり、空文字や重複を除外したうえで、
+    対象パスは新規または上書き対象に限定されている想定であり, 空文字や重複を除外したうえで,
     引数数が多くなり過ぎないようバッチ分割して ``restorecon`` を実行します。
 
     Args:
@@ -121,7 +121,7 @@ def restorecon_recursive_if_needed(
         use_sudo (bool): sudo 経由で ``restorecon`` を実行する場合は ``True``。
 
     Raises:
-        RuntimeError: ``mode == "policy"`` かつ ``selinux_capable`` が ``False`` の場合、
+        RuntimeError: ``mode == "policy"`` かつ ``selinux_capable`` が ``False`` の場合,
             または ``restorecon`` 実行が失敗した場合に送出します。
 
     Examples:
@@ -151,7 +151,7 @@ def restorecon_recursive_if_needed(
         return
 
     # 実行
-    # 正規化：空文字除外・重複排除・安定順序
+    # 正規化 : 空文字除外・重複排除・安定順序
     norm: List[str] = []
     seen: Set[str] = set()
     p: str

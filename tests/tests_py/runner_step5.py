@@ -14,10 +14,10 @@
 # 著者が修正している部分があります。
 #
 # tests/tests_py/runner_step5.py
-# Step5 parallel scatter/gather runner（自己完結版）
+# Step5 parallel scatter/gather runner ( 自己完結版 )
 # - ssh 呼び出し順序は runner_step4.py と同様に
 #     ssh <opts> -- user@host <argv...>
-# - scatter/gather 双方について、--pack 有無と -j 並列数の違いで
+# - scatter/gather 双方について, --pack 有無と -j 並列数の違いで
 #   結果レイアウトが変化しないことを検証する
 # - 結果比較は「ホストごとの DEST 配下ツリー + ファイルハッシュ」で行う
 from __future__ import annotations
@@ -63,7 +63,7 @@ def cleanup_local_temps(cfg: Config) -> None:
 
 def _hash_file_sha256(path: str) -> str:
     """
-    ローカルファイル path の sha256 ハッシュ値（16進文字列）を返す。
+    ローカルファイル path の sha256 ハッシュ値 ( 16進文字列 ) を返す。
     """
     h: hashlib._Hash = hashlib.sha256() # type: ignore
     buf_size: int = 1024 * 1024
@@ -79,13 +79,13 @@ def _hash_file_sha256(path: str) -> str:
 
 def _all_hosts_state_snapshot(states: AllHostsState) -> Dict[str, List[str]]:
     """
-    AllHostsState から host ごとの find スナップショット（kind\\tpath）一覧を生成する。
+    AllHostsState から host ごとの find スナップショット ( kind\\tpath ) 一覧を生成する。
     """
     snapshot: Dict[str, List[str]] = {}
     for host, per_state in states.items():
         lines: List[str] = []
         for rel, (kind, _digest) in per_state.items():
-            # sha256 はテキスト上はノイズになるので省略し、kind+rel だけを並べる
+            # sha256 はテキスト上はノイズになるので省略し, kind+rel だけを並べる
             lines.append(f"{kind}\t{rel}")
         lines.sort()
         snapshot[host] = lines
@@ -119,7 +119,7 @@ def _preflight(cfg: Config) -> None:
             "chown", "-R", "--", f"{cfg.target_user}:{cfg.target_user}", cfg.remote_dest_root
         ])
         assert_rc(f"{host}: chown remote_dest_root", r_chown.rc, expect_zero=True)
-        # 収集（ベストエフォート）
+        # 収集 ( ベストエフォート )
         try:
             pf: List[str] = getattr(cfg, "extra_preflight_cmds", [])  # type: ignore
             pf.extend([
@@ -149,13 +149,13 @@ def _preflight(cfg: Config) -> None:
 
 
 # =========================
-# サンプル SRC 構築（scatter 用）
+# サンプル SRC 構築 ( scatter 用 )
 # =========================
 
 def _prepare_local_parallel_sources(cfg: Config) -> List[str]:
     """
-    並列 scatter 用のローカル検体ファイルを作成し、その絶対パス一覧を返す。
-      - すべて「ファイル SRC」とする（ディレクトリ SRC は使用しない）
+    並列 scatter 用のローカル検体ファイルを作成し, その絶対パス一覧を返す。
+      - すべて「ファイル SRC」とする ( ディレクトリ SRC は使用しない )
     """
     src_root: str = os.path.join(cfg.local_root, "step5_parallel_src")
     safe_rmtree_abs(src_root, ensure_under=cfg.local_root)
@@ -179,7 +179,7 @@ def _prepare_local_parallel_sources(cfg: Config) -> List[str]:
         _ = wf.write("C\n")
 
     src_files: List[str] = [file1, file2, file3]
-    # 準備コマンド（擬似）を cfg に収集（ベストエフォート）
+    # 準備コマンド ( 擬似 ) を cfg に収集 ( ベストエフォート )
     try:
         prep: List[str] = getattr(cfg, "extra_prep_cmds", [])  # type: ignore
         prep.extend([
@@ -198,7 +198,7 @@ def _prepare_local_parallel_sources(cfg: Config) -> List[str]:
 
 def _prepare_remote_dest_for_all_hosts(cfg: Config, dest_rel: str) -> str:
     """
-    hosts_both の全ホスト上に DEST を作成し、target_user 所有にする。
+    hosts_both の全ホスト上に DEST を作成し, target_user 所有にする。
     戻り値は DEST の絶対パス。
     """
     dest_abs: str = os.path.join(cfg.remote_dest_root, dest_rel)
@@ -231,13 +231,13 @@ def _prepare_remote_dest_for_all_hosts(cfg: Config, dest_rel: str) -> str:
 
 
 # =========================
-# サンプル SRC 構築（gather 用）
+# サンプル SRC 構築 ( gather 用 )
 # =========================
 
 def _prepare_remote_parallel_sources(cfg: Config) -> str:
     """
-    並列 gather 用のリモート検体ツリーを各ホスト上に作成し、その SRC ルートパスを返す。
-      - 各ホスト上に remote_src_root/dir1, remote_src_root/dir2 を作成し、
+    並列 gather 用のリモート検体ツリーを各ホスト上に作成し, その SRC ルートパスを返す。
+      - 各ホスト上に remote_src_root/dir1, remote_src_root/dir2 を作成し,
         a.txt, b.txt, c.txt を scatter 用と同じ内容で作成する。
     """
     remote_src_root: str = os.path.join(cfg.remote_dest_root, "step5_gather_src")
@@ -255,7 +255,7 @@ def _prepare_remote_parallel_sources(cfg: Config) -> str:
         )
         assert_rc(f"{host}: chown remote_src_root", r_chown_root.rc, expect_zero=True)
 
-        # dir1, dir2 とファイルを作成（target_user として）
+        # dir1, dir2 とファイルを作成 ( target_user として )
         script_lines: List[str] = []
         root_q: str = shlex.quote(remote_src_root)
         script_lines.append("set -eu")
@@ -289,16 +289,16 @@ def _prepare_remote_parallel_sources(cfg: Config) -> str:
 
 
 # =========================
-# リモート状態採取（scatter/gather 用）
+# リモート状態採取 ( scatter/gather 用 )
 # =========================
 
 def _collect_remote_state_for_host(cfg: Config, host: str, dest_abs: str) -> PerHostState:
     """
-    指定ホスト上の DEST(または SRC) 配下を走査し、
+    指定ホスト上の DEST(または SRC) 配下を走査し,
       rel_path -> (kind, digest)
     の辞書として返す。
-      - kind: find の %y（'f'=ファイル, 'd'=ディレクトリ, 他）
-      - digest: kind='f' のとき sha256sum、それ以外は "-"
+      - kind: find の %y ( 'f'=ファイル, 'd'=ディレクトリ, 他 )
+      - digest: kind='f' のとき sha256sum, それ以外は "-"
     """
     lines_script: List[str] = []
     root_q: str = shlex.quote(dest_abs)
@@ -355,7 +355,7 @@ def _collect_remote_state_for_host(cfg: Config, host: str, dest_abs: str) -> Per
 
 def _collect_remote_state_all_hosts(cfg: Config, dest_abs: str) -> AllHostsState:
     """
-    hosts_both の全ホストについて _collect_remote_state_for_host を呼び、
+    hosts_both の全ホストについて _collect_remote_state_for_host を呼び,
     host -> PerHostState の辞書を返す。
     """
     states: AllHostsState = {}
@@ -370,17 +370,17 @@ def _collect_remote_state_all_hosts(cfg: Config, dest_abs: str) -> AllHostsState
 
 
 # =========================
-# ローカル状態採取（gather 用）
+# ローカル状態採取 ( gather 用 )
 # =========================
 
 def _collect_local_state_all_hosts(dest_abs: str, hosts: List[str]) -> AllHostsState:
     """
-    gather で作成されたローカル DEST 配下を走査し、
+    gather で作成されたローカル DEST 配下を走査し,
       host -> (rel_path -> (kind, digest))
     の辞書として返す。
       - 各 host ごとに DEST/host をルートとみなす
-      - kind: 'f'/'d'/...（os.walk 結果から組み立て）
-      - digest: kind='f' の場合 sha256、それ以外は "-"
+      - kind: 'f'/'d'/... ( os.walk 結果から組み立て )
+      - digest: kind='f' の場合 sha256, それ以外は "-"
     """
     states: AllHostsState = {}
     host_idx: int = 0
@@ -465,7 +465,7 @@ def _run_scatter_parallel(
     parallel: int,
 ) -> Tuple[LocalRun, AllHostsState, str, str]:
     """
-    指定 SRC 一覧を指定 DEST に scatter し、その後 DEST の状態を採取して返す。
+    指定 SRC 一覧を指定 DEST に scatter し, その後 DEST の状態を採取して返す。
       - pack=True の場合は --pack を付与
       - -j parallel を指定
     """
@@ -516,10 +516,10 @@ def _run_gather_parallel(
     parallel: int,
 ) -> Tuple[LocalRun, AllHostsState, str, str]:
     """
-    指定リモート SRC ルートをローカル DEST に gather し、その後 DEST の状態を採取して返す。
+    指定リモート SRC ルートをローカル DEST に gather し, その後 DEST の状態を採取して返す。
       - pack=True の場合は --pack を付与
       - -j parallel を指定
-      - SRC はディレクトリ 1 個（remote_src_root）のみを指定
+      - SRC はディレクトリ 1 個 ( remote_src_root ) のみを指定
     """
     # ローカル DEST をクリアして作成
     dest_abs: str = os.path.join(cfg.local_root, dest_rel)
@@ -540,7 +540,7 @@ def _run_gather_parallel(
         argv.append("-v")
 
     argv.append("--")
-    # Step4 と同一仕様：
+    # Step4 と同一仕様 :
     # gather の SRC は「末尾スラッシュを含まないディレクトリパス」
     # remote_src_root が '/path/to/src/' のように末尾 '/' を含む場合は除去する
     src_remote: str = remote_src_root.rstrip("/")
@@ -558,13 +558,13 @@ def _run_gather_parallel(
 
 
 # =========================
-# テストケース（scatter）
+# テストケース ( scatter )
 # =========================
 
 def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
     """
     目的:
-      非 pack（デフォルト SFTP 経路）で -j=1 と -j>1 を変えても、
+      非 pack ( デフォルト SFTP 経路 ) で -j=1 と -j>1 を変えても,
       各ホストの DEST 配下レイアウトとファイル内容が変化しないことを検証する。
     """
     name: str = "scatter_parallel_nonpack_layout_stable"
@@ -601,11 +601,11 @@ def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
     passed: bool = same
     reason: str = "" if passed else f"layout/content differs between j={j1} and j={j2}: {reason_diff}"
 
-    # 参考: DEST 側の詳細スナップショット（1ホスト分、診断用。合否には影響しない）
+    # 参考: DEST 側の詳細スナップショット ( 1ホスト分, 診断用。合否には影響しない )
     ref_host: str = cfg.hosts_both[0] if cfg.hosts_both else "localhost"
     dest_abs_j1: str = os.path.join(cfg.remote_dest_root, dest_rel_j1)
     dest_abs_j2: str = os.path.join(cfg.remote_dest_root, dest_rel_j2)
-    # 共有の詳細スナップショット（whoami/stat/find/tree/存在チェックは find/tree のみ）
+    # 共有の詳細スナップショット ( whoami/stat/find/tree/存在チェックは find/tree のみ )
     dest_j1_verbose = _snapshot_scatter_dest_verbose(
         cfg.ssh_user, ref_host, cfg.ssh_port, cfg.ssh_strict_bool, dest_abs_j1, maxdepth=6
     )
@@ -646,7 +646,7 @@ def case_scatter_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
 def case_scatter_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
     """
     目的:
-      --pack 経路で -j=1 と -j>1 を変えても、
+      --pack 経路で -j=1 と -j>1 を変えても,
       各ホストの DEST 配下レイアウトとファイル内容が変化しないことを検証する。
     """
     name: str = "scatter_parallel_pack_layout_stable"
@@ -683,7 +683,7 @@ def case_scatter_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
     passed: bool = same
     reason: str = "" if passed else f"layout/content differs between j={j1} and j={j2}: {reason_diff}"
 
-    # 参考: DEST 側の詳細スナップショット（1ホスト分、診断用）
+    # 参考: DEST 側の詳細スナップショット ( 1ホスト分, 診断用 )
     ref_host: str = cfg.hosts_both[0] if cfg.hosts_both else "localhost"
     dest_abs_j1: str = os.path.join(cfg.remote_dest_root, dest_rel_j1)
     dest_abs_j2: str = os.path.join(cfg.remote_dest_root, dest_rel_j2)
@@ -725,13 +725,13 @@ def case_scatter_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
     )
 
 # =========================
-# テストケース（gather）
+# テストケース ( gather )
 # =========================
 
 def case_gather_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
     """
     目的:
-      非 pack 経路で -j=1 と -j>1 を変えても、
+      非 pack 経路で -j=1 と -j>1 を変えても,
       ローカル DEST 配下レイアウトとファイル内容が変化しないことを検証する。
       あわせて remote_src_root および各 DEST の find スナップショットを採取する。
     """
@@ -740,7 +740,7 @@ def case_gather_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
     remote_src_root: str = _prepare_remote_parallel_sources(cfg)
     remote_src_states: AllHostsState = _collect_remote_state_all_hosts(cfg, remote_src_root)
     remote_src_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(remote_src_states)
-    # 参考スナップショット（1台分、詳細 verbose）を共有ヘルパで採取
+    # 参考スナップショット ( 1台分, 詳細 verbose ) を共有ヘルパで採取
     ref_host: str = cfg.hosts_both[0] if cfg.hosts_both else "localhost"
     remote_src_verbose = _snapshot_scatter_dest_verbose(
         cfg.ssh_user, ref_host, cfg.ssh_port, cfg.ssh_strict_bool, remote_src_root, maxdepth=6
@@ -814,7 +814,7 @@ def case_gather_parallel_nonpack_layout_stable(cfg: Config) -> CaseResult:
 def case_gather_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
     """
     目的:
-      --pack 経路で -j=1 と -j>1 を変えても、
+      --pack 経路で -j=1 と -j>1 を変えても,
       ローカル DEST 配下レイアウトとファイル内容が変化しないことを検証する。
       あわせて remote_src_root および各 DEST の find スナップショットを採取する。
     """
@@ -823,7 +823,7 @@ def case_gather_parallel_pack_layout_stable(cfg: Config) -> CaseResult:
     remote_src_root: str = _prepare_remote_parallel_sources(cfg)
     remote_src_states: AllHostsState = _collect_remote_state_all_hosts(cfg, remote_src_root)
     remote_src_snapshot: Dict[str, List[str]] = _all_hosts_state_snapshot(remote_src_states)
-    # 参考スナップショット（1台分、詳細 verbose）を共有ヘルパで採取
+    # 参考スナップショット ( 1台分, 詳細 verbose ) を共有ヘルパで採取
     ref_host: str = cfg.hosts_both[0] if cfg.hosts_both else "localhost"
     remote_src_verbose = _snapshot_scatter_dest_verbose(
         cfg.ssh_user, ref_host, cfg.ssh_port, cfg.ssh_strict_bool, remote_src_root, maxdepth=6

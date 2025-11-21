@@ -13,17 +13,17 @@
 # 著者が修正している部分があります。
 """Gather/Scatter の計画構築と候補列挙を担うモジュールです。
 
-転送対象一件を表すデータ要素(``PlanEntry``)と、それらを安定した順序で保持するコンテナ(``Plan``)を介して、
+転送対象一件を表すデータ要素(``PlanEntry``)と, それらを安定した順序で保持するコンテナ(``Plan``)を介して,
 転送対象の総数 (``total``) を事前に固定します。``total`` はログメッセージで進行状況を報告
-する際の基礎情報となり、実際の I/O 処理（``core_pull`` や ``core_scatter`` など）から参照され
+する際の基礎情報となり, 実際の I/O 処理 ( ``core_pull`` や ``core_scatter`` など ) から参照され
 ます。
 
-このモジュール自体はファイル転送を行わず、SFTP および SSH を利用した候補列挙とローカル
+このモジュール自体はファイル転送を行わず, SFTP および SSH を利用した候補列挙とローカル
 ファイルシステムの走査に責務を限定しています。リモート列挙には ``core_remote_fs``
-(SFTP) や ``core_ssh`` (SSH) を取り込み、転送対象に 1 から始まるシーケンス番号を付与する
+(SFTP) や ``core_ssh`` (SSH) を取り込み, 転送対象に 1 から始まるシーケンス番号を付与する
 メソッド(``iter_seq``)を通じて決定的な順序を維持します。
 
-gather/scatter CLI からは計画フェーズで利用され、確定した転送対象の件数と順序を実行系に
+gather/scatter CLI からは計画フェーズで利用され, 確定した転送対象の件数と順序を実行系に
 渡す役割を担います。
 """
 
@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Iterator, List, Optional, Sequence, Tuple, Set
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    ############ 型チェッカー向けのダミー定義（実行時には評価されない） ############
+    ############ 型チェッカー向けのダミー定義 ( 実行時には評価されない )  ############
     from gettext import gettext as _
 
 from .core_remote_fs import sftp_exists, sftp_isdir, sftp_isfile, sftp_islink
@@ -65,8 +65,8 @@ class PlanEntry:
     """Gather/Scatter の計画内で 1 件の転送対象を保持するレコードです。
 
     Attributes:
-        path (Path): 対象ファイルやディレクトリを指すローカル絶対パス、またはリモート列挙時の代理パス。
-        relpath (str): ``DEST`` 配下に配置するときの相対パスで、アーカイブ内部パスとしても利用されます。
+        path (Path): 対象ファイルやディレクトリを指すローカル絶対パス, またはリモート列挙時の代理パス。
+        relpath (str): ``DEST`` 配下に配置するときの相対パスで, アーカイブ内部パスとしても利用されます。
         is_dir (bool): 対象がディレクトリであれば ``True``。
         remote_root (str): リモート側で ``relpath`` を結合する POSIX ルート。``""`` は従来互換値です。
         remote_abs (str): リモート絶対パスを再計算せず再利用するためのキャッシュ領域。
@@ -88,11 +88,11 @@ class PlanEntry:
 
 @dataclass
 class Plan:
-    """転送対象レコードを決定的な順序で保持し、進行レポートを安定化させるコンテナです。
+    """転送対象レコードを決定的な順序で保持し, 進行レポートを安定化させるコンテナです。
 
-    `build_plan_from_paths()` などの生成処理で相対パスと種別（ディレクトリ優先）のキーを使って
-    並べ替え済みのリストを受け取り、どの環境でも同じ順番で巡回できるようにします。これにより
-    ログや試行回数のカウントが一貫し、再試行時にも同じ順番で処理対象が提示されます。
+    `build_plan_from_paths()` などの生成処理で相対パスと種別 ( ディレクトリ優先 ) のキーを使って
+    並べ替え済みのリストを受け取り, どの環境でも同じ順番で巡回できるようにします。これにより
+    ログや試行回数のカウントが一貫し, 再試行時にも同じ順番で処理対象が提示されます。
 
     Attributes:
         entries (List[PlanEntry]): 計画確定済みの転送対象レコード一覧。
@@ -129,13 +129,13 @@ class Plan:
 # ---- Helpers ----------------------------------------------------------------
 
 def _norm_paths(paths: Iterable[Path]) -> List[Path]:
-    """可能な限りシンボリックリンク解決後の実体パスへ変換し、それが失敗した場合は単純な絶対パス化で補完します。
+    """可能な限りシンボリックリンク解決後の実体パスへ変換し, それが失敗した場合は単純な絶対パス化で補完します。
 
     Args:
         paths (Iterable[Path]): 正規化したいパスの列挙。相対・絶対・未存在を混在させて構いません。
 
     Returns:
-        List[Path]: シンボリックリンク解決に成功した場合はその実体への絶対パス、失敗した場合は ``absolute()`` による絶対パス。
+        List[Path]: シンボリックリンク解決に成功した場合はその実体への絶対パス, 失敗した場合は ``absolute()`` による絶対パス。
 
     Examples:
         >>> from pathlib import Path
@@ -159,7 +159,7 @@ def _norm_paths(paths: Iterable[Path]) -> List[Path]:
 def _make_exclude(globs: Optional[Sequence[str]]) -> Optional[Callable[[str], bool]]:
     """POSIX 形式の文字列に対してグロブ除外判定を行う述語を生成します。
 
-    gather/scatter CLI には ``--exclude`` オプションが存在しませんが、テストや
+    gather/scatter CLI には ``--exclude`` オプションが存在しませんが, テストや
     モジュール内の一部ユーティリティではプログラム側から除外フィルタを指定
     するためにこのヘルパーを利用します。
 
@@ -167,7 +167,7 @@ def _make_exclude(globs: Optional[Sequence[str]]) -> Optional[Callable[[str], bo
         globs (Optional[Sequence[str]]): 除外したいグロブパターン。``None`` や空要素は無視します。
 
     Returns:
-        Optional[Callable[[str], bool]]: グロブが設定されていれば除外判定関数、なければ ``None``。
+        Optional[Callable[[str], bool]]: グロブが設定されていれば除外判定関数, なければ ``None``。
 
     Examples:
         >>> pred = _make_exclude(['*.tmp'])
@@ -189,19 +189,19 @@ def _make_exclude(globs: Optional[Sequence[str]]) -> Optional[Callable[[str], bo
     return _pred
 
 def _walk_including_dirs(root: Path, *, follow_symlinks: bool) -> Iterator[Tuple[Path, bool]]:
-    """ルート自身を含めてディレクトリ配下を走査し、パスと種別を返します。
+    """ルート自身を含めてディレクトリ配下を走査し, パスと種別を返します。
 
     Notes:
-        - ルートがディレクトリでなければ、そのパス単体だけを返して終了します。
+        - ルートがディレクトリでなければ, そのパス単体だけを返して終了します。
         - ``follow_symlinks`` の値を ``os.walk`` の ``followlinks`` にそのまま渡します。
-        - 列挙順はファイルシステム依存なので、呼び出し側で安定化したい場合は並べ替えを行ってください。
+        - 列挙順はファイルシステム依存なので, 呼び出し側で安定化したい場合は並べ替えを行ってください。
 
     Args:
         root (Path): 走査を開始する基点パス。
         follow_symlinks (bool): ``os.walk`` にシンボリックリンク追跡を許可するかどうか。
 
     Yields:
-        Tuple[Path, bool]: 各要素は ``(パス, is_dir)``。ディレクトリ項目は ``is_dir=True``、
+        Tuple[Path, bool]: 各要素は ``(パス, is_dir)``。ディレクトリ項目は ``is_dir=True``,
             通常ファイルやその他のエントリは ``is_dir=False`` で返します。
 
     Examples:
@@ -275,7 +275,7 @@ def build_plan_from_paths(
         sources (Iterable[Path]): 収集対象のパス列。ファイルとディレクトリを混在させても構いません。
         base_dir (Optional[Path]): 相対パスを算出する基準ディレクトリ。未指定なら各 ``src`` ごとに基準を変えます。
         exclude (Optional[Sequence[str]]): POSIX 形式のグロブで除外したい相対パスパターン。
-            gather/scatter CLI には ``--exclude`` オプションは無く、テストや内部的な
+            gather/scatter CLI には ``--exclude`` オプションは無く, テストや内部的な
             呼び出しでフィルタを掛けたい場合にのみ用います。
         follow_symlinks (bool): ディレクトリ走査時にシンボリックリンクを辿る場合は ``True``。
 
@@ -316,13 +316,13 @@ def build_plan_from_manifest(
     *,
     base_dir: Optional[Path] = None,
 ) -> Plan:
-    """リスト化されたマニフェスト（``(relpath, is_dir)`` タプル列）から転送計画を生成します。
+    """リスト化されたマニフェスト ( ``(relpath, is_dir)`` タプル列 ) から転送計画を生成します。
 
     ``items`` には ``(relpath, is_dir)`` 形式のタプルを列挙します。``relpath`` は
-    ``DEST`` 配下での配置先やアーカイブ内パスとして扱われる相対パス文字列で、
+    ``DEST`` 配下での配置先やアーカイブ内パスとして扱われる相対パス文字列で,
     ``is_dir`` はそのエントリがディレクトリであるかを示す真偽値です。``base_dir``
     が指定されている場合は ``relpath`` をそのディレクトリに結合して転送対象一件を表す
-    データ要素(``PlanEntry``)の ``path`` フィールドを絶対化し、未指定の場合は ``relpath`` を
+    データ要素(``PlanEntry``)の ``path`` フィールドを絶対化し, 未指定の場合は ``relpath`` を
     ``Path`` 化した値を
     そのまま ``path`` に設定します。
 
@@ -343,7 +343,7 @@ def build_plan_from_manifest(
     for rel, is_dir in items:
         p = Path(rel) if base_dir is None else (Path(base_dir) / rel)
         entries.append(PlanEntry(path=p, relpath=rel, is_dir=bool(is_dir)))
-    # マニフェスト順は維持しつつ、入力の真偽値を正規化します。
+    # マニフェスト順は維持しつつ, 入力の真偽値を正規化します。
     return Plan(entries=entries)
 
 
@@ -403,7 +403,7 @@ def remote_walk_files(sftp_client: SFTPClientLike, root: str, *, include_symlink
         include_symlinks (bool): ``True`` ならシンボリックリンクも対象に含めます。
 
     Yields:
-        str: 見つかったファイルもしくは（オプションで）シンボリックリンクの絶対パス。
+        str: 見つかったファイルもしくは ( オプションで ) シンボリックリンクの絶対パス。
 
     Examples:
         >>> from unittest.mock import patch
@@ -443,10 +443,10 @@ def remote_walk_files(sftp_client: SFTPClientLike, root: str, *, include_symlink
                 elif sftp_isfile(sftp_client, ap):
                     yield ap
                 else:
-                    # シンボリックリンクやデバイスはここでは採用しません（呼び出し側で判断）。
+                    # シンボリックリンクやデバイスはここでは採用しません ( 呼び出し側で判断 ) 。
                     pass
             except Exception:
-                # ベストエフォート（権限等で失敗する可能性がある）
+                # ベストエフォート ( 権限等で失敗する可能性がある )
                 continue
 
 def _enumerate_via_sftp_walk(
@@ -582,14 +582,14 @@ def _enumerate_via_remote_walk_with_sudo(
 ) -> List[str]:
     """sudo 経由でリモート側で Python スクリプトを実行し候補を列挙します。
 
-    環境変数 ``GM_ROOT`` （探索ルートの絶対パス）、``GM_PAT`` （ルートからの相対パスに
-    適用する正規表現文字列）、``GM_INC_LINKS`` （シンボリックリンクを含めるなら ``"1"``、
-    それ以外は ``"0"``）を用いてリモート側の Python スクリプトに探索範囲とマッチ条件を
-    渡し、``os.walk`` を介して ``GM_ROOT`` 配下の通常ファイルを列挙します。``GM_PAT`` に
+    環境変数 ``GM_ROOT``  ( 探索ルートの絶対パス ) , ``GM_PAT``  ( ルートからの相対パスに
+    適用する正規表現文字列 ) , ``GM_INC_LINKS``  ( シンボリックリンクを含めるなら ``"1"``,
+    それ以外は ``"0"`` ) を用いてリモート側の Python スクリプトに探索範囲とマッチ条件を
+    渡し, ``os.walk`` を介して ``GM_ROOT`` 配下の通常ファイルを列挙します。``GM_PAT`` に
     マッチした場合に絶対パスを 1 行ずつ標準出力へ書き出します。``GM_INC_LINKS`` が ``"1"`` のときは
-    シンボリックリンクも候補に含めるようにし、
+    シンボリックリンクも候補に含めるようにし,
     呼び出し側で ``include_symlinks`` を ``True`` にすることで制御します。sudo 実行が
-    失敗した場合は sudo なしで同じスクリプトを再実行し、いずれかが成功すればその
+    失敗した場合は sudo なしで同じスクリプトを再実行し, いずれかが成功すればその
     結果を採用します。
 
     Args:
@@ -725,7 +725,7 @@ for dp, _dirs, files in os.walk(root, followlinks=False):
                 continue
         # ------------------------------------------------------------------
         # ここからは「正規表現 SRC」または「非ディレクトリのリテラル SRC」
-        # として、従来通り root/tail_re を使った列挙を行う。
+        # として, 従来通り root/tail_re を使った列挙を行う。
         # ------------------------------------------------------------------
         try:
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
@@ -786,13 +786,13 @@ def enumerate_candidates_for_host(
 ) -> List[str]:
     """リモートホストに対する候補列挙用 API です。
 
-    gm-gather CLI がリモート SRC の候補を収集する際に利用され、引数と処理の対応は次の通りです。
-    - ``pack_remote`` と ``use_sudo`` を共に ``True`` にすると、sudo で Python スクリプトを実行する
-      ``_enumerate_via_remote_walk_with_sudo()`` を呼び出し、環境変数 ``GM_ROOT`` （探索ルートの絶対パス）、
-      ``GM_PAT`` （ルートからの相対パスに適用する正規表現文字列）、``GM_INC_LINKS`` （シンボリックリンクを
-      含めるなら ``"1"``、それ以外は ``"0"``）を用いたリモート歩査を行います。
-    - 上記以外の組み合わせでは ``_enumerate_via_sftp_walk()`` を利用し、SFTP でルートディレクトリを走査して
-      gm-gather CLI が受け取る SRC トークン末尾の相対パターンに対するマッチ判定用の正規表現（``tail_re`` 正規表現）
+    gm-gather CLI がリモート SRC の候補を収集する際に利用され, 引数と処理の対応は次の通りです。
+    - ``pack_remote`` と ``use_sudo`` を共に ``True`` にすると, sudo で Python スクリプトを実行する
+      ``_enumerate_via_remote_walk_with_sudo()`` を呼び出し, 環境変数 ``GM_ROOT``  ( 探索ルートの絶対パス ) ,
+      ``GM_PAT``  ( ルートからの相対パスに適用する正規表現文字列 ) , ``GM_INC_LINKS``  ( シンボリックリンクを
+      含めるなら ``"1"``, それ以外は ``"0"`` ) を用いたリモート歩査を行います。
+    - 上記以外の組み合わせでは ``_enumerate_via_sftp_walk()`` を利用し, SFTP でルートディレクトリを走査して
+      gm-gather CLI が受け取る SRC トークン末尾の相対パターンに対するマッチ判定用の正規表現 ( ``tail_re`` 正規表現 )
       を適用します。
 
     Args:
@@ -833,24 +833,24 @@ def enumerate_candidates_for_host(
 def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
     """ローカルファイルシステム上の候補パスを列挙します。
 
-    gm-scatter CLI がローカル SRC トークンを展開する際に利用され、SRC に含まれる正規表現の
+    gm-scatter CLI がローカル SRC トークンを展開する際に利用され, SRC に含まれる正規表現の
     メタ文字の有無で処理を分岐します。
 
-    - SRC に正規表現のメタ文字が含まれる場合は ``looks_like_regex()`` で検出し、
-        ``split_src_to_root_and_tail_regex()`` により走査起点パス（``root``）と相対パターン
-        正規表現（``tail_re``）へ分割します。その後は ``root`` 配下を走査して「``root`` を基準にした
-        相対パス」に ``re.search(tail_re)`` を適用します。この経路では **通常ファイルのみ** を列挙し、
-        ディレクトリは後段処理（明示ディレクトリ指定時）に委ねます。
-    - 正規表現のメタ文字が含まれない場合は単一のリテラルパスとして扱い、存在していれば
+    - SRC に正規表現のメタ文字が含まれる場合は ``looks_like_regex()`` で検出し,
+        ``split_src_to_root_and_tail_regex()`` により走査起点パス ( ``root`` ) と相対パターン
+        正規表現 ( ``tail_re`` ) へ分割します。その後は ``root`` 配下を走査して「``root`` を基準にした
+        相対パス」に ``re.search(tail_re)`` を適用します。この経路では **通常ファイルのみ** を列挙し,
+        ディレクトリは後段処理 ( 明示ディレクトリ指定時 ) に委ねます。
+    - 正規表現のメタ文字が含まれない場合は単一のリテラルパスとして扱い, 存在していれば
         ファイル/ディレクトリいずれもそのまま列挙します。存在しない場合は黙って無視します。
-    - 相対パスはカレントディレクトリ基準で絶対化し、``~`` 展開はリテラル/正規表現の
+    - 相対パスはカレントディレクトリ基準で絶対化し, ``~`` 展開はリテラル/正規表現の
         判定を壊さないタイミングでのみ行います。
 
     Args:
         paths (Iterable[str]): gm-scatter CLI で指定された SRC 文字列群。
 
     Yields:
-        Iterator[str]: 絶対パス化され、正規表現やリテラル判定を経た候補。
+        Iterator[str]: 絶対パス化され, 正規表現やリテラル判定を経た候補。
 
     Examples:
         >>> import tempfile
@@ -866,7 +866,7 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
     seen: Set[str] = set()
     cwd: str = os.getcwd()
 
-    # "~" を含むかどうかの判定ヘルパ（展開のタイミングを誤らないため分離）
+    # "~" を含むかどうかの判定ヘルパ ( 展開のタイミングを誤らないため分離 )
     def _looks_tilde(s: str) -> bool:
         s_in: str = s
         return s_in.startswith("~" + os.sep) or s_in == "~" or s_in.startswith("~/")
@@ -874,7 +874,7 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
     for p in paths:
         token: str = p
         # 1) 正規表現のメタ文字の検出は**文字列を壊さず**そのまま判定する
-        #    - ここでは expanduser もしない（"~" を誤解しない）
+        #    - ここでは expanduser もしない ( "~" を誤解しない )
         has_meta: bool = looks_like_regex(token)
 
         # 2) 実際にファイル探索に使うための絶対パス化
@@ -883,7 +883,7 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
         is_abs: bool = is_abs_path(token_expanded)
 
         abs_raw: str = token_expanded if is_abs else os.path.abspath(os.path.join(cwd, token_expanded))
-        # tail の正規表現を壊さないため、ここでは '\\'→'/' の全体置換は行わない
+        # tail の正規表現を壊さないため, ここでは '\\' => '/' の全体置換は行わない
         abs_norm: str = abs_raw
 
         if not has_meta:
@@ -893,19 +893,19 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
                 if ap_real not in seen:
                     seen.add(ap_real)
                     yield ap_real
-            # リテラル指定で存在しなければ何も列挙しない（静かに無視）
+            # リテラル指定で存在しなければ何も列挙しない ( 静かに無視 )
             continue
 
         # --- 正規表現モード ---
         try:
             root: str
             tail_re: str
-            # split_src_to_root_and_tail_regex 側で head（パス）だけを正規化し、
-            # tail（正規表現）は無改変で保持する
+            # split_src_to_root_and_tail_regex 側で head ( パス ) だけを正規化し,
+            # tail ( 正規表現 ) は無改変で保持する
             root, tail_re = split_src_to_root_and_tail_regex(abs_norm)
         except ValueError as _ex:
             _ex_msg: str = str(_ex)
-            # 不正トークンは無視（gather と整合）
+            # 不正トークンは無視 ( gather と整合 )
             continue
 
         if not os.path.isdir(root):
@@ -936,7 +936,7 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
                         seen.add(ap_abs)
                         yield ap_abs
 
-        # ルート自身に対するマッチ（空相対にマッチ）を考慮し、ディレクトリ根を含める
+        # ルート自身に対するマッチ ( 空相対にマッチ ) を考慮し, ディレクトリ根を含める
         try:
             root_rel_self: str = ""
             m_root: Optional[re.Match[str]] = rx.search(root_rel_self)
@@ -947,5 +947,5 @@ def enumerate_candidates_local(paths: Iterable[str]) -> Iterator[str]:
                     yield root_abs
         except Exception as _e:
             _e_msg: str = str(_e)
-            # 失敗時は黙って無視（列挙結果に影響なし）
+            # 失敗時は黙って無視 ( 列挙結果に影響なし )
             pass

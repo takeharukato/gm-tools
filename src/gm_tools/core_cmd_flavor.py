@@ -14,7 +14,7 @@
 
 """リモートコマンド実行と tar フレーバ判定のラッパーを提供するモジュール。
 
-リモートホスト上で ``tar`` の実装種別を検出し、``sudo`` や ``PATH`` の違いを
+リモートホスト上で ``tar`` の実装種別を検出し, ``sudo`` や ``PATH`` の違いを
 吸収したコマンド実行ヘルパーを提供する。
 
 Examples:
@@ -66,7 +66,7 @@ class CmdFlavor:
 def _exec_simple(ssh: SSHClientLike, cmd: str, timeout: Optional[float] = None) -> Tuple[int, str, str]:
     """依存の少ないリモートコマンド実行ヘルパー。
 
-    指定したコマンドを SSH 経由で実行し、標準出力と標準エラーをすべて読み取って
+    指定したコマンドを SSH 経由で実行し, 標準出力と標準エラーをすべて読み取って
     戻り値コードとともに返す。読み取り後は可能な範囲でチャネルをクローズする。
 
     Args:
@@ -75,7 +75,7 @@ def _exec_simple(ssh: SSHClientLike, cmd: str, timeout: Optional[float] = None) 
         timeout (Optional[float]): SSH 側のタイムアウト秒。 ``None`` で未指定。
 
     Returns:
-        Tuple[int, str, str]: 戻り値コード、標準出力文字列、標準エラー文字列。
+        Tuple[int, str, str]: 戻り値コード, 標準出力文字列, 標準エラー文字列。
 
     Examples:
         >>> class _DummyChannel:
@@ -116,7 +116,7 @@ def _exec_simple(ssh: SSHClientLike, cmd: str, timeout: Optional[float] = None) 
 def detect_tar_flavor_remote(ssh: SSHClientLike, *, timeout: float = 10.0) -> CmdFlavor:
     """リモートホストで ``tar`` の実装種別を判定する。
 
-    ``tar --version`` と ``tar --help`` の出力を解析して GNU tar、bsdtar、
+    ``tar --version`` と ``tar --help`` の出力を解析して GNU tar, bsdtar,
     未知のいずれかを推定する。
 
     Args:
@@ -185,7 +185,7 @@ def build_tar_extract_cmd(
 
     - GNU tar と bsdtar 共通で ``-xzf`` と ``-C`` を利用する。
     - 抽出メンバーを限定する場合は ``-T <members_file>`` を追加する。
-      ``members_file`` は改行区切りの相対パス列で、アーカイブ内パスと一致させる。
+      ``members_file`` は改行区切りの相対パス列で, アーカイブ内パスと一致させる。
 
     Args:
         flavor (TarFlavor): 判定済みの ``tar`` フレーバ。現状は将来拡張のため受け取る。
@@ -241,7 +241,7 @@ def _inject_path_for_bash_argv(cmd_argv: List[str]) -> List[str]:
     """``bash -lc`` 形式の argv に ``DEFAULT_PATH_EXPORT`` を注入する。
 
     - ``['bash', '-lc', <cmd>, ...]`` と ``['sudo', ..., 'bash', '-lc', <cmd>, ...]`` のみ対象。
-    - 対象外の argv はコピーを返し、引数順序は維持する。
+    - 対象外の argv はコピーを返し, 引数順序は維持する。
 
     Args:
         cmd_argv (List[str]): 変換対象のコマンド引数列。
@@ -304,7 +304,7 @@ def run_remote_cmd_capture(
 ) -> Tuple[int, str, str]:
     """リモートで argv 形式コマンドを安全に実行し結果を取得する。
 
-    ``bash -lc`` 形式の場合は ``DEFAULT_PATH_EXPORT`` を注入し、それ以外は argv を
+    ``bash -lc`` 形式の場合は ``DEFAULT_PATH_EXPORT`` を注入し, それ以外は argv を
     変更せず ``shlex.join`` で結合する。
 
     Args:
@@ -313,7 +313,7 @@ def run_remote_cmd_capture(
         timeout (float): リモートコマンド実行のタイムアウト秒。
 
     Returns:
-        Tuple[int, str, str]: 戻り値コード、標準出力文字列、標準エラー文字列。
+        Tuple[int, str, str]: 戻り値コード, 標準出力文字列, 標準エラー文字列。
 
     Examples:
         >>> ssh = ...  # SSHClientLike を準備する
@@ -334,7 +334,7 @@ def run_remote_cmd_capture(
 def parse_tar_t_list_to_relpaths(listing_text: str) -> List[str]:
     """``tar -tzf`` の出力を相対パス配列に正規化する。
 
-    空行を除外し、ディレクトリエントリ末尾の ``/`` を削除した形で返す。
+    空行を除外し, ディレクトリエントリ末尾の ``/`` を削除した形で返す。
 
     Args:
         listing_text (str): ``tar -tzf`` などの列挙結果文字列。
@@ -370,7 +370,7 @@ def exec_remote(
 
     - ``use_sudo`` が ``True`` の場合は常に ``sudo -n`` を前置する。
     - ``bash`` を経由するコマンドは :func:`run_remote_cmd_capture` を利用する。
-    - 非シェルコマンドを安全に実行するため、``PATH`` の注入は行わない。環境変数が必要な場合は
+    - 非シェルコマンドを安全に実行するため, ``PATH`` の注入は行わない。環境変数が必要な場合は
             ``bash`` 経路を利用する。
 
     Args:
@@ -380,7 +380,7 @@ def exec_remote(
         timeout (Optional[float]): SSH 実行のタイムアウト秒。 ``None`` で未指定。
 
     Returns:
-        Tuple[int, str, str]: 戻り値コード、標準出力文字列、標準エラー文字列。
+        Tuple[int, str, str]: 戻り値コード, 標準出力文字列, 標準エラー文字列。
 
     Examples:
         >>> ssh = ...  # SSHClientLike を準備する
@@ -424,7 +424,7 @@ def remote_path_exists(
         timeout (float): SSH 実行のタイムアウト秒。
 
     Returns:
-        bool: パスが存在する場合は ``True``、存在しない場合は ``False``。
+        bool: パスが存在する場合は ``True``, 存在しない場合は ``False``。
 
     Examples:
         >>> ssh = ...  # SSHClientLike を準備する
@@ -486,7 +486,7 @@ def split_exist_new_by_remote_presence(
 ) -> Tuple[Set[str], Set[str]]:
     """リモートの相対パス群を存在グループと新規グループへ分類する。
 
-    ``test -e`` を用いて判定し、存在するパスは ``exist_set``、存在しないパスは
+    ``test -e`` を用いて判定し, 存在するパスは ``exist_set``, 存在しないパスは
     ``new_set`` として返す。``sudo`` 実行時に権限拒否が発生した場合は例外を送出する。
 
     Args:

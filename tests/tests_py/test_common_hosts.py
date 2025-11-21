@@ -27,7 +27,7 @@ _CREATED_HOSTS_FILES: List[str] = []
 
 def write_temp_hosts(hosts: List[str]) -> str:
     """
-    一時 hosts ファイルを作成し、そのパスを返します。
+    一時 hosts ファイルを作成し, そのパスを返します。
 
     Args:
     - hosts (List[str]): 1 行 1 ホストで書き込むホスト名の配列。
@@ -37,7 +37,7 @@ def write_temp_hosts(hosts: List[str]) -> str:
 
     Notes:
     - 内容は UTF-8 テキストで 1 行 1 ホストとして書き込みます。
-    - 呼び出し側がライフサイクル管理（削除）を行う前提です。
+    - 呼び出し側がライフサイクル管理 ( 削除 ) を行う前提です。
     """
     fd: int
     path: str
