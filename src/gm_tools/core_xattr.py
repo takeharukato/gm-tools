@@ -105,11 +105,11 @@ def check_xattr_tools_available(ssh: SSHClientLike) -> bool:
 def stat_owner_group_mode(ssh: SSHClientLike, path: str, *, use_sudo: bool) -> Tuple[str, str, int]:
     """stat コマンドでファイルの所有者・グループ・モードを取得する。
 
-    ``stat -c '%U:%G:%a'`` を実行して取得した文字列を分解し、呼び出し側が再設定できる
+    ``stat -c '%U:%G:%a'`` を実行して取得した文字列を分解し, 呼び出し側が再設定できる
     形式に整形します。
 
     - ``use_sudo=True`` の場合は ``sudo`` 経由で ``stat`` を呼び出します。
-    - コマンド失敗時は ``("", "", 0)`` を返し、呼び出し側で処理継続の可否を判断します。
+    - コマンド失敗時は ``("", "", 0)`` を返し, 呼び出し側で処理継続の可否を判断します。
 
     Args:
         ssh (SSHClientLike): ``stat`` を実行する Paramiko 互換クライアント。
@@ -241,12 +241,12 @@ def capture_acl_dump(
 ) -> Optional[str]:
     """Access Control List のダンプをリモートホスト上の一時ファイルへ保存する。
 
-    ``mktemp`` で確保した一時ファイルに対して ``getfacl`` を実行し、後続の ``setfacl`` 復元に
+    ``mktemp`` で確保した一時ファイルに対して ``getfacl`` を実行し, 後続の ``setfacl`` 復元に
     利用できるダンプを生成します。
 
     - ``mktemp`` を用いて ``{dump_dir}/{ACL_MKTEMP_TEMPLATE}`` 形式の一時ファイルを確保します。
     - ``getfacl`` に ``-p`` と ``--absolute-names`` を指定して絶対パスを保持したダンプを採取します。
-    - コマンドが失敗した場合は ``None`` を返し、呼び出し側でフォールバック処理を判断します。
+    - コマンドが失敗した場合は ``None`` を返し, 呼び出し側でフォールバック処理を判断します。
     - 生成したダンプファイルの削除は呼び出し側の責務です。
 
     Args:
@@ -256,7 +256,7 @@ def capture_acl_dump(
         use_sudo (bool): ``True`` の場合 ``sudo`` 経由で ``getfacl`` を実行します。
 
     Returns:
-        Optional[str]: 成功時はダンプファイルの絶対パス、失敗時は ``None``。
+        Optional[str]: 成功時はダンプファイルの絶対パス, 失敗時は ``None``。
 
     Examples:
         >>> from unittest.mock import patch
@@ -348,12 +348,12 @@ def capture_xattr_dump(
 ) -> Optional[str]:
     """拡張属性ダンプをリモートホスト上の一時ファイルへ保存する。
 
-    ``mktemp`` で一時ファイルを確保し、``getfattr`` を実行して ``setfattr --restore`` で再適用
+    ``mktemp`` で一時ファイルを確保し, ``getfattr`` を実行して ``setfattr --restore`` で再適用
     できる形式のダンプを生成します。
 
     - ``mktemp`` を使って ``{dump_dir}/{XATTR_MKTEMP_TEMPLATE}`` 形式の一時ファイルを確保します。
     - ``getfattr`` に ``-h`` および ``--absolute-names`` を指定して絶対パスを保持したダンプを採取します。
-    - コマンドが失敗した場合は ``None`` を返し、呼び出し側にフォールバック処理を委ねます。
+    - コマンドが失敗した場合は ``None`` を返し, 呼び出し側にフォールバック処理を委ねます。
     - 生成したダンプファイルの削除は呼び出し側の責務です。
 
     Args:
@@ -363,7 +363,7 @@ def capture_xattr_dump(
         use_sudo (bool): ``True`` の場合 ``sudo`` 経由で ``getfattr`` を実行します。
 
     Returns:
-        Optional[str]: 成功時はダンプファイルの絶対パス、失敗時は ``None``。
+        Optional[str]: 成功時はダンプファイルの絶対パス, 失敗時は ``None``。
 
     Examples:
         >>> from unittest.mock import patch

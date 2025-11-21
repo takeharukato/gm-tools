@@ -582,9 +582,9 @@ def _enumerate_via_remote_walk_with_sudo(
 ) -> List[str]:
     """sudo 可能なリモート歩査で SRC パターンに合致するパスを列挙する。
 
-    sudo 経路で ``python3/os.walk`` を実行して SRC パターンを評価し、必要に応じて
+    sudo 経路で ``python3/os.walk`` を実行して SRC パターンを評価し, 必要に応じて
     非 sudo での再試行も行う。ディレクトリ指定の SRC と正規表現 SRC の双方へ対応
-    し、シンボリックリンク列挙可否は ``include_symlinks`` で制御する。
+    し, シンボリックリンク列挙可否は ``include_symlinks`` で制御する。
 
     Args:
         ssh (SSHClientLike): コマンド実行に用いる SSH クライアント互換オブジェクト。
@@ -594,7 +594,7 @@ def _enumerate_via_remote_walk_with_sudo(
         include_symlinks (bool): ``True`` のときシンボリックリンクも候補へ含める。
 
     Returns:
-        List[str]: SRC 条件を満たしたリモートパス一覧（昇順ソート済み）。
+        List[str]: SRC 条件を満たしたリモートパス一覧 ( 昇順ソート済み )。
 
     Examples:
         .. doctest::
