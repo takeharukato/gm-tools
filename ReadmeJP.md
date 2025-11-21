@@ -6,7 +6,7 @@ gm-tools は複数ホスト間でのファイル収集・配布を支援する `
 
 使用方法の詳細は, [gm-gather 仕様](docs/gm-gather-spec.md), および, [gm-scatter 仕様](docs/gm-scatter-spec.md)を参照ください。
 
-## 依存パッケージ一覧
+## 前提パッケージ
 
 - Python 3.9 以降
 - [python3-paramiko](https://www.paramiko.org/)
@@ -20,7 +20,7 @@ gm-tools は複数ホスト間でのファイル収集・配布を支援する `
 
 その他, bash, mktempコマンド (`-d`オプションによるテンプレート指定付きディレクトリ作成機能が必要)が必要です。標準的なLinuxディストリビューション, BSD系OSであれば利用可能と考えます。
 
-## インストール手順
+## インストール
 
 以下の手順でインストールすることが可能です。
 
@@ -31,7 +31,7 @@ make -j
 make install
 ```
 
-## make ターゲット一覧
+## make ターゲット
 
 - `make` : コアモジュールおよびスクリプトのビルド
 - `make install` : 実行ファイル・モジュール・man ページをシステムへ導入
@@ -56,6 +56,8 @@ make install
 - `make clean`, `make distclean`, `make maintainer-clean` 生成物 (`*.gmo`, `stamp-po` など) をクリンナップレベルに応じて削除します。
 
 ## 著作権表記
+
+Copyright 2025 Takeharu KATO.
 
 本プロジェクトは BSD 2-Clause ライセンスの下で配布されています。
 詳細は `LICENSE` ファイルを参照してください。
