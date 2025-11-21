@@ -32,6 +32,7 @@ SUBDIRS = \
 EXTRA_DIST = \
 	autogen.sh \
 	requirements.txt \
+	ReadmeJP.md \
 	Readme.md \
 	LICENSE	\
 	debian \
@@ -45,6 +46,12 @@ EXTRA_DIST += \
     Dockerfiles/deb.ubuntu24.04.Dockerfile \
     Dockerfiles/entrypoint-rpm.sh \
     Dockerfiles/entrypoint-deb.sh
+
+##
+## sphinxの生成物は含めない
+##
+dist-hook:
+	$(RM) -r $(distdir)/docs/sphinx/_build
 
 ## ----------------------------------------
 ## Lines of Code 集計 (make cloc)

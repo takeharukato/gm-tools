@@ -2,7 +2,7 @@
 
 ## Overview
 
-gm-tools is a toolset providing `gm-gather` and `gm-scatter` to assist with file collection and distribution across multiple hosts. It uses SSH transfer as standard and includes features for operational environments, such as structured log output and internationalization support.
+gm-tools is a toolset providing `gm-gather` and `gm-scatter` to assist with file collection and distribution across multiple hosts. It features bulk transfer of multiple files via SSH or compressed archives, and automatically restores metadata for distributed files.
 
 For detailed usage instructions, refer to the [gm-gather specification](docs/gm-gather-spec.md) and the [gm-scatter specification](docs/gm-scatter-spec.md).
 
@@ -27,7 +27,7 @@ Installation is possible using the following steps.
 ```:shell
 ./autogen.sh
 ./configure
-make -j
+make
 make install
 ```
 
