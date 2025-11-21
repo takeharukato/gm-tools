@@ -1,0 +1,67 @@
+name: Release Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf \
+            automake \
+            gettext \
+            libtool \
+            make \
+            gcc \
+            python3 \
+            python3-pip \
+            python3-setuptools \
+            python3-wheel
+
+      - name: Build dist tarball
+        run: |
+          rm -f gm-tools-*.tar.gz
+          ./autogen.sh
+          ./configure
+          make dist
+          mkdir -p dist
+          mv gm-tools-*.tar.gz dist/
+
+      - name: Build RPM package
+        run: make rpm
+
+      - name: Build DEB package
+        run: make deb
+
+      - name: List artifacts
+        run: ls -al dist
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gm-tools-packages
+          path: |
+            dist/*.tar.gz
+            dist/*.rpm
+            dist/*.deb
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.rpm
+            dist/*.deb
+          generate_release_notes: true
