@@ -46,6 +46,8 @@ uninstall-local:
 ## 配布アーカイブに含めるファイル
 EXTRA_DIST = \
 	$(doc_DATA) \
+	github-release/ReadmeJP.md \
+	github-release/release.yml \
 	sphinx/conf.py \
 	sphinx/_static/README \
 	sphinx/_templates/README \
