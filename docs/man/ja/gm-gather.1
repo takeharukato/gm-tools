@@ -57,22 +57,111 @@ SSH セッションやリモートコマンドのタイムアウト秒。既定�
 収集計画の構築と件数集計のみを実施し, 転送を行わない。終了コードは常に 0。
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
-追加のデバッグログを有効化する。dry-run 時も同様に適用される。
+追加のデバッグログを有効化する。\fB\-\-dry-run\fR 時も同様に適用される。
 .SS 転送方式
 .TP
 \fB\-\-pack\fR
-ホスト単位でリモートに一時的な tar.gz を生成し, 1 度のダウンロードでまとめて展開する。省略時は SFTP を利用した逐次転送を行う。
+ホスト単位でリモートに一時的な tar.gz を生成し, 1 度のダウンロードでまとめて展開する(\fBパック転送\fR)。省略時は SFTP を利用した逐次転送を行う。
 .TP
 \fB\-\-follow-symlinks\fR
-\fB\-\-pack\fR 使用時にシンボリックリンクを辿り, リンク先の実体を収集する。SFTP モードでは常にリンクを除外する。
+\fB\-\-pack\fR 使用時にシンボリックリンクを辿り, リンク先の実体を収集する。\fBSFTP逐次転送\fRでは常にリンクを除外する。
 .TP
 \fB\-x\fR, \fB\-\-sudo-collect\fR
-パック経路でのファイル列挙や tar/gzip 実行を常に `sudo -n` で行う。
+パック転送でのファイル列挙や tar/gzip 実行を常に `sudo -n` で行う。
 .TP
 \fB\-\-no-sudo-collect\fR
-パック経路で sudo を利用しない。両オプションを省略した場合は, SSH ログインユーザと収集対象ユーザが異なるときのみ `sudo -n` を自動で有効化する。
-.SH TRANSFER MODES
-.SS SFTP 逐次転送
+パック転送で sudo を利用しない。両オプションを省略した場合は, SSH ログインユーザと収集対象ユーザが異なるときのみ `sudo -n` を自動で有効化する。
+
+.SH ホストファイルの形式
+
+ホストファイルとは, 本ツールで操作の対象となるリモートホスト群を定義するファイルである。 本ツールのホストファイルの形式は以下の通り:
+
+.TP
+\(bu 1 行に 1 ホスト名/IP を記述する。
+.TP
+\(bu 空行, # で始まる行, または, タブ/空白に続く # 以降はコメントとして扱う。
+
+.PP
+既定では, カレントディレクトリ下の
+.I hostfile
+を使用する。
+
+.SS ホストファイルの例
+
+.\" SRC BEGIN (hostfile)
+.EX
+
+# サーバ群を示すコメント行
+web01.example.com
+web02.example.com    # 任意の注記 ( 例: 設置場所 )
+
+10.0.0.15
+.EE
+
+.PP
+上記例の各行の意味は以下の通り:
+
+.TP
+\(bu # サーバ群を示すコメント行: コメント行として扱い, 読み取り時に無視する。
+.TP
+\(bu web01.example.com: FQDN をホストとして解釈する。
+.TP
+\(bu web02.example.com    # 任意の注記 ( 例: 設置場所 ): # 以降はコメントとして無視し, web02.example.com をホストとして解釈する。
+.TP
+\(bu 空行はコメントとして扱い, 無視する。
+.TP
+\(bu 10.0.0.15: IPv4 アドレスをホストとして解釈する。
+
+.PP
+
+.SH パスと正規表現仕様
+.PP
+
+\fISRC\fR は以下の形式に対応する。
+
+.PP
+.TP
+\(bu \fI/...\fR : UNIX 系の絶対パス。収集時にはそのまま利用する。
+.TP
+\(bu \fIX:/...\fR または \fIX:\...\fR : Windows のドライブ絶対パス。ドライブ文字の後はスラッシュ区切りに整形して扱う。
+.TP
+\(bu \fI~/...\fR : \fB\-\-user\fR で指定したリモートユーザのホームディレクトリに展開する。
+.TP
+\(bu 相対指定 : 正規表現記号が現れる手前までを対象ユーザのホームディレクトリ直下に連結して解釈する。\fI..\fR でホームより上位へ出ようとするとエラーとして該当パターンを除外する。
+.TP
+\(bu ~ 単独, \fI~user\fR, \fI~user/...\fR はいずれも無効であり, 「bare tilde is not allowed」「tilde with username is not supported」を表示して終了する。
+.TP
+\(bu 正規表現かどうかは \fI^\fR や \fI[]\fR などの記号の有無で判定し, \fI.\fR だけでは正規表現扱いにならない。
+.TP
+\(bu 正規表現として扱う場合は, 記号が現れる直前までを走査起点ディレクトリとし, その配下のファイルやディレクトリ名をスラッシュ区切りの相対パスとして正規表現に照合する。Windows であっても \fI/\fR 区切りで評価する。
+走査起点が存在しない場合, その \fISRC\fR は収集対象から除外される。
+
+.PP
+.SH SRC と DEST の解釈およびレイアウト
+.PP
+ホストファイルに記載された各ホストについて, 以下の手順で収集計画を組み立てる。
+.PP
+
+.TP
+\(bu SSH と SFTP のセッションを開き, 対象ユーザのホームディレクトリを調べる。
+.TP
+\(bu SRC で指定されたパターンを解釈し, 該当するファイルやシンボリックリンクを列挙する。
+.TP
+\(bu 通常ファイルのみを収集対象に追加し, デバイスファイルやパイプなどは除外する。
+
+.PP
+\fIDEST\fR には \fI~\fR や \fI~user\fR を含めることはできない。相対パスを指定した場合は, 実行時のカレントディレクトリを基準に絶対パスへ変換する。
+保存レイアウトは\fIDEST/<SANITIZED_HOST>/<REMOTE_PATH_NORMALIZED>\fRの形で構成される。
+
+.PP
+ここで \fI<SANITIZED_HOST>\fRは, ホスト名に含まれる禁止文字をアンダースコアへ置き換え, 先頭のドットを取り除いたものを使用する。
+\fI<REMOTE_PATH_NORMALIZED>\fRはリモートの絶対パスをスラッシュ区切りに整形し, Windows のドライブ名は C_/ のように変換する。
+UNC パスもスラッシュ区切りへ揃える。
+
+.PP
+
+.SH 転送モード
+.SS SFTP逐次転送 (既定)
 .PP
 収集対象ごとに SFTP `get` を呼び出す。ディレクトリは対象リストに含めるが, 中身の転送は行わない。ローカル保存先ディレクトリは必要に応じて作成される。メタデータの完全な復元は保証されない。
 .SS パック転送
@@ -81,16 +170,16 @@ SSH セッションやリモートコマンドのタイムアウト秒。既定�
 .SS 対象の違い
 .TP
 通常ファイル
-SFTP では通常ファイルと判定できたもののみ取得する。パック方式ではアーカイブに含まれる通常ファイルとハードリンクが復元される。
+\fBSFTP逐次転送\fR では通常ファイルと判定できたもののみ取得する。パック転送ではアーカイブに含まれる通常ファイルとハードリンクが復元される。
 .TP
 ディレクトリ
-SFTP では対象リストに含めるが内容は転送しない。パック方式では展開時に再現し, 親ディレクトリがシンボリックリンクならスキップする。
+\fBSFTP逐次転送\fR では対象リストに含めるが内容は転送しない。パック転送では展開時に再現し, 親ディレクトリがシンボリックリンクならスキップする。
 .TP
 シンボリックリンク
-SFTP では常に除外する。パック方式では \fB\-\-follow-symlinks\fR 指定時のみリンク先を取り込み, 失敗時はリンク自体を除外する。
+\fBSFTP逐次転送\fR では常に除外する。パック転送では \fB\-\-follow-symlinks\fR 指定時のみリンク先を取り込み, 失敗時はリンク自体を除外する。
 .TP
 デバイス/FIFO/ソケット
-SFTP では列挙段階で除外し, パック方式では展開時の安全チェックで除外する。
+\fBSFTP逐次転送\fR では列挙段階で除外し, パック転送では展開時の安全チェックで除外する。
 .SH EXIT STATUS
 .TP
 \fB0\fR
@@ -103,16 +192,155 @@ SFTP では列挙段階で除外し, パック方式では展開時の安全チ�
 転送中にエラーが発生したホストが存在する。
 .TP
 \fB3\fR
-`~user` を含むパスを指定した。
+\fI`~user`\fR を含むパスを指定した。
 .TP
 \fB4\fR
-`SRC`/`DEST` が不足, または `~` 単独を指定した。
-.SH SIGNALS
+\fI`SRC`\fR/\fI`DEST`\fR が不足, または \fI`~`\fR 単独を指定した。
+.SH シグナル受信時の動作
 .PP
-SIGINT または SIGTERM を受信すると新しいホスト処理を開始せず, 進行中のホストにはキャンセルを通知する。中断後は警告ログ "Interrupt requested; cancelling remaining transfers…" を出力し, 完了状況に応じて終了コード 0 または 2 を返す。終了処理では開いているセッションを閉じ, 一時ディレクトリを削除する。
-.SH LOGGING
+SIGINT または SIGTERM を受信すると新しいホスト処理を開始せず, 進行中のホストにはキャンセルを通知する。中断後は警告ログ "Interrupt requested; cancelling remaining transfers..." を出力し, 完了状況に応じて終了コード 0 または 2 を返す。終了処理では開いているセッションを閉じ, 一時ディレクトリを削除する。
+.SH 出力ログ
 .PP
 ログは `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total` の固定キーに続き, `warnings`, `errors`, `duration`, `seq` などの任意キーを key=value 形式で出力する。`phase` は `start`, `processing`, `done` を用い, 集計行では `host=-`, `msg=summary` を付加する。
+.PP
+本コマンドの出力ログには以下の情報が出力される。
+.RS
+.IP "\(bu" 2
+\fBtimestamp\fR
+.RS
+.IP "\(bu" 2
+ISO-8601 形式の時刻 (例: \fC2025-11-19T12:10:00.000+09:00\fR)。タイムゾーンとミリ秒を含む実行時刻が出力される。
+.RE
+.IP "\(bu" 2
+\fBlevel\fR
+.RS
+.IP "\(bu" 2
+\fBDEBUG\fR 進捗など詳細/デバッグ情報。標準出力に出力される。
+.IP "\(bu" 2
+\fBINFO\fR 通常情報。標準出力に出力される。
+.IP "\(bu" 2
+\fBWARNING\fR 警告。標準エラー出力に出力される。
+.IP "\(bu" 2
+\fBERROR\fR エラー。標準エラー出力に出力される。
+.IP "\(bu" 2
+\fBCRITICAL\fR 致命的エラー。標準エラー出力に出力される。
+.RE
+.IP "\(bu" 2
+\fBhost\fR 操作対象ホスト名。集計行 (\fCsummary\fR) には全体集計を示す \fC-\fR を出力する。
+.IP "\(bu" 2
+\fBop\fR 操作種別。
+.RS
+.IP "\(bu" 2
+\fBgather\fR リモートホストからローカルホストへの転送。
+.IP "\(bu" 2
+\fBscatter\fR ローカルホストからリモートホストへの転送。
+.RE
+.IP "\(bu" 2
+\fBphase\fR 動作フェーズ。
+.RS
+.IP "\(bu" 2
+\fBstart\fR 当該ホストの処理を開始したことを示す (開始行)。
+.IP "\(bu" 2
+\fBprocessing\fR 当該ホストの処理が進行中であることを示す (進行行)。
+.IP "\(bu" 2
+\fBdone\fR 当該ホストの処理が完了したことを示す (完了行)。
+.RE
+.IP "\(bu" 2
+\fBtrial\fR 当該ホストでこれまでに試行した件数 (成功・失敗を含む)。開始時は \fC0\fR で, 処理の進行に伴い増加する。正常に転送が完了した場合の完了行 (\fBdone\fR) では試行件数 (\fCtrial\fR) と計画件数 (\fCtotal\fR) が一致する。
+.IP "\(bu" 2
+\fBprocessed\fR 当該フェーズまでに処理済みの件数。
+.IP "\(bu" 2
+\fBtotal\fR 当該ホストに対して計画された総転送件数。
+.IP "\(bu" 2
+\fBwarnings\fR 警告件数。主に完了行 (\fBdone\fR) および集計行 (\fCsummary\fR) に表示される。
+.IP "\(bu" 2
+\fBerrors\fR エラー件数。主に完了行 (\fBdone\fR) および集計行 (\fCsummary\fR) に表示される。
+.IP "\(bu" 2
+\fBduration\fR フェーズまたはホスト処理の所要時間 (秒)。各ホスト単位での完了行 (\fBdone\fR) にのみ表示される。
+.IP "\(bu" 2
+\fBseq\fR ログの逐次番号。 \fB\-\-verbose\fR オプション指定時の進行行 (\fBprocessing\fR) にのみ表示される。
+.RE
+.PP
+
+.SS ホスト単位での完了行の表示内容
+.PP
+特定ホストの処理が完了した時点で出力されるログをホスト単位での完了行と呼ぶ。対象ホスト 1 台に関する最終的な処理件数と結果が表示され, `phase` は常に \fCdone\fR, `host` には当該ホスト名が入り, `warnings`・`errors`・`duration` が併記される。
+.RS
+.IP "\(bu" 2
+\fBlevel\fR  \fCINFO\fR。
+.IP "\(bu" 2
+\fBhost\fR  操作完了したホストのホスト名。
+.IP "\(bu" 2
+\fBop\fR  実行した操作種別 (\fCgather\fR または \fCscatter\fR)。
+.IP "\(bu" 2
+\fBphase\fR  \fCdone\fR。
+.IP "\(bu" 2
+\fBtrial\fR  操作完了したホストの試行件数の合計 ( 各ホストで出力した \fCtrial\fR の総和 )。
+.IP "\(bu" 2
+\fBprocessed\fR  操作完了したホストの処理成功件数の合計 ( 各ホストで出力した \fCprocessed\fR の総和 )。
+.IP "\(bu" 2
+\fBtotal\fR  操作完了したホストに対して計画された総転送件数。
+.IP "\(bu" 2
+\fBwarnings\fR  操作完了したホストの警告件数の合計。
+.IP "\(bu" 2
+\fBerrors\fR  操作完了したホストのエラー件数の合計。
+.RE
+
+.SS 集計行 (\fCsummary\fR) の表示内容
+.PP
+全ホストの処理が終了した後に 1 回だけ出力されるログを集計行 (\fCsummary\fR) と呼ぶ。書式は次のとおり:
+.EX
+timestamp="..." level="INFO" host="-" op="<op>" phase="done" trial="<total>" processed="<processed>" total="<total>" warnings="<n>" errors="<m>" msg="summary"
+.EE
+.PP
+集計行 (\fCsummary\fR) には以下の情報が含まれる。
+.RS
+.IP "\(bu" 2
+\fBlevel\fR  \fCINFO\fR。
+.IP "\(bu" 2
+\fBhost\fR  \fC-\fR ( 全体集計を示す )。
+.IP "\(bu" 2
+\fBop\fR  実行した操作種別 (\fCgather\fR または \fCscatter\fR)。
+.IP "\(bu" 2
+\fBphase\fR  \fCdone\fR。
+.IP "\(bu" 2
+\fBtrial\fR  全ホストの試行件数の合計 ( 各ホストの \fCtrial\fR の総和 )。
+.IP "\(bu" 2
+\fBprocessed\fR  全ホストの処理成功件数の合計 ( 各ホストの \fCprocessed\fR の総和 )。
+.IP "\(bu" 2
+\fBtotal\fR  \fCtrial\fR と同じ値。
+.IP "\(bu" 2
+\fBwarnings\fR  全ホストの警告件数の合計。
+.IP "\(bu" 2
+\fBerrors\fR  全ホストのエラー件数の合計。
+.IP "\(bu" 2
+\fBmsg\fR  \fCsummary\fR。
+.RE
+.PP
+.SH 制限と注意事項
+.PP
+
+.RS
+.IP "\(bu" 2
+\fCSRC\fRの正規表現は Python \fCre\fR の仕様に従うため, ロケール依存の挙動を持つメタ文字が含まれる場合がある。必要に応じて明示的なフラグを付与すること。
+.IP "\(bu" 2
+\fB--pack\fRを使用するにはリモートに \fCtar\fR と \fCgzip\fR がインストールされている必要がある。利用できない場合はエラーで終了する。
+.IP "\(bu" 2
+\fB--follow-symlinks\fRは \fB--pack\fR と組み合わせた場合のみ効果があり, リモートの tar コマンドがリンクの実体化をサポートしない場合はシンボリックリンクを取得できない。
+.IP "\(bu" 2
+ローカル保存先に既存ファイルがある場合は上書きされる。差分取得機能は無い。
+.IP "\(bu" 2
+\fB--password\fR はコマンドラインで指定するためシェル履歴に残る可能性がある。取り扱いに注意すること。
+.IP "\(bu" 2
+Windows ホストのUNC パス(\fC//srv/share\fR など) も指定できるが, 保存時にはアンダースコアを含むパスに正規化される。
+.IP "\(bu" 2
+長時間の収集中に \fBSIGINT\fR を送信すると一部のホストだけが収集済みとなる場合がある。ログと出力内容を確認し, 必要なら再実行すること。
+.IP "\(bu" 2
+取得したファイルの整合性チェック (ハッシュ検証など) は実装していない。必要に応じて別途確認すること。
+.IP "\(bu" 2
+取得したファイルの整合性チェック (ハッシュ検証等) は実装していない。必要に応じて別途確認すること。
+.RE
+
 .SH SEE ALSO
 .PP
 gm-gather 仕様書 (docs/gm-gather-spec.md), gm-scatter(1)

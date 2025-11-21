@@ -1,4 +1,4 @@
-.TH GM-GATHER 1 “2025-11-21” “gm-tools” “User Commands”
+.TH GM-GATHER 1 "2025-11-21" "gm-tools" "User Commands"
 .SH NAME
 gm-gather \- Utility to gather files from remote hosts to local
 .SH SYNOPSIS
@@ -17,15 +17,15 @@ gm-gather \- Utility to gather files from remote hosts to local
 .SH ARGUMENTS
 .TP
 \fBSRC...\fR
-Specifies one or more retrieval patterns. Details on literals, regular expressions, and tilde expansion are in the “Path and Regular Expression Specifications”. Invalid patterns are excluded from collection.
+Specifies one or more retrieval patterns. Details on literals, regular expressions, and tilde expansion are in the "Path and Regular Expression Specification". Invalid patterns are excluded from collection.
 .TP
 \fBDEST\fR
-The local output directory. Relative paths are converted to absolute paths relative to the current directory at execution time. `~` or `~user` formats will cause an error.
+Local output directory. Relative paths are converted to absolute paths relative to the current directory at runtime. `~` or `~user` formats will cause an error.
 .SH OPTIONS
 .SS Connection and Authentication
 .TP
 \fB\-H\fR, \fB\-\-hosts\fR \fIFILE\fR
-Specifies a host file listing the target hosts for operations. By default, it reads \fBhostfile\fR in the current directory.
+Specifies a host file listing target hosts. By default, reads \fBhostfile\fR in the current directory.
 .TP
 \fB\-u\fR, \fB\-\-user\fR \fIUSER\fR
 The username to collect data for. Used for `~/` expansion in `SRC` and permission checks; defaults to the command execution user.
@@ -40,7 +40,7 @@ The SSH port number. Default is 22.
 SSH private key file. If unspecified, known keys under $HOME/.ssh/ are tried sequentially; if the SSH agent is enabled, registered keys are also used. Explicitly specify the key path to ensure public key authentication is used.
 .TP
 \fB\-W\fR, \fB\-\-password\fR \fIPASS\fR
-SSH password. Key-based authentication is recommended as passwords are logged in the shell history.
+SSH password. Key authentication is recommended as passwords are logged in the shell history.
 .SS Execution Control
 .TP
 \fB\-T\fR, \fB\-\-timeout\fR \fISEC\fR
@@ -50,68 +50,297 @@ SSH session and remote command timeout in seconds. Default is 30 seconds; uses t
 Rejects unknown host keys and does not connect to hosts not in known_hosts. If omitted, automatically registers unknown keys.
 .TP
 \fB\-j\fR, \fB\-\-parallel\fR \fIN\fR
-Number of parallel processes per host. Values less than 1 are rounded up to 1. Default is 4. Processing within each host is executed sequentially.
+Number of parallel connections per host. Values less than 1 are rounded up to 1. Default is 4. Processing within each host is executed sequentially.
 .TP
 \fB\-n\fR, \fB\-\-dry-run\fR
-Performs only collection plan construction and item count aggregation; does not perform transfers. Exit code is always 0.
+Performs only collection plan construction and item count aggregation; does not perform transfers. Always returns exit code 0.
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
-Enables additional debug logging. Also applies during dry-run mode.
-.SS Transfer Method
+Enables additional debug logging. Also applies when \fB\-\-dry-run\fR is used.
+.SS Transfer Mode
 .TP
 \fB\-\-pack\fR
-Creates temporary tar.gz files on the remote host per host and extracts them all at once in a single download. If omitted, performs sequential transfer using SFTP.
+Creates temporary tar.gz files on each remote host and extracts them all at once in a single download (\fBpack transfer\fR). If omitted, uses SFTP for sequential transfer.
 .TP
 \fB\-\-follow-symlinks\fR
-\fB\-\-pack\fR When used, follows symbolic links and collects the actual files at the link destinations. Always excludes links in SFTP mode.
+When \fB\-\-pack\fR is used, follow symbolic links and collect the actual files at the link destinations. \fBSFTP sequential transfer\fR always excludes links.
 .TP
 \fB\-x\fR, \fB\-\-sudo-collect\fR
-Always performs file enumeration and tar/gzip execution on pack paths using `sudo -n`.
+Always perform file enumeration and tar/gzip execution during pack transfer using `sudo -n`.
 .TP
 \fB\-\-no-sudo-collect\fR
-Does not use sudo on the pack path. If both options are omitted, `sudo -n` is automatically enabled only when the SSH login user differs from the target user.
-.SH TRANSFER MODES
-.SS SFTP Sequential Transfer
+Do not use sudo during pack transfer. If both options are omitted, `sudo -n` is automatically enabled only when the SSH login user differs from the target user.
+
+.SH Host File Format
+
+The host file defines the group of remote hosts this tool operates on. The host file format for this tool is as follows:
+
+.TP
+\(bu Write one hostname/IP per line.
+.TP
+\(bu Blank lines, lines starting with #, or text following a tab/space followed by # are treated as comments.
+
 .PP
-Calls SFTP `get` for each collection target. Directories are included in the target list but their contents are not transferred. Local destination directories are created as needed. Complete metadata restoration is not guaranteed.
+By default, it uses
+.I hostfile
+in the current directory.
+
+.SS Host File Example
+
+.\" SRC BEGIN (hostfile)
+.EX
+
+# Comment line indicating server group
+web01.example.com
+web02.example.com # Optional notes (e.g., installation location)
+
+10.0.0.15
+.EE
+
+.PP
+The meaning of each line in the above example is as follows:
+
+.TP
+\(bu # Comment line indicating server group: Treated as a comment line and ignored during reading.
+.TP
+\(bu web01.example.com: Interprets the FQDN as a host.
+.TP
+\(bu web02.example.com # Optional notes (e.g., installation location): # Everything after this is ignored as a comment; web02.example.com is interpreted as the host.
+.TP
+\(bu Blank lines are treated as comments and ignored.
+.TP
+\(bu 10.0.0.15: IPv4 address interpreted as the host.
+
+.PP
+
+.SH Path and Regular Expression Specifications
+.PP
+
+\fISRC\fR corresponds to the following formats.
+
+.PP
+.TP
+\(bu \fI/...\fR : UNIX-style absolute path. Used as-is during collection.
+.TP
+\(bu \fIX:/...\fR or \fIX:\...\fR : Windows absolute drive path. After the drive letter, it is formatted as a slash-separated path.
+.TP
+\(bu \fI~/...\fR : Expands to the home directory of the remote user specified by \fB\-\-user\fR.
+.TP
+\(bu relative specification: Interpret by concatenating everything up to the point where regular expression symbols appear directly under the target user's home directory. Attempting to go above the home directory with \fI..\fR will cause an error and exclude the pattern.
+.TP
+\(bu ~ alone, \fI~user\fR, \fI~user/...\fR are all invalid and display "bare tilde is not allowed" "tilde with username is not supported" and exits.
+.TP
+\(bu Whether it is a regular expression is determined by the presence of symbols like \fI^\fR or \fI[]\fR; \fI.\fR alone is not treated as a regular expression.
+.TP
+When treated as a regular expression, the directory immediately preceding the symbol is used as the search base directory. File and directory names under this base are matched against the regular expression as slash-separated relative paths. Even on Windows, evaluation uses \fI/\fR delimiters.
+If no search base exists, the \fISRC\fR is excluded from collection.
+
+.PP
+.SH Interpretation and Layout of SRC and DEST
+.PP
+For each host listed in the host file, the collection plan is constructed using the following steps.
+.PP
+
+.TP
+\(bu Open SSH and SFTP sessions to examine the target user's home directory.
+.TP
+\(bu Interpret the pattern specified in SRC and enumerate matching files or symbolic links.
+.TP
+\(bu Add only regular files to the collection target; exclude device files, pipes, etc.
+
+.PP
+\fIDEST\fR cannot contain \fI~\fR or \fI~user\fR. If a relative path is specified, it is converted to an absolute path based on the current directory at execution time.
+The storage layout is structured as \fIDEST/<SANITIZED_HOST>/<REMOTE_PATH_NORMALIZED>\fR.
+
+.PP
+Here, \fI<SANITIZED_HOST>\fR uses the hostname with prohibited characters replaced by underscores and the leading dot removed.
+\fI<REMOTE_PATH_NORMALIZED>\fR formats the remote absolute path with slash separators and converts Windows drive names to C_/.
+UNC paths are also converted to be delimited by slashes.
+
+.PP
+
+.SH Transfer Mode
+.SS SFTP Sequential Transfer (Default)
+.PP
+Calls SFTP `get` for each collection target. Directories are included in the target list, but their contents are not transferred. Local destination directories are created as needed. Complete metadata restoration is not guaranteed.
 .SS Pack Transfer
 .PP
-Creates a tar.gz per host and extracts it after download. Detects available tar commands; if `--follow-symlinks` is enabled and supported, symbolic links are treated as regular files. During extraction, path traversal is rejected; if the parent directory is a symbolic link, the item is skipped. GNU tar hard link information is restored as regular files.
+Creates a tar.gz per host and extracts it after download. Detects available tar commands; if \fB\-\-follow-symlinks\fR is enabled and supported, it treats links as regular files. Extraction rejects path traversal and skips items if the parent directory is a symbolic link. GNU tar hard link information is restored as regular files.
 .SS Target Differences
 .TP
 Regular Files
-SFTP retrieves only those identified as regular files. Pack mode restores regular files and hard links contained within the archive.
+\fBSFTP Sequential Transfer\fR retrieves only items identified as regular files. Pack Transfer restores regular files and hard links contained within the archive.
 .TP
 Directories
-SFTP includes them in the target list but does not transfer their contents. Pack mode recreates them during extraction, skipping if the parent directory is a symbolic link.
+\fBSFTP Sequential Transfer\fR includes them in the target list but does not transfer their contents. Pack Transfer recreates them during extraction and skips them if the parent directory is a symbolic link.
 .TP
 Symbolic Links
-Always excluded by SFTP. Pack method only captures the link target when \fB\-\-follow-symlinks\fR is specified; if it fails, the link itself is excluded.
+\fBSFTP Sequential Transfer\fR always excludes them. In Pack Transfer, only when \fB\-\-follow-symlinks\fR is specified will the target be included; if it fails, the link itself is excluded.
 .TP
-Device/FIFO/Socket
-Excluded during enumeration by SFTP; excluded during safety checks at extraction by the pack method.
+Devices/FIFOs/Sockets
+\fBSFTP sequential transfer\fR excludes them during enumeration; packed transfer excludes them during the safety check at extraction.
 .SH EXIT STATUS
 .TP
 \fB0\fR
-Normal exit, or when executing \fB\-\-dry-run\fR.
+Normal exit, or when \fB\-\-dry-run\fR is executed.
 .TP
 \fB1\fR
 Could not obtain a valid host from the host file.
 .TP
 \fB2\fR
-Hosts with transfer errors exist.
+Hosts with errors encountered during transfer exist.
 .TP
 \fB3\fR
-Specified a path containing `~user`.
+Specified a path containing \fI`~user`\fR.
 .TP
 \fB4\fR
-Insufficient `SRC`/`DEST`, or specified `~` alone.
-.SH SIGNALS
+\fI`SRC`\fR/\fI`DEST`\fR is missing, or \fI`~`\fR was specified alone.
+.SH Behavior upon Signal Receipt
 .PP
-Upon receiving SIGINT or SIGTERM, does not start new host processing and notifies ongoing hosts of cancellation. After interruption, outputs warning log “Interrupt requested; cancelling remaining transfers…” and returns exit code 0 or 2 based on completion status. The termination process closes open sessions and deletes temporary directories.
-.SH LOGGING
+Upon receiving SIGINT or SIGTERM, no new host processing is initiated, and cancellation is notified to ongoing hosts. After interruption, the warning log "Interrupt requested; cancelling remaining transfers..." is output, and exit code 0 or 2 is returned based on completion status. Termination processing closes open sessions and deletes temporary directories.
+.SH Output Log
 .PP
-Logs output fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, followed by optional keys like `warnings`, `errors`, `duration`, `seq` in key=value format. `phase` uses `start`, `processing`, `done`. Aggregate lines append `host=-` and `msg=summary`.
+ Logs output fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, followed by optional keys like `warnings`, `errors`, `duration`, `seq` in key=value format. `phase` uses `start`, `processing`, `done`. Aggregate lines append `host=-` and `msg=summary`.
+.PP
+The output log for this command includes the following information.
+.RS
+.IP "\(bu" 2
+\fBtimestamp\fR
+.RS
+.IP "\(bu" 2
+Time in ISO-8601 format (e.g., \fC2025-11-19T12:10:00.000+09:00\fR). Outputs the execution time including time zone and milliseconds.
+.RE
+.IP "\(bu" 2
+\fBlevel\fR
+.RS
+.IP "\(bu" 2
+\fBDEBUG\fR Detailed/debug information such as progress. Output to standard output.
+.IP "\(bu" 2
+\fBINFO\fR Normal information. Output to standard output.
+.IP "\(bu" 2
+\fBWARNING\fR Warning. Output to standard error.
+.IP "\(bu" 2
+\fBERROR\fR Error. Output to standard error.
+.IP "\(bu" 2
+\fBCRITICAL\fR Fatal error. Output to standard error.
+.RE
+.IP "\(bu" 2
+\fBhost\fR Target host name. Outputs \fC-\fR (indicating overall summary) in summary lines (\fCsummary\fR).
+.IP "\(bu" 2
+\fBop\fR Operation type.
+.RS
+.IP "\(bu" 2
+\fBgather\fR Transfer from remote host to local host.
+.IP "\(bu" 2
+\fBscatter\fR Transfer from local host to remote host.
+.RE
+.IP "\(bu" 2
+\fBphase\fR Operation phase.
+.RS
+.IP "\(bu" 2
+\fBstart\fR Indicates processing of the host has begun (start line).
+.IP "\(bu" 2
+\fBprocessing\fR Indicates processing of the host is in progress (processing line).
+.IP "\(bu" 2
+\fBdone\fR Indicates processing of the host has completed (completion line).
+.RE
+.IP "\(bu" 2
+\fBtrial\fR Number of attempts made on this host so far (including successes and failures). Starts at \fC0\fR and increases as processing progresses. In the completion line (\fBdone\fR) when transfer completes successfully, the number of trials (\fCtrial\fR) matches the planned number (\fCtotal\fR).
+.IP "\(bu" 2
+\fBprocessed\fR Number of items processed up to this phase.
+.IP "\(bu" 2
+\fBtotal\fR Total number of transfers planned for this host.
+.IP "\(bu" 2
+\fBwarnings\fR Number of warnings. Primarily displayed in the completion row (\fBdone\fR) and summary row (\fCsummary\fR).
+
+.IP "\(bu" 2
+\fBerrors\fR Number of errors. Primarily displayed in the completion row (\fBdone\fR) and summary row (\fCsummary\fR).
+.IP "\(bu" 2
+\fBduration\fR Duration of phase or host processing (seconds). Displayed only in the completion line (\fBdone\fR) for each host.
+.IP "\(bu" 2
+\fBseq\fR Sequential log number. Displayed only in the processing line (\fBprocessing\fR) when the \fB\-\-verbose\fR option is specified.
+.RE
+.PP
+
+.SS Content displayed in the host-level completion line
+.PP
+The log output when processing for a specific host completes is called the host-level completion line. It displays the final number of processed items and the result for that single host. `phase` is always \fCdone\fR, `host` contains the host name, and `warnings`, `errors`, and `duration` are listed together.
+.RS
+.IP "\(bu" 2
+\fBlevel\fR \fCINFO\fR.
+.IP "\(bu" 2
+\fBhost\fR Host name of the host whose operation completed.
+.IP "\(bu" 2
+\fBop\fR Type of operation executed (\fCgather\fR or \fCscatter\fR).
+.IP "\(bu" 2
+\fBphase\fR \fCdone\fR.
+.IP "\(bu" 2
+\fBtrial\fR Total number of trials for hosts that completed the operation (sum of \fCtrial\fR output for each host).
+.IP "\(bu" 2
+\fBprocessed\fR Total number of successful processes for hosts that completed the operation (sum of \fCprocessed\fR output for each host).
+.IP "\(bu" 2
+\fBtotal\fR Total number of transfers planned for hosts that completed operations.
+.IP "\(bu" 2
+\fBwarnings\fR Total number of warnings for hosts that completed operations.
+.IP "\(bu" 2
+\fBerrors\fR Total number of errors for hosts that completed operations.
+.RE
+
+.SS Display content of the summary row (\fCsummary\fR)
+.PP
+The log output once after processing of all hosts is complete is called the summary row (\fCsummary\fR). The format is as follows:
+.EX
+timestamp="..." level="INFO" host="-" op="<op>" phase="done" trial="<total>" processed="<processed>" total="<total>" warnings="<n>" errors="<m>" msg="summary"
+.EE
+.PP
+The summary line (\fCsummary\fR) contains the following information.
+.RS
+.IP "\(bu" 2
+\fBlevel\fR \fCINFO\fR.
+.IP "\(bu" 2
+\fBhost\fR \fC-\fR (indicates overall aggregation).
+.IP "\(bu" 2
+\fBop\fR Operation type executed (\fCgather\fR or \fCscatter\fR).
+.IP "\(bu" 2
+\fBphase\fR \fCdone\fR.
+.IP "\(bu" 2
+\fBtrial\fR Total number of trials across all hosts (sum of \fCtrial\fR for each host).
+.IP "\(bu" 2
+\fBprocessed\fR Total number of successful processes across all hosts (sum of \fCprocessed\fR for each host).
+.IP "\(bu" 2
+\fBtotal\fR Same value as \fCtrial\fR.
+.IP "\(bu" 2
+\fBwarnings\fR Total number of warnings across all hosts.
+.IP "\(bu" 2
+\fBerrors\fR Total number of errors across all hosts.
+.IP "\(bu" 2
+\fBmsg\fR \fCsummary\fR.
+.RE
+.PP
+.SH Limitations and Notes
+.PP
+
+.RS
+.IP "\(bu" 2
+\fCSRC\fR regular expressions follow Python \fCre\fR specifications, so they may contain locale-dependent metacharacters. Use explicit flags as needed.
+.IP "\(bu" 2
+\fB--pack\fR requires \fCtar\fR and \fCgzip\fR to be installed on the remote. If unavailable, it exits with an error.
+.IP "\(bu" 2
+\fB--follow-symlinks\fR only works when combined with \fB--pack\fR. If the remote tar command does not support resolving links, symbolic links cannot be retrieved.
+.IP "\(bu" 2
+Existing files in the local destination will be overwritten. There is no differential retrieval capability.
+.IP "\(bu" 2
+\fB--password\fR is specified on the command line and may be recorded in shell history. Exercise caution when handling it.
+.IP "\(bu" 2
+UNC paths on Windows hosts (e.g., \fC//srv/share\fR) can be specified, but they are normalized to paths containing underscores during saving.
+.IP "\(bu" 2
+Sending \fBSIGINT\fR during a long collection may result in only some hosts being collected. Check the logs and output, and rerun if necessary.
+.IP "\(bu" 2
+Integrity checks (such as hash verification) for acquired files are not implemented. Verify separately as needed.
+.IP "\(bu" 2
+Integrity checks (such as hash verification) for acquired files are not implemented. Verify separately as needed.
+.RE
+
 .SH SEE ALSO
 .PP
 gm-gather specification (docs/gm-gather-spec.md), gm-scatter(1)

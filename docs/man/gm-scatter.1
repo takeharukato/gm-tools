@@ -1,6 +1,6 @@
-.TH GM-SCATTER 1 “2025-11-21” “gm-tools” “User Commands”
+.TH GM-SCATTER 1 "2025-11-21" "gm-tools" "User Commands"
 .SH NAME
-gm-scatter \- Utility to distribute files from a local host to multiple hosts
+gm-scatter \- Utility to distribute files from a local machine to multiple hosts
 .SH SYNOPSIS
 .B gm-scatter
 \fR[\-h|\-\-help] [\-H|\-\-hosts \fIFILE\fR] [\-u|\-\-user \fIUSER\fR] [\-s|\-\-ssh-user \fIUSER\fR]
@@ -17,11 +17,11 @@ gm-scatter \- Utility to distribute files from a local host to multiple hosts
 .br
 \fRSRC... DEST
 .SH DESCRIPTION
-\fBgm-scatter\fR distributes local files to multiple remote hosts listed in the host list. It supports switching between sequential SFTP uploads and a pack method that creates a temporary archive locally before uploading, and includes options for restoring SELinux labels, ACLs, and more.
+\fBgm-scatter\fR distributes local files to multiple remote hosts listed in the host list. It supports switching between sequential SFTP uploads and pack transfer (creating a temporary archive locally before uploading), and includes options for restoring SELinux labels, ACLs, etc.
 .SH ARGUMENTS
 .TP
 \fBSRC...\fR
-One or more local paths or regular expression patterns. Refer to the “Path and Regular Expression Specifications” section in the gm-scatter specification document for the specification method. Non-existent literals are automatically excluded.
+One or more local paths or regular expression patterns. Refer to the "Path and Regular Expression Specifications" section in the gm-scatter specification for the specification method. Non-existent literals are automatically excluded.
 .TP
 \fBDEST\fR
 Remote destination directory. Relative specifications are converted relative to the target user's home directory; `~` or `~user` will result in an error.
@@ -32,10 +32,10 @@ Remote destination directory. Relative specifications are converted relative to 
 Specifies the host file for transfer. By default, reads \fBhostfile\fR in the current directory.
 .TP
 \fB\-u\fR, \fB\-\-user\fR \fIUSER\fR
-The target user for deployment. Sudo and SELinux checks are also performed based on this user. The default is the command execution user.
+Target user for deployment. sudo and SELinux checks are also performed based on this user. Default is the command execution user.
 .TP
 \fB\-s\fR, \fB\-\-ssh-user\fR \fIUSER\fR
-User used for SSH login. If omitted, it defaults to \fB\-\-user\fR and is used for automatic determination of whether to use sudo in the pack path.
+User to use for SSH login. If omitted, same as \fB\-\-user\fR. Used for automatic determination of whether to use sudo during package transfer.
 .TP
 \fB\-P\fR, \fB\-\-port\fR \fIPORT\fR
 SSH port number. Default is 22.
@@ -44,87 +44,449 @@ SSH port number. Default is 22.
 SSH private key file. If unspecified, known keys in $HOME/.ssh/ are tried sequentially; if the SSH agent is enabled, registered keys are also used.
 .TP
 \fB\-W\fR, \fB\-\-password\fR \fIPASS\fR
-SSH password. Key authentication is recommended as passwords may be logged.
+SSH password. Key authentication is recommended as passwords may be stored in history.
 .SS Execution Control
 .TP
 \fB\-T\fR, \fB\-\-timeout\fR \fISEC\fR
-SSH session and remote command timeout in seconds. Default is 30 seconds; uses a common value from home detection to cleanup after extraction.
+Timeout in seconds for SSH sessions and remote commands. Default is 30 seconds; uses a common value from home detection to cleanup after extraction.
 .TP
 \fB\-S\fR, \fB\-\-strict-host-key-checking\fR
-Rejects unknown host keys and prevents connections to servers not registered in known_hosts.
+Rejects unknown host keys, preventing connections to servers not registered in known_hosts.
 .TP
 \fB\-j\fR, \fB\-\-parallel\fR \fIN\fR
-Number of parallel connections per host. Values less than 1 are rounded up to 1. Default is 4. Transfers are sequential within each host.
+Number of parallel connections per host. Values less than 1 are rounded up to 1; default is 4. Transfers within each host are sequential.
 .TP
 \fB\-n\fR, \fB\-\-dry-run\fR
-Enumerates transfer candidates and counts items without performing the actual transfer. Always returns exit code 0.
+Performs only enumeration of transfer candidates and count aggregation; does not execute transfers. Exit code is always 0.
 .TP
 \fB\-v\fR, \fB\-\-verbose\fR
-Enables verbose logging. Also applies during dry-run mode.
-.SS Transfer Methods and Permissions
+Enables detailed logging. Also applies when \fB\-\-dry-run\fR is used.
+.SS Transfer Method and Permissions
 .TP
 \fB\-\-pack\fR
-Creates a temporary tar.gz locally and extracts it remotely after upload. Allows bulk placement compared to SFTP.
+Creates a temporary tar.gz archive locally and extracts it remotely after upload (pack transfer). Allows bulk placement compared to sequential transfer.
 .TP
 \fB\-\-follow-symlinks\fR
-Follows symbolic links during packing and includes the linked files in the archive. Always excludes links in SFTP mode.
+Follows symbolic links during pack transfer and includes the linked files in the archive.
+\fBSFTP sequential transfer\fR always excludes links.
 .TP
 \fB\-x\fR, \fB\-\-sudo-extract\fR
 Always execute pack extraction, `mkdir`, and ownership changes using `sudo -n`.
 .TP
 \fB\-\-no-sudo-extract\fR
-Do not use sudo even in pack mode. If both are omitted, sudo is used automatically in pack mode when the SSH login user and target user differ.
+Do not use sudo even during pack transfer. If both are omitted, sudo is automatically used during pack transfer when the SSH login user and target user differ.
 .TP
 \fB\-\-selinux\fR {auto|policy|ignore}
-SELinux label restoration policy for pack mode. `auto` runs `restorecon` only on compatible hosts; `policy` errors on non-compliant hosts. `ignore` always skips.
-.SH TRANSFER MODES
-.SS SFTP Sequential Transfer
-.PP
-Calls SFTP `put` for each transfer candidate. Executes `mkdir -p` if necessary. Uses sudo only for creating parent directories when the SSH login user and target user differ. New files are owned by the SSH login user, with permissions dependent on the remote umask.
-.SS Packed Transfer
-.PP
-Uploads a locally created tar.gz and extracts it remotely. If `--sudo-extract` is enabled, performs extraction, overwriting, ownership change, permission restoration, and SELinux label reset via `sudo -n`. Symbolic links with non-existent targets are excluded during archive creation.
+SELinux label restoration policy during pack transfer. `auto` runs `restorecon` only on compatible hosts; `policy` errors on non-compliant hosts. `ignore` always skips.
+
+.SS Transfer Method
+.SS SFTP Sequential Transfer (Default)
+.RS
+.IP "\(bu" 2
+Calls SFTP's \fCput\fR for each transfer candidate to upload files. Scans directories locally and sends files one by one. On the remote side, executes \fCmkdir -p\fR as needed to create parent directories.
+.IP "\(bu" 2
+If the SSH login user and the target user differ, only the parent directory creation is performed using \fCsudo -n mkdir -p\fR. Subsequent file writes remain under the SSH login user's permissions; if write permission is lacking, an immediate error occurs.
+.IP "\(bu" 2
+Newly created files and directories belong to the SSH login user, and their permissions depend on the remote umask. SELinux labels, ACLs, and extended attributes are not restored during \fBSFTP sequential transfer\fR.
+.IP "\(bu" 2
+When overwriting an existing file, only if sudo is used to create the parent directory, the owner, group, access rights, ACL, and extended attributes are retrieved before overwriting and an attempt is made to restore them after upload. Transfer continues even if the remote lacks the necessary tools or restoration fails.
+.IP "\(bu" 2
+Symbolic links are always excluded from transfer, and logs record that links were ignored.
+.RE
+.SS \-\-pack
+.RS
+.IP "\(bu" 2
+Only when processing the first transfer candidate for each host, the local side batches the send targets into \fCtar.gz\fR (\fBpack transfer\fR). Duplicate specifications and parent-child relationships are resolved at this point.
+.IP "\(bu" 2
+The generated archive is uploaded via SFTP to a remote temporary directory. After extraction, files are placed under \fCDEST\fR.
+.IP "\(bu" 2
+The type of tar command is automatically detected and extracted using the appropriate options. New file creation and overwriting existing files are handled separately. Existing files are extracted to a secure temporary directory before being moved to their final location to prevent partial overwrites.
+.IP "\(bu" 2
+When overwriting, if possible, record the owner, group, permissions, ACL, extended attributes, and modification time beforehand. If \fC--sudo-extract\fR is enabled, restore them to the same values. New files and directories are also \fCchown\fR with sudo to match the target user and primary group.
+.IP "\(bu" 2
+When \fC--follow-symlinks\fR is enabled, include the actual target of symbolic links in the archive. When disabled, do not include them in the archive. If the parent directory is a symbolic link, issue a warning during extraction and skip that entry.
+.IP "\(bu" 2
+After extraction, perform SELinux label restoration via \fCrestorecon\fR and delete temporary files. If configured to use sudo, execute these via \fCsudo -n\fR.
+.RE
+
+
 .SS Target Differences
 .TP
 Regular Files
-SFTP uploads them individually and restores ownership/permissions if necessary. Pack mode extracts them collectively and restores ownership/permissions even when overwriting via temporary space.
+In \fBSFTP Sequential Transfer\fR, upload individually and restore ownership/permissions if necessary. In Pack Transfer, extract all at once and restore ownership/permissions even when overwriting via temporary space.
 .TP
 Directories
-SFTP creates them as needed but does not restore attributes. Pack mode automatically creates them during extraction and uses `chown` to match the target user when sudo is used.
+\fBSFTP Sequential Transfer\fR creates them as needed but does not restore attributes. Pack Transfer automatically creates them during extraction and, when using sudo, `chown`s them to the target user.
 .TP
 Symbolic Links
-Always excluded via SFTP and logged. Pack method includes target only when `--follow-symlinks` is used.
+Always excluded in \fBSFTP Sequential Transfer\fR and logged. Pack transfer only incorporates the target when `--follow-symlinks` is used.
 .TP
 Hard Links
-Placed as individual files via SFTP. Pack method restores as regular files based on GNU tar information.
+\fBSFTP Sequential Transfer\fR places them as individual files. Pack Transfer restores them as regular files based on GNU tar information.
 .TP
 Devices/FIFOs/Sockets
-Excluded from candidates via SFTP. Pack method excludes them from the archive and rejects them during extraction.
+\fBSFTP Sequential Transfer\fR excludes them from candidates. Pack Transfer excludes them from the archive and rejects them during extraction.
 .TP
 ACL/Extended Attributes
-SFTP uses sudo to create parent directories and restores existing files only if the necessary tools are present. Pack method restores existing files if `--sudo-extract` is enabled and the tools exist.
-.SH SELINUX
+\fBSFTP Batch Transfer\fR uses sudo to create parent directories and restores using existing files only if the necessary tools exist. In packed transfer, restores using existing files if `--sudo-extract` is enabled and the tools exist.
+
+.SH Host File Format
+
+A host file defines the remote hosts this tool operates on. The host file format for this tool is as follows:
+
+.TP
+\(bu Write one hostname/IP per line.
+.TP
+\(bu Blank lines, lines starting with #, or text following a tab/space and # are treated as comments.
+
 .PP
-When `--selinux` is `auto` or `policy`, reset labels for files/directories newly created or updated by the pack method on hosts where `restorecon -RF` can be executed. Do not change labels when `ignore` is specified or in SFTP mode.
+By default, the tool uses the
+.I hostfile
+in the current directory.
+
+.SS Example Host File
+
+.\" SRC BEGIN (hostfile)
+.EX
+
+# Comment line indicating server group
+web01.example.com
+web02.example.com # Optional notes (e.g., installation location)
+
+10.0.0.15
+.EE
+
+.PP
+The meaning of each line in the above example is as follows:
+
+.TP
+\(bu # Comment line indicating server group: Treated as a comment line and ignored during reading.
+.TP
+\(bu web01.example.com: Interprets the FQDN as a host.
+.TP
+\(bu web02.example.com # Optional notes (e.g., installation location): # Everything after this is ignored as a comment; web02.example.com is interpreted as a host.
+.TP
+\(bu Blank lines are treated as comments and ignored.
+.TP
+\(bu 10.0.0.15: Interpret the IPv4 address as the host.
+
+.PP
+
+.SH Path and Regular Expression Specification
+.RS
+.IP "\(bu" 2
+\fCSRC\fR is interpreted as follows, assuming a local path.
+.RS
+.IP "\(bu" 2
+If starting with \fC/\fR, it is treated as a UNIX-style absolute path. In the transfer plan, it is handled as an absolute path, but remotely, it is converted to a relative path by removing the leading slash.
+.IP "\(bu" 2
+\fCX:/...\fR or \fCX:\...\fR are interpreted as Windows drive absolute paths, formatting the portion after the drive letter into a slash-separated path. If the target does not exist on Linux, it is excluded.
+.IP "\(bu" 2
+\fC~/...\fR expands to the home directory of the command execution user.
+.IP "\(bu" 2
+Convert relative paths to absolute paths based on the current directory at execution time. If the path contains \fC..\fR and attempts to move above the current directory, exclude the pattern as an error.
+.IP "\(bu" 2
+Standalone \fC~\fR, \fC~user\fR, \fC~user/...\fR are invalid. Display \fC"bare tilde is not allowed"\fR and \fC"tilde with username is not supported"\fR and exit.
+.RE
+.IP "\(bu" 2
+Determine if it is a regular expression by recognizing symbols like \fC^\fR or \fC []\fR, etc., and does not treat \fC.\fR alone as a regular expression.
+.IP "\(bu" 2
+When treating it as a regular expression, the scan start point is set just before the symbol appears, and filenames under it are matched as slash-separated relative paths. Matched files or directories are added to the transfer candidates.
+.IP "\(bu" 2
+If a literally specified path does not exist, it is excluded without warning. Repeatedly specifying the same location is treated only once.
+.IP "\(bu" 2
+\fBPack Transfer\fR When used, appends a trailing slash to candidates specifying local directories, explicitly indicating they are treated as directories during tar creation. Results matching regular expressions are handled as-is.
+.RE
+.SH Interpretation and Layout of SRC and DEST
+.RS
+.IP "\(bu" 2
+The interpretation of \fCDEST\fR is as follows.
+.RS
+.IP "\(bu" 2
+\fC/\fR If starting with this, use it directly as a remote absolute path.
+.IP "\(bu" 2
+\fCX:/...\fR or \fCX:\...\fR Treat as a Windows drive absolute path and use as the base for the upload destination.
+.IP "\(bu" 2
+\fC~/...\fR is expanded and concatenated to the remote target user's home directory.
+.IP "\(bu" 2
+Relative paths are placed under the target user's home directory.
+.IP "\(bu" 2
+\fC~\fR or \fC~user\fR are invalid and terminate with a positional argument error.
+.RE
+.IP "\(bu" 2
+The source path is converted to a relative path delimited by \fC/\fR on the remote side. Absolute paths have their leading slash removed, and Windows drives are formatted as \fCC/... \fR. Relative paths retain their specified structure.
+.IP "\(bu" 2
+Results matched by regular expressions are placed in \ fCDEST\fR while preserving the relative path from the scan starting point. Paths posing a path traversal risk (like \fC..\fR or those starting with \fC/\fR) are removed during normalization. If the path becomes empty after conversion, the original filename is used.
+.IP "\(bu" 2
+Use the same \fCDEST\fR on all hosts; do not create host-specific subdirectories. Therefore, each host writes directly to \fCDEST/relative_path\fR.
+.RE
+.PP
+
+.SH SELinux Support
+.SS Determining SELinux Availability
+.PP
+\fBgm-scatter\fR checks whether the remote host has SELinux's virtual filesystem mounted or if the \fCrestorecon\fR command is available. If either is missing, SELinux label restoration is not performed.
+.SS \fB\-\-selinux\fR Option Behavior
+.RS
+.IP "\(bu" 2
+\fCignore\fR: Does not perform SELinux restoration processing on any host.
+.IP "\(bu" 2
+\fCauto\fR (default): Executes \fCrestorecon -RF\fR only on hosts meeting SELinux requirements; silently skips on non-compliant hosts.
+.IP "\(bu" 2
+\fCpolicy\fR: On non-compliant hosts, fail the transfer with an error; on compliant hosts, always execute \fCrestorecon -RF\fR.
+.IP "\(bu" 2
+Processing targets are files and empty directories newly created or updated by \fBpack transfer\fR, including cases where existing files are overwritten. \fBSFTP sequential transfer\fR does not invoke \fCrestorecon\fR.
+.RE
+.SS Metadata restoration conditions
+.RS
+.IP "\(bu" 2
+\fBowner, group, permissions\fR
+.RS
+.IP "\(bu" 2
+\fBSFTP sequential transfer\fR : Restores owner and permissions only when overwriting existing files if sudo is used for parent directory creation. Transfer continues even if required tools are missing or restoration fails; new files are created owned by the SSH login user.
+.IP "\(bu" 2
+\fBPackaged Transfer\fR: \fB\-\-sudo-extract\fR If enabled, restores owners and permissions recorded for existing files and \fCchown\fR new files/directories to match the target user and primary group. Does not restore if sudo is disabled.
+.RE
+.IP "\(bu" 2
+\fBTimestamp\fR
+.RS
+.IP "\(bu" 2
+\fBSFTP sequential transfer\fR : Retention of modification times is not guaranteed.
+.IP "\(bu" 2
+\fBPack transfer\fR: For files to be overwritten, \fCtouch -r\fR is executed using the archive's modification time to match the original mtime. Transfer does not halt even if this fails.
+.RE
+.IP "\ (bu" 2
+
+\fBACL and Extended Attributes\fR
+.RS
+.IP "\(bu" 2
+For any transfer method, if \fCgetfacl\fR/\fCsetfacl\fR or \fCgetfattr\fR/\fCsetfattr\fR are unavailable remotely, retrieval/restoration is not performed.
+.IP "\(bu" 2
+\fBSFTP Sequential Transfer\fR : Restores ACL/xattr for existing files only when sudo is used for parent directory creation and required tools exist. Does not execute for new creations.
+.IP "\(bu" 2
+\fB Packed Transfer\fR: Restores ACL/xattr for existing files when \fB\-\-sudo-extract\fR is enabled and the required tools are present. New files retain default values.
+.RE
+.IP "\(bu" 2
+\fBSELinux Context\fR
+.RS
+.IP "\(bu" 2
+\fB Pack Transfer\fR: If \fB\-\-selinux\fR is set to \fCauto\fR or \fCpolicy\fR, resets with \fCrestorecon\fR on hosts meeting conditions.
+.IP "\(bu" 2
+\fB SFTPSerial Transfer\fR: Does not modify SELinux labels.
+.RE
+.RE.SS SELinux Support
+.SS Determining SELinux Availability
+.PP
+\fBgm-scatter\fR checks whether the SELinux virtual filesystem is mounted on the remote host or whether the \fCrestorecon\fR command is available. If either is missing, SELinux label restoration is not performed.
+.SS Behavior of the \fB\-\-selinux\fR option
+.RS
+.IP "\(bu" 2
+\fCignore\fR: Never perform SELinux restoration on any host.
+.IP "\(bu" 2
+\fCauto\fR (default): Execute \fCrestorecon -RF\fR only on hosts meeting SELinux requirements; silently skip on non-compliant hosts.
+.IP "\ (bu" 2
+\fCpolicy\fR: Fails transfers as errors on non-compliant hosts, and always executes \fCrestorecon -RF\fR on compliant hosts.
+.IP "\(bu" 2
+Processing targets are files and empty directories newly created or updated via \fBpack transfer\fR, including cases where existing files were overwritten. \fBSFTP sequential transfer\fR does not invoke \fCrestorecon\fR.
+.RE
+.SS Metadata restoration conditions
+.RS
+.IP "\(bu" 2
+\fB Owner, Group, Permissions\fR
+.RS
+.IP "\(bu" 2
+SFTP: Restores owner and access permissions when overwriting existing files only if sudo is used for parent directory creation. Transfer continues even if required tools are missing or restoration fails; new files are created owned by the SSH login user.
+.IP "\(bu" 2
+\fBPack Transfer\fR: \fB\-\-sudo-extract\fR If enabled, restores owners and permissions recorded for existing files and \fCchown\fR new files/directories to match the target user and primary group. Does not restore if sudo is disabled.
+.RE
+.IP "\ (bu" 2
+\fBTimestamp\fR
+.RS
+.IP "\(bu" 2
+SFTP: Retention of modification times is not guaranteed.
+.IP "\(bu" 2
+\fBPack Transfer\fR: Executes \fCtouch -r\fR on overwrite targets using the archive's modification time to match the original mtime. Transfer continues even if this fails.
+.RE
+.IP "\(bu" 2
+\fBACL and extended attributes\fR
+.RS
+.IP "\(bu" 2
+For any transfer method, if \fCgetfacl\fR/\fCsetfacl\fR or \fCgetfattr\fR/\fCsetfattr\fR are unavailable remotely, they will not be fetched or restored.
+.IP "\(bu" 2
+SFTP: Restores ACL/xattr for existing files only when sudo is used for parent directory creation and required tools exist. Does not execute for new creations.
+. IP "\(bu" 2
+\fBPack Transfer\fR: Restores ACL/xattr for existing files when \fB\-\-sudo-extract\fR is enabled and the required tools are present. New files retain default values.
+.RE
+.IP "\(bu" 2
+\fBSELinux Context\fR
+.RS
+.IP "\(bu" 2
+\fBpack transfer\fR when \fB\-\-selinux\fR is \fCauto\fR or \fCpolicy\fR, reset with \fCrestorecon\fR on hosts meeting the conditions.
+.IP "\(bu" 2
+\fBSFTP Sequential Transfer\fR does not change SELinux labels.
+.RE
+.RE
+
 .SH EXIT STATUS
 .TP
 \fB0\fR
-Normal exit, or when executing \fB\-\-dry-run\fR.
+Normal exit, or when \fB\-\-dry-run\fR is executed.
 .TP
 \fB1\fR
-No valid hosts exist in the host file.
+No valid host exists in the host file.
 .TP
 \fB2\fR
-Hosts encountered errors during transfer.
+An error occurred on a host during transfer.
 .TP
 \fB4\fR
 Insufficient positional arguments, or `~` specified alone.
-.SH SIGNALS
+.SH Behavior on Signal Reception
 .PP
-Receiving SIGINT/SIGTERM sets an interrupt flag and prevents starting new host processing. It notifies ongoing transfers of cancellation and outputs the warning log message “Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories).” The exit code returns 0 or 2 depending on the completion status.
-.SH LOGGING
+Upon receiving SIGINT/SIGTERM, sets an interrupt flag and does not start new host processing. Notifies ongoing transfers of cancellation and outputs the warning log "Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories)." The exit code is 0 or 2 depending on the completion status.
+.SH Output Log
 .PP
-The log format is key=value, consisting of fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, and optional keys `warnings`, `errors`, `duration`, `seq`. Lines with `host=-` represent overall totals and append `msg=summary`.
+The log follows fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, and outputs optional keys like `warnings`, `errors`, `duration`, `seq`. `phase` uses `start`, `processing`, `done`. Aggregate lines add `host=-` and `msg=summary`.
+.PP
+The output log for this command includes the following information.
+.RS
+.IP "\(bu" 2
+\fBtimestamp\fR
+.RS
+.IP "\(bu" 2
+ISO-8601 timestamp (e.g., \fC2025-11-19T12:10:00.000+09:00\fR). The execution time including time zone and milliseconds is output.
+
+.RE
+.IP "\(bu" 2
+\fBlevel\fR
+.RS
+.IP "\(bu" 2
+\fBDEBUG\fR Detailed/debug information such as progress. Output to standard output.
+.IP "\(bu" 2
+\fBINFO\fR Normal information. Output to standard output.
+.IP "\(bu" 2
+\fBWARNING\fR Warning. Output to standard error.
+.IP "\(bu" 2
+\fBERROR\fR Error. Output to standard error.
+
+.IP "\(bu" 2
+\fBCRITICAL\fR Fatal error. Output to standard error.
+.RE
+.IP "\(bu" 2
+\fBhost\fR Target host name. Output \fC-\fR to summary lines (\fCsummary\fR) to indicate overall totals.
+.IP "\(bu" 2
+\fBop\fR Operation type.
+.RS
+.IP "\(bu" 2
+\fBgather\fR Transfer from remote host to local host.
+.IP "\(bu" 2
+\fBscatter\fR Transfer from local host to remote host.
+.RE
+.IP "\(bu" 2
+\fBphase\fR Operation phase.
+.RS
+.IP "\(bu" 2
+\fBstart\fR Indicates processing of the host has started (start line).
+.IP "\(bu" 2
+\fBprocessing\fR Indicates processing of the host is in progress (progress line).
+.IP "\(bu" 2
+\fBdone\fR Indicates processing for this host is complete (completion line).
+.RE
+.IP "\(bu" 2
+\fBtrial\fR Number of attempts made on this host so far (including successes and failures). Initially set to \fC0\fR, increases as processing progresses. In the completion line (\fBdone\fR) for a successful transfer, the number of attempts (\fCtrial\fR) matches the planned total (\fCtotal\fR).
+.IP "\(bu" 2
+\fBprocessed\fR Number of items processed up to this phase.
+.IP "\(bu" 2
+\fBtotal\fR Total number of transfers planned for this host.
+.IP "\(bu" 2
+\fBwarnings\fR Number of warnings. Primarily displayed in the completion line (\fBdone\fR) and summary line (\fCsummary\fR).
+.IP "\(bu" 2
+\fBerrors\fR Number of errors. Primarily displayed in completion lines (\fBdone\fR) and summary lines (\fCsummary\fR).
+.IP "\(bu" 2
+\fBduration\fR Time taken for phase or host processing (seconds). Displayed only in the completion row (\fBdone\fR) for each host.
+.IP "\(bu" 2
+\fBseq\fR Sequential log number. Displayed only in the processing row (\fBprocessing\fR) when the \fB\-\-verbose\fR option is specified.
+.RE
+.PP
+
+.SS Display content for host-level completion lines
+.PP
+The log output when processing for a specific host completes is called a host-level completion line. It displays the final number of processed items and the result for that single host. `phase` is always \fCdone\fR, `host` contains the hostname, and `warnings`, `errors`, and `duration` are listed together.
+.RS
+.IP "\(bu" 2
+\fBlevel\fR \fCINFO\fR.
+.IP "\(bu" 2
+\fBhost\fR Host name of the host whose operation completed.
+.IP "\(bu" 2
+\fBop\fR Operation type performed (\fCgather\fR or \fCscatter\fR).
+.IP "\(bu" 2
+\fBphase\fR \fCdone\fR.
+.IP "\(bu" 2
+\fBtrial\fR Total number of trials for hosts where the operation completed (sum of \fCtrial\fR output for each host).
+.IP "\(bu" 2
+\fBprocessed\fR Total number of successful processes for hosts where the operation completed (sum of \fCprocessed\fR output for each host).
+.IP "\(bu" 2
+\fBtotal\fR Total number of transfers planned for hosts that completed operations.
+.IP "\(bu" 2
+\fBwarnings\fR Total number of warnings for hosts that completed operations.
+.IP "\(bu" 2
+\fBerrors\fR Total number of errors for hosts that completed operations.
+.RE
+
+.SS Display content of the summary row (\fCsummary\fR)
+.PP
+The log output once after processing of all hosts is complete is called the summary row (\fCsummary\fR). The format is as follows:
+.EX
+timestamp="..." level="INFO" host="-" op="<op>" phase="done" trial="<total>" processed="<processed>" total="<total>" warnings="<n>" errors="<m>" msg="summary"
+.EE
+.PP
+The summary row (\fCsummary\fR) contains the following information.
+.RS
+.IP "\(bu" 2
+\fBlevel\fR \fCINFO\fR.
+.IP "\(bu" 2
+\fBhost\fR \fC-\fR (indicating overall aggregation).
+.IP "\(bu" 2
+\fBop\fR Operation type executed (\fCgather\fR or \fCscatter\fR).
+.IP "\(bu" 2
+\fBphase\fR \fCdone\fR.
+.IP "\(bu" 2
+\fBtrial\fR Total number of trials across all hosts (sum of each host's \fCtrial\fR).
+.IP "\(bu" 2
+\fBprocessed\fR Total number of successful processes across all hosts (sum of \fCprocessed\fR for each host).
+.IP "\(bu" 2
+\fBtotal\fR Same value as \fCtrial\fR.
+.IP "\(bu" 2
+\fBwarnings\fR Total number of warnings across all hosts.
+.IP "\(bu" 2
+\fBerrors\fR Total number of errors across all hosts.
+.IP "\(bu" 2
+\fBmsg\fR \fCsummary\fR.
+.RE
+.PP
+
+.SH Limitations and Notes
+.PP
+.RS
+.IP "\(bu" 2
+Regular expressions follow Python \fCre\fR specifications, so character classes like \fC\ew\fR may depend on locale. Use explicit flags as needed.
+.IP "\(bu" 2
+\fBPack-transfers\fR requires local access to Python's \fCtarfile\fR module and remote installation of \fCtar\fR, \fCgzip\fR, \fCmktemp\fR, and \fCbash\fR. If missing, the tar command detection or pre-checks will result in an error exit.
+.IP "\(bu" 2
+\fB\-\-follow-symlinks\fR is only meaningful when used with \fBpack transfer\fR. If the link target does not exist, it is automatically excluded during archive creation.
+.IP "\(bu" 2
+\fB\-\-password\fR remains in plain text on the command line, so be cautious about using key authentication and handling shell history.
+.IP "\(bu" 2
+\fBSFTP batch transfer\fR results vary based on the remote umask and permissions of existing files. If precise permission restoration is required, consider combining \fBpack transfer\fR with sudo.
+.IP "\(bu" 2
+SELinux label restoration is performed only with \fBpack transfer\fR. With \fBSFTP sequential transfer\fR, even if labels remain unchanged, integrity is not guaranteed.
+.IP "\(bu" 2
+Restoration of ACLs and extended attributes is only possible if the necessary tools are installed; transfers will continue even if they are absent.
+.IP "\(bu" 2
+Setting the environment variable \fCGM_SCATTER_DEBUG=1\fR outputs detailed logs, but this is not recommended for production use due to the large amount of output.
+.IP "\(bu" 2
+If an interruption occurs, the message \fC"Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories)."\fR is recorded in the WARN log.
+.RE
+
 .SH SEE ALSO
 .PP
 gm-scatter specification (docs/gm-scatter-spec.md), gm-gather(1)

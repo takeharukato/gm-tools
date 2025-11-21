@@ -188,7 +188,7 @@ DEST/<SANITIZED_HOST>/<REMOTE_PATH_NORMALIZED>
 ## シグナル受信時の動作
 
 - SIGINT/SIGTERM を受信すると中断フラグが立ち, 新しいホストの処理は開始せず, 進行中のホストにはキャンセルを通知する。
-- 中断後は `"Interrupt requested; cancelling remaining transfers…"` という警告ログを出力し, 成功したホストの有無に応じて終了コード 0 または 2 を返す。
+- 中断後は `"Interrupt requested; cancelling remaining transfers..."` という警告ログを出力し, 成功したホストの有無に応じて終了コード 0 または 2 を返す。
 - 終了時には開いている SSH/SFTP セッションを閉じ, ローカルの一時ディレクトリを削除し, 最後に集計結果を出力する。
 
 ## 出力ログ仕様
