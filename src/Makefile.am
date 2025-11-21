@@ -32,7 +32,7 @@ python_PYTHON = \
     gm_tools/scatter_parallel.py
 
 ## configure で生成される _config.py
-## ソースツリーには _config.py.in があり、配布対象だが、
+## ソースツリーには _config.py.in があり, 配布対象だが,
 ## _config.py 自体はビルド時生成なので nodist 扱いにする
 nodist_python_PYTHON = \
 	gm_tools/_config.py

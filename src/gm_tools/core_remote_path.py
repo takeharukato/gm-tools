@@ -14,9 +14,9 @@
 
 """リモートユーザーのホームディレクトリを検出するユーティリティ。
 
-``getent passwd`` を優先しつつ、適切なフォールバック ( ``/root`` または
+``getent passwd`` を優先しつつ, 適切なフォールバック ( ``/root`` または
 ``/home/<user>`` ) を提供する。入力コマンドは ``run_remote_cmd_capture`` のポリシーに
-従い、``bash -lc`` で PATH を初期化して実行される。
+従い, ``bash -lc`` で PATH を初期化して実行される。
 """
 
 from __future__ import annotations
@@ -35,8 +35,8 @@ from .core_ssh import SSHClientLike
 def detect_remote_home(ssh: SSHClientLike, user: str, timeout: float) -> str:
     """リモートホスト上のユーザー HOME を検出する。
 
-    まず ``getent passwd`` を利用して HOME を取得し、失敗または絶対パスでない結果の
-    場合にフォールバック先 ( ``root`` ユーザーは ``/root``、それ以外は
+    まず ``getent passwd`` を利用して HOME を取得し, 失敗または絶対パスでない結果の
+    場合にフォールバック先 ( ``root`` ユーザーは ``/root``, それ以外は
     ``/home/<user>`` ) を返す。
 
     Args:

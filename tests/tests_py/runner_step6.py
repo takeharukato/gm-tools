@@ -32,7 +32,7 @@ from gm_tools.core_signal_handling import GracefulStop
 from gm_tools.core_ssh import CancelledError, SFTPClientLike
 
 
-# gather_parallel（pull 側）用
+# gather_parallel ( pull 側 ) 用
 from gm_tools.core_pull import (
     HostResult as PullHostResult,
     OnProgress as PullOnProgress,
@@ -41,7 +41,7 @@ from gm_tools.core_pull import (
     PullOne,
 )
 
-# scatter_parallel（push 側）用
+# scatter_parallel ( push 側 ) 用
 from gm_tools.core_push import (
     HostResult as PushHostResult,
     OnProgress as PushOnProgress,
@@ -79,7 +79,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
     """
     目的:
       gather_parallel.execute に GracefulStop を渡した場合の cooperative cancel 挙動を検証する。
-      現段階では API 未対応のため TypeError になることが想定されるが、
+      現段階では API 未対応のため TypeError になることが想定されるが,
       将来的には以下を確認する:
         - GracefulStop.request_stop() により abort_event が set されること
         - fake_run_host_gather が abort_event を観測して CancelledError を送出すること
@@ -96,7 +96,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
 
     gs.register_cleanup(cleanup)
 
-    # fake run_host_gather を差し込んで、abort_event の挙動を観測する。
+    # fake run_host_gather を差し込んで, abort_event の挙動を観測する。
     abort_seen_box: List[bool] = [False]
     host_calls_box: List[str] = []
 
@@ -113,7 +113,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
         pull_one: PullOne,
     ) -> PullHostResult:
         host_calls_box.append(host)
-        # abort_event が set されるまで少しだけ待つ（無限ループ防止つき）
+        # abort_event が set されるまで少しだけ待つ ( 無限ループ防止つき )
         spin_count: int = 0
         abort_seen: bool = False
         while True:
@@ -250,7 +250,7 @@ def case_gather_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
         abort_seen_box[0]
         and cleanup_calls_box[0] == 1
     )
-    reason: str = "" if passed else "abort_event/cleanup 挙動が期待と異なる（将来の仕様確認用）"
+    reason: str = "" if passed else "abort_event/cleanup 挙動が期待と異なる ( 将来の仕様確認用 ) "
 
     return _make_case_result(
         name=case_name,
@@ -265,7 +265,7 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
     """
     目的:
       scatter_parallel.execute に GracefulStop を渡した場合の cooperative cancel 挙動を検証する。
-      現段階では API 未対応のため TypeError になることが想定されるが、
+      現段階では API 未対応のため TypeError になることが想定されるが,
       将来的には以下を確認する:
         - GracefulStop.request_stop() により abort_event が set されること
         - fake_run_host_scatter が abort_event を観測して CancelledError を送出すること
@@ -426,7 +426,7 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
         abort_seen_box[0]
         and cleanup_calls_box[0] == 1
     )
-    reason: str = "" if passed else "abort_event/cleanup 挙動が期待と異なる（将来の仕様確認用）"
+    reason: str = "" if passed else "abort_event/cleanup 挙動が期待と異なる ( 将来の仕様確認用 ) "
 
     return _make_case_result(
         name=case_name,
@@ -439,7 +439,7 @@ def case_scatter_parallel_abort_via_graceful_stop(cfg: Config) -> CaseResult:
 
 def main() -> int:
     """
-    Config をロードし、Step6 用テストケース群を共通ランナーで実行する。
+    Config をロードし, Step6 用テストケース群を共通ランナーで実行する。
     """
     cfg: Config = load_config_from_env()
     _ = print_env(cfg)
@@ -458,17 +458,17 @@ def main() -> int:
         exit_code = 0 if all_ok else 1
     finally:
         # ---------------------------------------------------------
-        # Cleanup: Step6 テスト用ローカル作業ディレクトリの削除（共有実装）
+        # Cleanup: Step6 テスト用ローカル作業ディレクトリの削除 ( 共有実装 )
         #  - Config.local_work_root は tests_env.sh.sample で
         #    "${PWD}/_tmp_test_local" に設定される想定。
-        #  - Step4/Step5 runner と同様に、runner 側が temp の寿命を持つ。
+        #  - Step4/Step5 runner と同様に, runner 側が temp の寿命を持つ。
         # ---------------------------------------------------------
         local_root: _Path = _Path(cfg.local_work_root)
         try:
             if local_root.exists():
                 cleanup_dir(str(local_root))
         except Exception:
-            # Best-effort cleanup: テスト結果を壊さないため、例外は握りつぶす。
+            # Best-effort cleanup: テスト結果を壊さないため, 例外は握りつぶす。
             pass
 
     return exit_code

@@ -2,11 +2,11 @@
 
 ## 概要
 
-gm-tools は複数ホスト間でのファイル収集・配布を支援する `gm-gather` と `gm-scatter` を提供するツールセットです。SSH 経由での転送を標準とし、ログの構造化出力や国際化対応など運用現場向けの機能を備えています。
+gm-tools は複数ホスト間でのファイル収集・配布を支援する `gm-gather` と `gm-scatter` を提供するツールセットです。SSH 経由での転送や圧縮アーカイブを転送することによる複数ファイルの一括転送や配布ファイルのメタ情報を自動復元する機能などを備えています。
 
 使用方法の詳細は, [gm-gather 仕様](docs/gm-gather-spec.md), および, [gm-scatter 仕様](docs/gm-scatter-spec.md)を参照ください。
 
-## 依存パッケージ一覧
+## 前提パッケージ
 
 - Python 3.9 以降
 - [python3-paramiko](https://www.paramiko.org/)
@@ -20,18 +20,18 @@ gm-tools は複数ホスト間でのファイル収集・配布を支援する `
 
 その他, bash, mktempコマンド (`-d`オプションによるテンプレート指定付きディレクトリ作成機能が必要)が必要です。標準的なLinuxディストリビューション, BSD系OSであれば利用可能と考えます。
 
-## インストール手順
+## インストール
 
 以下の手順でインストールすることが可能です。
 
 ```:shell
 ./autogen.sh
 ./configure
-make -j
+make
 make install
 ```
 
-## make ターゲット一覧
+## make ターゲット
 
 - `make` : コアモジュールおよびスクリプトのビルド
 - `make install` : 実行ファイル・モジュール・man ページをシステムへ導入
@@ -46,7 +46,7 @@ make install
 
 `po`ディレクトリでは, 以下のmake ターゲットが定義されています。
 
-- `make update-po` POT ファイル (`gm-tools.pot`) の再生成と各言語 PO ファイル (`*.po`) へのマージ、さらに `.gmo` ( バイナリ辞書 ) を更新します。
+- `make update-po` POT ファイル (`gm-tools.pot`) の再生成と各言語 PO ファイル (`*.po`) へのマージ, さらに `.gmo` ( バイナリ辞書 ) を更新します。
 
 - `make gm-tools.pot-update` POT ファイルだけを再生成します ( make update-po 内部でも呼び出されます ) 。
 - `make update-gmo` 既存の PO から .gmo を作り直します。PO を手で編集した後に mo ファイルだけ再生成したい場合に使えます。
@@ -56,6 +56,8 @@ make install
 - `make clean`, `make distclean`, `make maintainer-clean` 生成物 (`*.gmo`, `stamp-po` など) をクリンナップレベルに応じて削除します。
 
 ## 著作権表記
+
+Copyright 2025 Takeharu KATO.
 
 本プロジェクトは BSD 2-Clause ライセンスの下で配布されています。
 詳細は `LICENSE` ファイルを参照してください。

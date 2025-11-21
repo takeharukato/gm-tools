@@ -14,13 +14,13 @@
 
 """リモート一時ファイルをホスト単位で管理するユーティリティ。
 
-gather/scatter 実行中に生成するリモート一時ファイルを登録し、最終的な片付けを
+gather/scatter 実行中に生成するリモート一時ファイルを登録し, 最終的な片付けを
 簡単にする。主な目的は以下のとおり。
 
 * gather/scatter が生成するリモート一時パスを追跡する。
 * 冪等に呼び出せるクリーンアップ API を提供する。
 * 具体的なリモート削除処理は呼び出し元が渡す ``remover`` コールバックに委ねる。
-* ``abort`` チェック => 作成 => 登録 => I/O => 最後にクリーンアップ、という呼び出し
+* ``abort`` チェック => 作成 => 登録 => I/O => 最後にクリーンアップ, という呼び出し
     パターンを促進する。
 
 インポート時に副作用は発生しない。
@@ -35,7 +35,7 @@ from .core_ssh import SFTPClientLike
 
 # ---- 型定義 ------------------------------------------------------------------
 
-# remover はリモート絶対パス 1 件を受け取り、可能な範囲で削除を試みる。
+# remover はリモート絶対パス 1 件を受け取り, 可能な範囲で削除を試みる。
 RemoteRemover = Callable[[str], None]
 
 
@@ -87,7 +87,7 @@ def _bucket(host: str) -> _PerHost:
 def register_remote_temp(host: str, path: str) -> None:
     """後でクリーンアップするリモート一時パスを登録する。
 
-    冪等に呼び出せるため、同じパスを複数回登録しても問題ない。
+    冪等に呼び出せるため, 同じパスを複数回登録しても問題ない。
 
     Args:
         host (str): パスを紐付けるホスト名。
@@ -109,7 +109,7 @@ def register_remote_temp(host: str, path: str) -> None:
 def register_remote_temps(host: str, paths: Iterable[str]) -> None:
     """複数のリモート一時パスをまとめて登録する。
 
-    いずれのパスも冪等に登録されるため、重複していても安全。
+    いずれのパスも冪等に登録されるため, 重複していても安全。
 
     Args:
         host (str): パスを紐付けるホスト名。
@@ -132,12 +132,12 @@ def register_remote_temps(host: str, paths: Iterable[str]) -> None:
 def create_remote_temp(host: str, maker: Callable[[], str]) -> str:
     """``maker()`` で生成したリモート一時パスを登録して返す。
 
-    ``maker`` はリモート側で一時リソースを実際に作成し、その絶対パスを返す責務を
+    ``maker`` はリモート側で一時リソースを実際に作成し, その絶対パスを返す責務を
     持つ。呼び出し側は ``maker`` 実行前後で適切な ``abort`` チェックを行う必要がある。
 
     Args:
         host (str): 一時パスを紐付けるホスト名。
-        maker (Callable[[], str]): リモートリソースを作成し、そのパスを返すコールバック。
+        maker (Callable[[], str]): リモートリソースを作成し, そのパスを返すコールバック。
 
     Returns:
         str: ``maker`` が返したリモートパス。
@@ -160,8 +160,8 @@ def create_remote_temp(host: str, maker: Callable[[], str]) -> str:
 def cleanup_remote_temp(host: str, remover: RemoteRemover) -> None:
     """登録済みのリモート一時パスを ``remover`` で削除する。
 
-    削除処理は冪等であり、成功したパスは登録から外れるため再度呼び出しても安全。
-    またベストエフォートで動作し、``remover`` 内で例外が発生した場合は握りつぶして
+    削除処理は冪等であり, 成功したパスは登録から外れるため再度呼び出しても安全。
+    またベストエフォートで動作し, ``remover`` 内で例外が発生した場合は握りつぶして
     後続処理を継続する。
 
     Args:
@@ -204,7 +204,7 @@ def cleanup_remote_temp(host: str, remover: RemoteRemover) -> None:
 def cleanup_all_remote_temps(host_to_remover: Dict[str, RemoteRemover]) -> None:
     """複数ホスト分のリモート一時パスをまとめて削除する。
 
-    ``remover`` が提供されていないホストはスキップされ、後で個別にクリーンアップできる。
+    ``remover`` が提供されていないホストはスキップされ, 後で個別にクリーンアップできる。
 
     Args:
         host_to_remover (Dict[str, RemoteRemover]): ホスト名から ``remover`` へのマッピング。
@@ -234,7 +234,7 @@ def sftp_exists(sftp_client: SFTPClientLike, path: str) -> bool:
         path (str): 存在確認したいリモートパス。
 
     Returns:
-        bool: 存在が確認できれば ``True``、例外が発生した場合は ``False``。
+        bool: 存在が確認できれば ``True``, 例外が発生した場合は ``False``。
 
     Examples:
         >>> class FakeSFTP:
@@ -257,7 +257,7 @@ def sftp_isdir(sftp_client: SFTPClientLike, path: str) -> bool:
         path (str): 判定対象のリモートパス。
 
     Returns:
-        bool: ディレクトリであれば ``True``、それ以外または例外発生時は ``False``。
+        bool: ディレクトリであれば ``True``, それ以外または例外発生時は ``False``。
 
     Examples:
         >>> import stat
@@ -281,7 +281,7 @@ def sftp_isfile(sftp_client: SFTPClientLike, path: str) -> bool:
         path (str): 判定対象のリモートパス。
 
     Returns:
-        bool: 通常ファイルであれば ``True``、それ以外または例外発生時は ``False``。
+        bool: 通常ファイルであれば ``True``, それ以外または例外発生時は ``False``。
 
     Examples:
         >>> import stat
@@ -305,7 +305,7 @@ def sftp_islink(sftp_client: SFTPClientLike, path: str) -> bool:
         path (str): 判定対象のリモートパス。
 
     Returns:
-        bool: シンボリックリンクであれば ``True``、それ以外または例外発生時は ``False``。
+        bool: シンボリックリンクであれば ``True``, それ以外または例外発生時は ``False``。
 
     Examples:
         >>> import stat

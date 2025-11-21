@@ -14,13 +14,13 @@
 
 """gather のホスト単位プル処理を提供するモジュール。
 
-このモジュールは gm-gather CLI から呼び出され、リモートからローカルへファイルを
+このモジュールは gm-gather CLI から呼び出され, リモートからローカルへファイルを
 取得する。主な設計方針は以下のとおり。
 
-* 具体的な SSH/SFTP 実装には依存せず、呼び出し側がファクトリー関数として注入する。
-* ログやシリアライズは CLI 側で扱い、本モジュールはコールバックで進捗のみ通知する。
-* ``abort_point()`` を要所で呼び出し、協調的なキャンセルを尊重する。
-* 接続の破棄は行わず、``core_ssh`` のレジストリへ登録して CLI 側でクリーンアップする。
+* 具体的な SSH/SFTP 実装には依存せず, 呼び出し側がファクトリー関数として注入する。
+* ログやシリアライズは CLI 側で扱い, 本モジュールはコールバックで進捗のみ通知する。
+* ``abort_point()`` を要所で呼び出し, 協調的なキャンセルを尊重する。
+* 接続の破棄は行わず, ``core_ssh`` のレジストリへ登録して CLI 側でクリーンアップする。
 
 インポート時に副作用は発生しない。
 """
@@ -70,7 +70,7 @@ OnProgress = Callable[[int, int, int, int], None]
 SSHFactory = Callable[[str], SSHClientLike]
 SFTPFactory = Callable[[SSHClientLike], SFTPClientLike]
 
-# 個別項目の転送コールバック。``is_dir`` が True のときはディレクトリ扱いで、実装によっては no-op となる。
+# 個別項目の転送コールバック。``is_dir`` が True のときはディレクトリ扱いで, 実装によっては no-op となる。
 PullOne = Callable[[SFTPClientLike, str, Path, bool], None]
 
 
@@ -130,7 +130,7 @@ def run_host_gather(
         HostResult: 処理済み件数やエラー数を集計した結果レコード。
 
     Raises:
-        CancelledError: ``abort_event`` が設定され、協調キャンセルが要求された場合。
+        CancelledError: ``abort_event`` が設定され, 協調キャンセルが要求された場合。
 
     Examples:
         >>> from types import SimpleNamespace
@@ -168,7 +168,7 @@ def run_host_gather(
     # ネットワーク I/O を行う前にキャンセル要求を確認
     abort_point(abort_event)
 
-    # ライブラリ非依存に接続を確立し、後段のクリーンアップに備えてレジストリへ登録する。
+    # ライブラリ非依存に接続を確立し, 後段のクリーンアップに備えてレジストリへ登録する。
     ssh = open_ssh(host)
     register_connection(host, ssh)
     sftp = open_sftp(ssh)
@@ -190,7 +190,7 @@ def run_host_gather(
 
         # リモートパス解決 ( 複数種類のルート対応 ) :
         # 1) entry が 'remote_abs' を持つときは元の絶対パスをそのまま利用する。
-        # 2) それ以外では entry の 'remote_root' と 'remote_rel' を優先して結合し、無い場合は relpath を使う。
+        # 2) それ以外では entry の 'remote_root' と 'remote_rel' を優先して結合し, 無い場合は relpath を使う。
         _remote_abs = getattr(entry, "remote_abs", "") if hasattr(entry, "remote_abs") else ""
         if _remote_abs:
             remote_path: str = _remote_abs  # type: ignore[assignment]
@@ -203,7 +203,7 @@ def run_host_gather(
 
         local_path: Path = (local_root / entry.relpath)
 
-        # 長い I/O に入る前に、ディレクトリであれば対象を、ファイルであれば親ディレクトリを作成しておく
+        # 長い I/O に入る前に, ディレクトリであれば対象を, ファイルであれば親ディレクトリを作成しておく
         if entry.is_dir:
             local_path.mkdir(parents=True, exist_ok=True)
         else:
@@ -216,10 +216,10 @@ def run_host_gather(
             abort_point(abort_event)  # リモート呼び出し直後にキャンセルを確認
             processed += 1
         except CancelledError:
-            # キャンセルを呼び出し元へ伝播させ、上位で終了処理を任せる
+            # キャンセルを呼び出し元へ伝播させ, 上位で終了処理を任せる
             raise
         except Exception:
-            # エラー件数に加算し、次の項目へ進む
+            # エラー件数に加算し, 次の項目へ進む
             errors += 1
 
         # 進捗通知をコールバックへ送る

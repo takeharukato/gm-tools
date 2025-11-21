@@ -10,14 +10,14 @@ AC_CONFIG_SRCDIR([src/gm_tools/gather_cli.py])
 dnl 補助スクリプト(config.guess等)のディレクトリ
 AC_CONFIG_AUX_DIR([build-aux])
 
-dnl m4 マクロディレクトリ（gettext等が追加される想定）
+dnl m4 マクロディレクトリ ( gettext等が追加される想定 )
 AC_CONFIG_MACRO_DIR([m4])
 
 dnl Automake 初期化
 dnl - foreign: GNU strict にはしない
 AM_INIT_AUTOMAKE([foreign])
 
-dnl C コンパイラは使わないが、gettext マクロが期待することもあるので念のため
+dnl C コンパイラは使わないが, gettext マクロが期待することもあるので念のため
 AC_PROG_CC
 
 dnl Python 検出 (最低 3.9 程度を想定)

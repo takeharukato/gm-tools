@@ -54,10 +54,10 @@ def _run_case_safely(
     case_func: Callable[[Config], Any],
 ) -> CaseResult:
     """
-    テストケースを安全に実行し、例外も失敗として `CaseResult` にカプセル化して返します。
+    テストケースを安全に実行し, 例外も失敗として `CaseResult` にカプセル化して返します。
 
     Args:
-    - case_name (str): ケース名（表示や識別に使用）。
+    - case_name (str): ケース名 ( 表示や識別に使用 ) 。
     - cfg (Config): ケースへ渡す構成オブジェクト。
     - case_func (Callable[[Config], Any]): ケース本体の呼び出し可能オブジェクト。
 
@@ -80,7 +80,7 @@ def _run_case_safely(
         return result
 
     except Exception as e:
-        # 例外 → failed として CaseResult を構築
+        # 例外  =>  failed として CaseResult を構築
         return CaseResult(
             name=case_name,
             passed=False,
@@ -97,19 +97,19 @@ def run_cases(
     cases: List[Tuple[str, Callable[[Config], CaseResult]]],
 ) -> SummaryDict:
     """
-    Step4/5/6 runner 共通処理を実行します。各ケースの安全実行、メタ情報付与、
-    cleanup、サマリ生成と出力までを行います。
+    Step4/5/6 runner 共通処理を実行します。各ケースの安全実行, メタ情報付与,
+    cleanup, サマリ生成と出力までを行います。
 
     Args:
-    - step_number (int): 実行ステップ番号（4/5/6 など）。
+    - step_number (int): 実行ステップ番号 ( 4/5/6 など ) 。
     - cfg (Config): 実行用構成オブジェクト。
     - cases (List[Tuple[str, Callable[[Config], CaseResult]]]): (ケース名, ケース関数) の配列。
 
     Returns:
-    - SummaryDict: 実行サマリ（JSON 互換ディクショナリ）。
+    - SummaryDict: 実行サマリ ( JSON 互換ディクショナリ ) 。
 
     Notes:
-    - summary の標準出力、ファイル書き出し、テスト一時領域の cleanup を伴います。
+    - summary の標準出力, ファイル書き出し, テスト一時領域の cleanup を伴います。
     """
     results: List[CaseResult] = []
 
@@ -141,7 +141,7 @@ def run_cases(
         results=results,
     )
 
-    # cleanup（Step4/5/6 共通）
+    # cleanup ( Step4/5/6 共通 )
     cleanup_test_temp(cfg)
 
     # Runner は print だけ行う

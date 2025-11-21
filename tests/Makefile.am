@@ -13,7 +13,7 @@
 # 著者が修正している部分があります。
 ## tests/Makefile.am
 
-## tests_py 以下やシェルスクリプトなど、配布に含めたいファイル群
+## tests_py 以下やシェルスクリプトなど, 配布に含めたいファイル群
 ## 実際のファイル構成に合わせて必要に応じて追加してください。
 EXTRA_DIST = \
 	run_step4.sh \
@@ -24,7 +24,7 @@ EXTRA_DIST = \
 	tests_py/runner_step5.py \
 	tests_py/runner_step6.py
 
-## automake の標準 TESTS 機構は使わず、check-local で run_step*.sh を回す
+## automake の標準 TESTS 機構は使わず, check-local で run_step*.sh を回す
 TESTS =
 
 .PHONY: coverage

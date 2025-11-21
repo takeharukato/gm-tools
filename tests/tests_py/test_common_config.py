@@ -12,7 +12,7 @@
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
 """
-環境変数からの設定生成、設定スナップショット、環境情報の出力ユーティリティ。
+環境変数からの設定生成, 設定スナップショット, 環境情報の出力ユーティリティ。
 
 Notes:
 - `_clear_dir` は CWD 配下限定で安全に削除/再作成します。
@@ -102,13 +102,13 @@ def load_config_from_env(*, clear_local_root: bool = True) -> Config:
     環境変数から `Config` を構築する共通入口です。
 
     Args:
-    - clear_local_root (bool): True の場合、`local_work_root` を削除して作り直します。
+    - clear_local_root (bool): True の場合, `local_work_root` を削除して作り直します。
 
     Returns:
     - Config: 実行時構成オブジェクト。
 
     Notes:
-    - False の場合、`local_work_root` の削除は行いません（中身を保持）。
+    - False の場合, `local_work_root` の削除は行いません ( 中身を保持 ) 。
     """
     # SSH / ユーザ
     ssh_user: str = os.environ.get("SSH_USER", SSH_USER_DEFAULT)
@@ -205,7 +205,7 @@ def resolve_parallel_pair_from_env() -> Tuple[int, int]:
     並列度を環境変数から解決します。
 
     Returns:
-    - Tuple[int, int]: `(j1, j2)` の並列度ペア。`GM_PARALLEL` 設定時は `(1, GM_PARALLEL)`、未設定時は `(1, 4)`。
+    - Tuple[int, int]: `(j1, j2)` の並列度ペア。`GM_PARALLEL` 設定時は `(1, GM_PARALLEL)`, 未設定時は `(1, 4)`。
     """
     gm_par_raw: str = os.environ.get("GM_PARALLEL", "").strip()
     if gm_par_raw:
@@ -219,11 +219,11 @@ def resolve_parallel_pair_from_env() -> Tuple[int, int]:
 
 def print_env(cfg: Config, *, extra: Optional[Dict[str, str]] = None) -> None:
     """
-    環境情報を安定した形式で出力します（Step5 仕様に準拠）。
+    環境情報を安定した形式で出力します ( Step5 仕様に準拠 ) 。
 
     Args:
     - cfg (Config): 実行時構成。
-    - extra (Optional[Dict[str, str]]): 追加出力する key/value（辞書順で出力）。
+    - extra (Optional[Dict[str, str]]): 追加出力する key/value ( 辞書順で出力 ) 。
     """
     j1, j2 = resolve_parallel_pair_from_env()
     msg1 = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)} PARALLEL={j1}/{j2}"

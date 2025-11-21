@@ -10,32 +10,24 @@ _gm_scatter()
     # ---- flags (no arg) ----
     local -a opts_flags=(
         --help -h
-        --ignore-case -i
         --strict-host-key-checking -S
         --pack
-        --preserve-perms
-        --preserve-owner
-        --preserve-acls
-        --preserve-xattrs
         --follow-symlinks
-        --include-empty-dirs
         --dry-run -n
         --verbose -v
+        --sudo-extract --no-sudo-extract -x
     )
 
     # ---- options (expect an arg) ----
     local -a opts_args=(
-        --user -u
         --hosts -H
+        --user -u
         --ssh-user -s
-        --pattern-abs -a
-        --pattern-rel -r
-        --parallel -j
-        --root -R
         --port -P
         --key -K
         --password -W
         --timeout -T
+        --parallel -j
         --selinux
     )
 
@@ -53,29 +45,29 @@ _gm_scatter()
             return
             ;;
         --hosts|-H)
+            compopt -o filenames
             COMPREPLY=( $(compgen -f -- "$cur") )
             return
             ;;
-        --pattern-abs|-a|--pattern-rel|-r)
-            COMPREPLY=()    # free-form regex
-            return
-            ;;
-        --parallel|-j|--port|-P)
+        --parallel|-j)
             COMPREPLY=( $(compgen -W "1 2 3 4 8 16 32 64 128 256" -- "$cur") )
             return
             ;;
-        --timeout|-T)
-            COMPREPLY=( $(compgen -W "5 10 15 20 30 45 60 90 120" -- "$cur") )
+        --port|-P)
+            COMPREPLY=( $(compgen -W "22" -- "$cur") )
             return
             ;;
-        --root|-R)
-            compopt -o filenames
-            COMPREPLY=( $(compgen -d -- "$cur") )
+        --timeout|-T)
+            COMPREPLY=( $(compgen -W "30 45 60 90 120" -- "$cur") )
             return
             ;;
         --key|-K)
             compopt -o filenames
-            COMPREPLY=( $(compgen -f -- "$cur") )
+            if [[ $cur == /* || $cur == ~* ]]; then
+                COMPREPLY=( $(compgen -f -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -f -- "$HOME/.ssh/$cur") )
+            fi
             return
             ;;
         --password|-W)
@@ -83,7 +75,7 @@ _gm_scatter()
             return
             ;;
         --selinux)
-            COMPREPLY=( $(compgen -W "auto policy archive ignore" -- "$cur") )
+            COMPREPLY=( $(compgen -W "auto policy ignore" -- "$cur") )
             return
             ;;
     esac
@@ -95,28 +87,30 @@ _gm_scatter()
                 COMPREPLY=( $(compgen -A user -- "$after_eq") )
                 ;;
             --hosts)
+                compopt -o filenames
                 COMPREPLY=( $(compgen -f -- "$after_eq") )
                 ;;
-            --pattern-abs|--pattern-rel)
-                COMPREPLY=() ;;  # free-form
-            --parallel|--port)
+            --parallel)
                 COMPREPLY=( $(compgen -W "1 2 3 4 8 16 32 64 128 256" -- "$after_eq") )
                 ;;
-            --timeout)
-                COMPREPLY=( $(compgen -W "5 10 15 20 30 45 60 90 120" -- "$after_eq") )
+            --port)
+                COMPREPLY=( $(compgen -W "22" -- "$after_eq") )
                 ;;
-            --root)
-                compopt -o filenames
-                COMPREPLY=( $(compgen -d -- "$after_eq") )
+            --timeout)
+                COMPREPLY=( $(compgen -W "30 45 60 90 120" -- "$after_eq") )
                 ;;
             --key)
                 compopt -o filenames
-                COMPREPLY=( $(compgen -f -- "$after_eq") )
+                if [[ $after_eq == /* || $after_eq == ~* ]]; then
+                    COMPREPLY=( $(compgen -f -- "$after_eq") )
+                else
+                    COMPREPLY=( $(compgen -f -- "$HOME/.ssh/$after_eq") )
+                fi
                 ;;
             --password)
                 COMPREPLY=() ;;
             --selinux)
-                COMPREPLY=( $(compgen -W "auto policy archive ignore" -- "$after_eq") )
+                COMPREPLY=( $(compgen -W "auto policy ignore" -- "$after_eq") )
                 ;;
             *)
                 COMPREPLY=() ;;

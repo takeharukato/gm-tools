@@ -13,8 +13,8 @@
 # 著者が修正している部分があります。
 """Scatter 処理に必要な tar/SFTP 操作と補助ロジックをまとめたモジュールです。
 
-ローカル側での一時アーカイブ生成やメンバーリスト作成、リモート側での抽出・属性復元、
-SELinux の復元処理までを一貫して扱い、`TransferReport` に進捗を記録します。
+ローカル側での一時アーカイブ生成やメンバーリスト作成, リモート側での抽出・属性復元,
+SELinux の復元処理までを一貫して扱い, `TransferReport` に進捗を記録します。
 """
 
 # 環境変数:
@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import Iterable, List, Tuple, Optional, Set, Dict
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    ############ 型チェッカー向けのダミー定義（実行時には評価されない） ############
+    ############ 型チェッカー向けのダミー定義 ( 実行時には評価されない )  ############
     from gettext import gettext as _
 
 from .core_ssh import SSHClientLike, SFTPClientLike, SFTPFileLike
@@ -74,7 +74,7 @@ from .core_xattr import (
     restore_xattr_dump,            # (ssh, dump_file, use_sudo) -> None
 )
 
-# === タイムアウト（秒） ===
+# === タイムアウト ( 秒 )  ===
 TAR_DETECT_TIMEOUT: float = 10.0
 PREFLIGHT_TEST_TIMEOUT: float = 60.0
 EXTRACT_TIMEOUT_NEW: float = 180.0
@@ -114,10 +114,10 @@ def _normalize_remote_rel_file(rel: Optional[str]) -> str:
 
     以下の手順で安全化を行います。
 
-    - ``None`` や空文字であれば空文字を返し、呼び出し元で ``basename`` フォールバックを許可します。
-    - ``\\`` を ``/`` に統一し、先頭 ``/`` を除去して絶対パス化を防ぎます。
-    - ``./`` および ``//`` を折り畳み、冗長な区切りを排除します。
-    - スタック方式で ``..`` を評価し、ベースより上位へ脱出しようとした場合は拒否します。
+    - ``None`` や空文字であれば空文字を返し, 呼び出し元で ``basename`` フォールバックを許可します。
+    - ``\\`` を ``/`` に統一し, 先頭 ``/`` を除去して絶対パス化を防ぎます。
+    - ``./`` および ``//`` を折り畳み, 冗長な区切りを排除します。
+    - スタック方式で ``..`` を評価し, ベースより上位へ脱出しようとした場合は拒否します。
     - 正常終了時は ``..`` を解消した正規化済み相対パスを返却します。
 
     Args:
@@ -214,9 +214,9 @@ class ScatterOpts:
     selinux_mode: SelinuxMode = "auto"         # --selinux {auto,policy,ignore}  ( pack 経路のみ )
 
 
-# --- パス補助関数（末尾スラッシュ正規化） ------------------------------------
+# --- パス補助関数 ( 末尾スラッシュ正規化 )  ------------------------------------
 def _norm_noslash(path: str) -> str:
-    """末尾のスラッシュを取り除きつつ先頭の ``/`` 自体（ルートディレクトリ）は保持します。
+    """末尾のスラッシュを取り除きつつ先頭の ``/`` 自体 ( ルートディレクトリ ) は保持します。
 
     Args:
         path (str): 正規化したいパス文字列。
@@ -241,23 +241,23 @@ def local_pack_paths_to_tmp(
 ) -> Tuple[str, List[str]]:
     """入力パスを安全に正規化したうえで tar.gz にまとめます。
 
-    ``DEST`` は ``gm-scatter`` がホストごとに形成する展開先ディレクトリ（例: ``ScatterOpts.dest_abs_root``）を指し、
+    ``DEST`` は ``gm-scatter`` がホストごとに形成する展開先ディレクトリ ( 例: ``ScatterOpts.dest_abs_root`` ) を指し,
     アーカイブ内部のパスはこの ``DEST`` からの相対パスに揃えます。安全に正規化する手順は以下のとおりです。
 
-    - ``\\`` を ``/`` へ統一し、プラットフォーム差異による区切り混在を解消します。
+    - ``\\`` を ``/`` へ統一し, プラットフォーム差異による区切り混在を解消します。
     - 先頭の ``/`` を除去して絶対パス化を防ぎます。
     - ``./`` や ``//`` といった冗長区切りを折り畳みます。
-    - ``..`` をスタック評価し、``DEST`` より上位へ脱出しようとした場合は ``ValueError`` を送出します。
+    - ``..`` をスタック評価し, ``DEST`` より上位へ脱出しようとした場合は ``ValueError`` を送出します。
     - 正規化後の相対パスが空になったときのみ ``basename`` にフォールバックします。
 
     相対パスの決定は以下の方針で行います。
 
     - ``arcnames`` を指定した場合は各要素を ``DEST`` からの相対ファイルパスとして ``_normalize_remote_rel_file``
       で正規化します。
-        - ``arcnames`` が ``None`` の場合は ``dest_rel_from_abs`` で絶対パスを ``DEST`` 相対に変換し、
+        - ``arcnames`` が ``None`` の場合は ``dest_rel_from_abs`` で絶対パスを ``DEST`` 相対に変換し,
             同様に正規化します。結果が空になった場合のみ ``basename`` をフォールバックとして使用します。
-        - 正規化後に重複したアーカイブ名が見つかった場合は、先着を優先して後続の同名エントリを排除し、
-            対応する ``paths``/``arcnames`` の入力要素も一緒に間引きます（重複した実体を tar へ含めないため）。
+        - 正規化後に重複したアーカイブ名が見つかった場合は, 先着を優先して後続の同名エントリを排除し,
+            対応する ``paths``/``arcnames`` の入力要素も一緒に間引きます ( 重複した実体を tar へ含めないため ) 。
 
     Args:
         paths (Iterable[str]): アーカイブへ含めたいローカルパスの列挙。
@@ -265,7 +265,7 @@ def local_pack_paths_to_tmp(
         arcnames (Optional[List[str]]): ``DEST`` からの相対ファイルパスを指定したい場合のリスト。
 
     Returns:
-        Tuple[str, List[str]]: 作成されたアーカイブファイルの絶対パスと、収録したアーカイブ名の一覧。
+        Tuple[str, List[str]]: 作成されたアーカイブファイルの絶対パスと, 収録したアーカイブ名の一覧。
 
     Raises:
         ValueError: ``arcnames`` に ``..`` で ``DEST`` から脱出するような危険な相対パスが含まれていた場合。
@@ -297,7 +297,7 @@ def local_pack_paths_to_tmp(
     in_arcnames: Optional[List[str]] = list(arcnames) if arcnames is not None else None
     abs_paths: List[str] = [os.path.abspath(p) for p in in_paths]
 
-    # 実体（realpath）ベースで親子判定・重複除去を行う。
+    # 実体 ( realpath ) ベースで親子判定・重複除去を行う。
     # Windows では casefold() で大小無視を担保。
     def _canon(p_in: str) -> str:
         p0: str = os.path.abspath(p_in)
@@ -326,7 +326,7 @@ def local_pack_paths_to_tmp(
         i: int = t[0]
         _orig_abs: str = t[1]
         canon_abs_i: str = t[2]
-        # 既存 kept_canons の親に含まれていればスキップ（子）
+        # 既存 kept_canons の親に含まれていればスキップ ( 子 )
         is_child: bool = False
         kc: str
         for kc in kept_canons:
@@ -340,7 +340,7 @@ def local_pack_paths_to_tmp(
                 break
         if is_child:
             continue
-        # 逆に今回が親なら、既存の子を外す
+        # 逆に今回が親なら, 既存の子を外す
         new_kept_idx: List[int] = []
         new_kept_canons: List[str] = []
         j: int
@@ -352,7 +352,7 @@ def local_pack_paths_to_tmp(
             except ValueError:
                 common2 = ""
             if common2 == canon_abs_i and canon_abs_i != kc2:
-                # 既存は子 → 捨てる
+                # 既存は子  =>  捨てる
                 continue
             new_kept_idx.append(kept_idx[j])
             new_kept_canons.append(kc2)
@@ -363,13 +363,13 @@ def local_pack_paths_to_tmp(
     plist: List[str] = [in_paths[i] for i in kept_idx]
     alist: Optional[List[str]] = [in_arcnames[i] for i in kept_idx] if in_arcnames is not None else None
 
-    # arcnames 正規化と重複排除（与えられている場合）
+    # arcnames 正規化と重複排除 ( 与えられている場合 )
     if alist is not None:
         seen_arc: Set[str] = set()
         kept_pairs: List[Tuple[str, str]] = []
         for p, a in zip(plist, alist):
             na: str = _normalize_remote_rel_file(a)
-            # 空（=呼び出し側が basename にフォールバックする意図）も許すが,
+            # 空 ( =呼び出し側が basename にフォールバックする意図 ) も許すが,
             # 重複判定のキーとしては空文字もそのまま扱う。
             if na in seen_arc:
                 continue
@@ -392,7 +392,7 @@ def local_pack_paths_to_tmp(
             if (not follow_symlinks) and os.path.islink(ap):
                 continue
             if alist is not None:
-                # arcnames 指定時：'' を正当な値として許容（src='/' を意味）
+                # arcnames 指定時 : '' を正当な値として許容 ( src='/' を意味 )
                 arc_in: str = alist[idx]
                 arc_norm: str = _normalize_remote_rel_file(arc_in)
                 arcname: str = arc_norm  # '' 可
@@ -405,13 +405,13 @@ def local_pack_paths_to_tmp(
                     arc_tmp = p_item.replace("\\", "/")
                 arc_norm2: str = _normalize_remote_rel_file(arc_tmp)
                 if not arc_norm2:
-                    # 未指定系でのみ basename フォールバックを適用（'/' などを 'etc' 等にしない）
+                    # 未指定系でのみ basename フォールバックを適用 ( '/' などを 'etc' 等にしない )
                     arc_norm2 = os.path.basename(ap).replace("\\", "/")
                 arcname: str = arc_norm2
 
             # ここで arcname == '' の場合, tarfile はトップのディレクトリエントリ '' と
-            # その直下（例: 'etc', 'var', ...）を格納する。
-            # 抽出側は相対名で扱うため問題なし（'' エントリはディレクトリであり isfile() では弾かれる）。
+            # その直下 ( 例: 'etc', 'var', ... ) を格納する。
+            # 抽出側は相対名で扱うため問題なし ( '' エントリはディレクトリであり isfile() では弾かれる ) 。
             tf.add(ap, arcname=arcname, recursive=True, filter=_filter)
             added.append(arcname)
 
@@ -423,23 +423,23 @@ def write_members_file(
     members: Iterable[str],
     *,
     normalize_paths: bool = True,
-    preserve_order: bool = False,   # 追加: True で入力順を保持（ソートしない）
+    preserve_order: bool = False,   # 追加: True で入力順を保持 ( ソートしない )
 ) -> None:
     """``tar -T`` が参照するメンバーリストファイルを生成して送信します。
 
     以下のポリシーで内容を整えます。
 
-    - 重複を除去し、既定では ASCII 順に並べます。
+    - 重複を除去し, 既定では ASCII 順に並べます。
     - すべての行をアーカイブ内部の相対パス ( ``./`` や ``/`` は除去 ) に正規化します。
     - バックスラッシュは POSIX 形式に揃えるため ``/`` に置換します。
-    - 各行は LF (``\n``) 区切りで、末尾にも LF を付与します。
+    - 各行は LF (``\n``) 区切りで, 末尾にも LF を付与します。
 
     Args:
         sftp (SFTPClientLike): 書き込み先にアクセスするための SFTP クライアント。
         remote_path (str): リモート側に生成するメンバーリストファイルの絶対パス。
         members (Iterable[str]): アーカイブメンバー名として扱いたい文字列群。
         normalize_paths (bool): ``True`` の場合に POSIX 形式へ正規化します。
-        preserve_order (bool): ``True`` を指定すると入力順を保持し、既定のソートを抑止します。
+        preserve_order (bool): ``True`` を指定すると入力順を保持し, 既定のソートを抑止します。
 
     Raises:
         OSError: リモートファイルへの書き込みに失敗した場合。
@@ -516,7 +516,7 @@ def upload_pack_and_extract(
     """tar.gz をアップロードして ``DEST`` 直下へ展開します。
 
     ここでの ``DEST`` は ``gm-scatter`` が展開先ルートとして使用するディレクトリ
-    （通常は ``ScatterOpts.dest_abs_root`` で指定されるパス）を指します。
+     ( 通常は ``ScatterOpts.dest_abs_root`` で指定されるパス ) を指します。
 
     Args:
         ssh (SSHClientLike): リモートホストでコマンドを実行するための SSH クライアント。
@@ -580,7 +580,7 @@ def upload_pack_and_extract(
     _uid = getattr(os, "getuid", lambda: 0)()
     remote_tar: str = f"{rtmp}/payload.{os.getpid()}.{_uid}.tar.gz"
 
-    # 一時物の一括掃除（存在しなくてもエラーにしない）
+    # 一時物の一括掃除 ( 存在しなくてもエラーにしない )
     def _cleanup_all() -> None:
         try:
             _tmp_cleanup = run_remote_cmd_capture(ssh, ["bash","-lc", f"rm -f {shlex.quote(remote_tar)} || true"], timeout=CHECK_REGFILE_TIMEOUT)
@@ -649,7 +649,7 @@ def upload_pack_and_extract(
         rel_order: List[str] = list(rel_files)
         exist_list: List[str] = [r for r in rel_order if r in exist_set]
         new_list:   List[str] = [r for r in rel_order if r in new_set]
-        # 6) 空ディレクトリを作成（属性は変更しない）
+        # 6) 空ディレクトリを作成 ( 属性は変更しない )
         empty_dir_created: Dict[str, bool] = {}
         for _d in empty_dirs:
             _d_norm: str = _d.rstrip("/")
@@ -665,7 +665,7 @@ def upload_pack_and_extract(
                 return
             empty_dir_created[_d_norm] = (not preexists)
 
-        # 新規作成ディレクトリの chown（sudo_extract かつ target_user）
+        # 新規作成ディレクトリの chown ( sudo_extract かつ target_user )
         if empty_dirs and sudo_extract and target_user is not None and primary_group is not None:
             for _d2 in empty_dirs:
                 _d_norm2: str = _d2.rstrip("/")
@@ -701,7 +701,7 @@ def upload_pack_and_extract(
                 report.add(host, TransferItem(host=host, remote_path=f"{dest_abs_root}/...", phase="transfer", status="failed", reason=reason_n))
                 return
 
-            # NEW の chown（sudo 経路のみ）: ファイル本体 + 親ディレクトリも整える
+            # NEW の chown ( sudo 経路のみ ) : ファイル本体 + 親ディレクトリも整える
             if sudo_extract and target_user is not None and primary_group is not None:
                 # 1) ファイル本体
                 for rel in new_list:
@@ -711,7 +711,7 @@ def upload_pack_and_extract(
                     except Exception as _ex:
                         report.add(host, TransferItem(host=host, remote_path=dst_abs_new, phase="transfer", status="failed", reason=f"E_CHOWN_NEW: {str(_ex)}"))
 
-                # 2) 親ディレクトリ（重複除外）: dest_abs_root 自体は除外
+                # 2) 親ディレクトリ ( 重複除外 ) : dest_abs_root 自体は除外
                 try:
                     parent_dirs: Set[str] = { posixpath.dirname(posixpath.join(dest_abs_root, rel)) for rel in new_list }
                     root_norm: str = dest_abs_root.rstrip("/")
@@ -831,7 +831,7 @@ def upload_pack_and_extract(
 
                 report.add(host, TransferItem(host=host, remote_path=dst_abs2, phase="transfer", status="done"))
 
-        # 9) SELinux restorecon（必要時）
+        # 9) SELinux restorecon ( 必要時 )
         if selinux_capable:
             paths_restorecon: List[str] = []
 
@@ -881,10 +881,10 @@ def sftp_put_one(
 ) -> None:
     """SFTP 経由で単一ツリーを ``DEST`` 配下へ配置します。
 
-    シンボリックリンクは転送対象から除外し、必要に応じてメタデータを復元します。
+    シンボリックリンクは転送対象から除外し, 必要に応じてメタデータを復元します。
 
     ここでの ``DEST`` は ``gm-scatter`` が配下へ配置する先頭ルート
-    （例: ``ScatterOpts.dest_abs_root``）を指し、個々のファイル・ディレクトリはこの相対配置に基づきます。
+     ( 例: ``ScatterOpts.dest_abs_root`` ) を指し, 個々のファイル・ディレクトリはこの相対配置に基づきます。
 
     Args:
         ssh (SSHClientLike): リモート作業に使用する SSH クライアント。
@@ -992,7 +992,7 @@ def sftp_put_one(
     except Exception as _ex:
         report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=str(_ex)))
         return
-    # sudo_mkdir 経路では SFTP 書込可否を事前検査（sudo できないため）
+    # sudo_mkdir 経路では SFTP 書込可否を事前検査 ( sudo できないため )
     if sudo_mkdir:
         rc_w, _out_w, _err_w = run_remote_cmd_capture(
            ssh, ["bash","-lc", f"test -w {shlex.quote(rdir)}"], timeout=CHECK_REGFILE_TIMEOUT
@@ -1033,7 +1033,7 @@ def sftp_put_one(
                 sub_rel = rel_effective
 
             sub_rel = _normalize_remote_rel_file(sub_rel) if sub_rel else ""
-            # ディレクトリとして扱う経路（末尾 '/' 付与は mkdir 側では不要）
+            # ディレクトリとして扱う経路 ( 末尾 '/' 付与は mkdir 側では不要 )
             rr: str = _posix_join(dest_abs_root.rstrip("/"), sub_rel) if sub_rel else dest_abs_root.rstrip("/")
 
             # mkdir -p をリモートホストで実行
@@ -1124,10 +1124,10 @@ def _sftp_put_with_exist_restore(
     xattr_ok: bool,
     rtmp_meta: Optional[str],
 ) -> None:
-    """単一ファイルを SFTP 転送し、必要に応じてメタデータを復元します。
+    """単一ファイルを SFTP 転送し, 必要に応じてメタデータを復元します。
 
-    既存ファイルを上書きする場合は、sudo 経路で所有者・グループ・モード・ACL・xattr を事前に採取し、
-    上書き後に元の状態へ復元します。新規作成（リモートに存在しないパス）の場合はメタデータ取得を行わず、
+    既存ファイルを上書きする場合は, sudo 経路で所有者・グループ・モード・ACL・xattr を事前に採取し,
+    上書き後に元の状態へ復元します。新規作成 ( リモートに存在しないパス ) の場合はメタデータ取得を行わず,
     SFTP 転送のみを実施します。
 
     Args:

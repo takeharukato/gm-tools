@@ -36,7 +36,7 @@ def ssh_run(cfg: Config, host: str, argv: Sequence[str]) -> CommandResult:
     - argv (Sequence[str]): 実行するコマンド引数列。
 
     Returns:
-    - CommandResult: 実行結果（rc/stdout/stderr）。
+    - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
     """
     return sshexec.run_remote(cfg, host, list(argv))
 
@@ -51,7 +51,7 @@ def ssh_run_sudo(cfg: Config, host: str, argv: Sequence[str]) -> CommandResult:
     - argv (Sequence[str]): 実行するコマンド引数列。
 
     Returns:
-    - CommandResult: 実行結果（rc/stdout/stderr）。
+    - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
     """
     return sshexec.run_sudo(cfg, host, list(argv))
 
@@ -75,7 +75,7 @@ def ssh_pipe_to_tee(
     - sudo (bool): sudo 経由で実行する場合は True。
 
     Returns:
-    - CommandResult: 実行結果（rc/stdout/stderr）。
+    - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
     """
     return sshexec.pipe_to_tee(cfg, host, path, content, sudo=sudo)
 
@@ -135,7 +135,7 @@ def ssh_run_raw(
 
 def dummy_open_ssh(host: str) -> SSHClientLike:
     """
-    テスト用のダミー SSH オープナー（Step6 用）。
+    テスト用のダミー SSH オープナー ( Step6 用 ) 。
 
     Args:
     - host (str): 対象ホスト。
@@ -149,7 +149,7 @@ def dummy_open_ssh(host: str) -> SSHClientLike:
 
 def dummy_open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
     """
-    テスト用のダミー SFTP オープナー（Step6 用）。
+    テスト用のダミー SFTP オープナー ( Step6 用 ) 。
 
     Args:
     - ssh (SSHClientLike): ダミー SSH クライアント。

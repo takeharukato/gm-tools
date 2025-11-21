@@ -15,7 +15,7 @@
 リモート/ローカルのツリー状態を取得するスナップショットユーティリティ。
 
 Notes:
-- SSH 経由でコマンド実行を行うため副作用があります（リモート環境負荷）。
+- SSH 経由でコマンド実行を行うため副作用があります ( リモート環境負荷 ) 。
 """
 import shlex
 import subprocess
@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Union
 from .test_common_ssh import ssh_run_raw as _ssh_run_raw
 
 
-# raw ssh 実行は共有ヘルパに委譲する（Config 非依存のためスナップショット用途に最適）
+# raw ssh 実行は共有ヘルパに委譲する ( Config 非依存のためスナップショット用途に最適 )
 
 
 def remote_find_tree_script(
@@ -36,7 +36,7 @@ def remote_find_tree_script(
     maxdepth: int = 6,
 ) -> Dict[str, str]:
     """
-    リモートの絶対パス `base` に対し、pwd/ls/find/tree の出力をまとめて取得します。
+    リモートの絶対パス `base` に対し, pwd/ls/find/tree の出力をまとめて取得します。
 
     Args:
     - ssh_user (str): SSH ユーザ。
@@ -149,7 +149,7 @@ def local_find_tree(path_dir: str, maxdepth: Optional[int] = None) -> Dict[str, 
 
     Args:
     - path_dir (str): 観測対象のディレクトリ。
-    - maxdepth (Optional[int]): find の深さ（None で無制限）。
+    - maxdepth (Optional[int]): find の深さ ( None で無制限 ) 。
 
     Returns:
     - Dict[str, str]: `find`/`tree` の出力。
@@ -196,4 +196,4 @@ def local_find_tree(path_dir: str, maxdepth: Optional[int] = None) -> Dict[str, 
 # リモート絶対パス base の実体を『base固定で』観測するスナップショット。
 # - pwd / ls -la -- <base>
 # - find <base> -maxdepth N -printf "%y %p -> %l\n"
-# - tree -a <base>（無ければ代替出力）
+# - tree -a <base> ( 無ければ代替出力 )

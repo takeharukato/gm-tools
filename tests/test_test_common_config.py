@@ -31,7 +31,7 @@ from tests_py.constants import (
 
 def test_load_config_defaults(monkeypatch, tmp_path): # type: ignore
     """
-    環境変数を全て未設定にしたとき、
+    環境変数を全て未設定にしたとき,
     constants.*_DEFAULT と同じ値が Config に入ることを確認する。
     """
     monkeypatch.chdir(tmp_path) # type: ignore
@@ -57,7 +57,7 @@ def test_load_config_defaults(monkeypatch, tmp_path): # type: ignore
     cfg = load_config_from_env(clear_local_root=False)
 
     assert cfg.ssh_user == SSH_USER_DEFAULT
-    # TARGET_USER_DEFAULT の既定値は実装によるが、
+    # TARGET_USER_DEFAULT の既定値は実装によるが,
     # 少なくとも属性として設定されていることだけを確認しておく。
     assert isinstance(cfg.target_user, str)
 
@@ -77,13 +77,13 @@ def test_load_config_defaults(monkeypatch, tmp_path): # type: ignore
     assert "gm_tools" in " ".join(cfg.gm_scatter_cmd)
 
     assert cfg.parallel == PARALLEL_DEFAULT
-    # VERBOSE_DEFAULT と env の組み合わせに依存するため、「bool であること」のみ確認
+    # VERBOSE_DEFAULT と env の組み合わせに依存するため, 「bool であること」のみ確認
     assert isinstance(cfg.verbose, bool)
 
 
 def test_clear_local_root_true_removes_existing(monkeypatch, tmp_path): # type: ignore
     """
-    clear_local_root=True の場合、
+    clear_local_root=True の場合,
     既存の LOCAL_WORK_ROOT が一度削除されて作り直されることを確認する。
     """
     monkeypatch.chdir(tmp_path) # type: ignore
@@ -97,7 +97,7 @@ def test_clear_local_root_true_removes_existing(monkeypatch, tmp_path): # type: 
 
     cfg = load_config_from_env(clear_local_root=True)
     assert Path(cfg.local_work_root) == local_root
-    # 中身が削除されている（marker が消えている）ことを確認
+    # 中身が削除されている ( marker が消えている ) ことを確認
     assert not marker.exists() # type: ignore
     # ディレクトリ自体は存在している
     assert local_root.exists() # type: ignore
@@ -106,7 +106,7 @@ def test_clear_local_root_true_removes_existing(monkeypatch, tmp_path): # type: 
 
 def test_clear_local_root_false_keeps_existing(monkeypatch, tmp_path): # type: ignore
     """
-    clear_local_root=False の場合、
+    clear_local_root=False の場合,
     既存 LOCAL_WORK_ROOT の内容が消されないことを確認する。
     """
     monkeypatch.chdir(tmp_path) # type: ignore

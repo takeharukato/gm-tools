@@ -13,8 +13,8 @@
 # 著者が修正している部分があります。
 """ホスト単位の並列収集とログ集約を調停する補助モジュールです。
 
-gather_cli.py の実装へ破壊的な変更を加えない方針で、事前に解析済みの引数や
-コールバックを受け取り、スレッドプール上でホスト並列の処理を進行させます。
+gather_cli.py の実装へ破壊的な変更を加えない方針で, 事前に解析済みの引数や
+コールバックを受け取り, スレッドプール上でホスト並列の処理を進行させます。
 オプション処理や SELinux・sudo の詳細は呼び出し元が注入するコールバック側で
 担保する設計です。
 """
@@ -52,7 +52,7 @@ def _clamp_parallel(n: int) -> int:
         n (int): 要求された並列ホスト数。
 
     Returns:
-        int: 1 未満の値を指定した場合は 1、それ以外は元の値。
+        int: 1 未満の値を指定した場合は 1, それ以外は元の値。
 
     Examples:
         >>> _clamp_parallel(0)
@@ -91,7 +91,7 @@ def execute(
     # 予約パラメータ (シグナルハンドラ登録は CLI 側で実施)
     register_signals: bool = False,
 ) -> int:
-    """ホストごとの gather を並列実行し、ログ集約とクリーンアップを統括します。
+    """ホストごとの gather を並列実行し, ログ集約とクリーンアップを統括します。
 
     Args:
         hosts (Sequence[str]): 対象ホスト名のシーケンス。
@@ -114,7 +114,7 @@ def execute(
         register_signals (bool): 予約パラメータ。シグナル登録は CLI 側で実施します。
 
     Returns:
-        int: エラーが発生した場合は ``EXIT_ERR_GENERIC``、成功した場合は ``EXIT_OK``。
+        int: エラーが発生した場合は ``EXIT_ERR_GENERIC``, 成功した場合は ``EXIT_OK``。
 
     Examples:
         >>> from pathlib import Path  # doctest: +SKIP
@@ -156,7 +156,7 @@ def execute(
             try:
                 cleanup_all_remote_temps(remote_removers)
             except Exception:
-                # 可能な限りクリーンアップ処理を実施する方針とし、ここでは例外を外へ出さない
+                # 可能な限りクリーンアップ処理を実施する方針とし, ここでは例外を外へ出さない
                 pass
 
     def _cleanup_local() -> None:

@@ -14,7 +14,7 @@
 
 """ローカル一時ファイル管理と tar アーカイブ操作を提供するモジュール。
 
-ホスト単位のローカル一時ファイル登録・削除と、tar 形式での
+ホスト単位のローカル一時ファイル登録・削除と, tar 形式での
 パッキング/アンパッキング補助関数をまとめて公開する。
 
 Examples:
@@ -48,7 +48,7 @@ from pathlib import PurePosixPath
 from typing import Callable, Dict, Iterable, List, Optional, Set, Literal, Tuple
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    # 型チェッカー向けのダミー定義（実行時には評価されない）
+    # 型チェッカー向けのダミー定義 ( 実行時には評価されない )
     from gettext import gettext as _
 
 from .core_ssh import CancelledError, SSHClientLike, SFTPClientLike  # for consistent cancellation semantics
@@ -111,7 +111,7 @@ def _bucket(host: str) -> _PerHost:
 
 
 def register_local_temp(host: str, path: Path) -> None:
-    """ローカル一時パスを登録し、後から確実に削除できるようにする。
+    """ローカル一時パスを登録し, 後から確実に削除できるようにする。
 
     Args:
         host (str): 管理対象のホスト名。
@@ -256,7 +256,7 @@ def cleanup_local_temp(host: str) -> None:
 def cleanup_all_local_temps() -> None:
     """登録済みの全ホストに対する一時パスを削除する。
 
-    `cleanup_local_temp()` と同様に冪等であり、既に削除済みでも安全に呼び出せる。
+    `cleanup_local_temp()` と同様に冪等であり, 既に削除済みでも安全に呼び出せる。
 
     Examples:
         >>> from pathlib import Path
@@ -282,7 +282,7 @@ def cleanup_all_local_temps() -> None:
 def _tar_mode_for_path(tar_path: Path) -> TarWriteMode:
     """拡張子から tarfile の書き込みモードを推定する。
 
-    以下の規則でモードを切り替え、該当しない場合は ``'w'`` を返す。
+    以下の規則でモードを切り替え, 該当しない場合は ``'w'`` を返す。
     - ``*.tar`` -> ``'w'``
     - ``*.tar.gz`` / ``*.tgz`` -> ``'w:gz'``
     - ``*.tar.xz`` / ``*.txz`` -> ``'w:xz'``
@@ -369,9 +369,9 @@ def pack_directory_to_tar(
 ) -> None:
     """ディレクトリ全体を tar アーカイブに梱包する。
 
-    出力フォーマットは ``tar_path`` の拡張子から推測されるため、拡張子に応じた
-    圧縮方式（``.tar.gz`` など）を指定する必要がある。 ``src_dir`` は事前に存在する
-    ディレクトリでなければならず、アーカイブ内でのルート名は ``arcname`` 引数で制御する。
+    出力フォーマットは ``tar_path`` の拡張子から推測されるため, 拡張子に応じた
+    圧縮方式 ( ``.tar.gz`` など ) を指定する必要がある。 ``src_dir`` は事前に存在する
+    ディレクトリでなければならず, アーカイブ内でのルート名は ``arcname`` 引数で制御する。
 
     - ``src_dir`` は存在するディレクトリであること。
     - ``arcname`` を省略した場合は ``src_dir`` の末尾名が使用される。
@@ -535,7 +535,7 @@ def remote_pack_paths(
     1. ``printf`` でパス一覧ファイルを作成。
     2. ``tar`` で ``.tar`` を生成。
     3. ``gzip`` で圧縮。
-    4. 作業ファイルを削除し、生成したアーカイブパスを返す。
+    4. 作業ファイルを削除し, 生成したアーカイブパスを返す。
 
     Args:
         ssh (SSHClientLike): ``paramiko.SSHClient`` 互換オブジェクト。
@@ -576,7 +576,7 @@ def remote_pack_paths(
         raise RuntimeError(f"prepare list failed: {(err_l or '').strip()}")
 
     try:
-        # 2) tar 作成（follow_symlinks のときのみフレーバ別に deref フラグを付与）
+        # 2) tar 作成 ( follow_symlinks のときのみフレーバ別に deref フラグを付与 )
         deref_flag = ""
         if follow_symlinks:
             try:
@@ -588,7 +588,7 @@ def remote_pack_paths(
             elif tar_flavor == "bsdtar":
                 deref_flag = "-L"          # libarchive/bsdtar 系
             else:
-                # フレーバ不明: 警告しフラグ無しで続行（symlinkはリンクのまま保存される）
+                # フレーバ不明: 警告しフラグ無しで続行 ( symlinkはリンクのまま保存される )
                 _LOG.warning(_(
                                 "remote_pack_paths: follow_symlinks requested but remote tar flavor is unknown;"
                                "proceeding without dereference flag (symlinks will be archived as links)."
@@ -670,11 +670,11 @@ def download_and_extract_tar(
 ) -> Tuple[int, List[str]]:
     """リモート ``.tar.gz`` を取得し安全に展開する。
 
-        - リモートから ``.tar.gz`` を受信し、 ``extract_base/subdir`` に安全展開する。
+        - リモートから ``.tar.gz`` を受信し,  ``extract_base/subdir`` に安全展開する。
         - パストラバーサルや symlink の混入を避けるためのハードニングを適用する。
         - GNU tar の最適化で生成される hardlink も通常ファイルとして復元する。
         - 戻り値は ``(extracted_count, extracted_paths)`` のタプル。
-            ``extracted_count`` は通常ファイル（hardlink デマテリアライズ含む）の数、
+            ``extracted_count`` は通常ファイル ( hardlink デマテリアライズ含む ) の数,
             ``extracted_paths`` は正規化済み相対パス一覧。
 
     Args:
@@ -729,7 +729,7 @@ def download_and_extract_tar(
     dest_root = os.path.join(extract_base, subdir)
     os.makedirs(dest_root, exist_ok=True)
 
-    # [debug] 受信側：関数進入の観測
+    # [debug] 受信側 : 関数進入の観測
     if verbose:
         _LOG.debug("[debug][pack][receiver] enter remote_tar_gz=%s extract_base=%s subdir=%s verbose=%s",
                 remote_tar_gz, extract_base, subdir, verbose)
@@ -750,10 +750,10 @@ def download_and_extract_tar(
         """アーカイブ内相対パスをローカル安全名に正規化する。
 
         以下のようなハードニングを順番に適用する。
-        - ``\\`` を ``/`` に置換し、先頭 ``/`` を除去する。
+        - ``\\`` を ``/`` に置換し, 先頭 ``/`` を除去する。
         - ``X:/`` 形式を ``X_/`` に変換して Windows ドライブ記法を無効化する。
-        - 連続する ``//`` や ``.`` の整理、および ``..`` を含む要素の除外を行う。
-        - Windows 禁止文字の置換、末尾スペース/ドットの削除、予約デバイス名からの退避を実施する。
+        - 連続する ``//`` や ``.`` の整理, および ``..`` を含む要素の除外を行う。
+        - Windows 禁止文字の置換, 末尾スペース/ドットの削除, 予約デバイス名からの退避を実施する。
         - 空要素や UNC 由来の空セグメントは ``_`` として保持する。
 
         Args:
@@ -768,7 +768,7 @@ def download_and_extract_tar(
         """
         p = name.replace("\\", "/")
         p = p.lstrip("/")
-        # 'X:/' → 'X_/'（最初の 1 か所だけ）
+        # 'X:/'  =>  'X_/' ( 最初の 1 か所だけ )
         if re.match(r'^[A-Za-z]:/', p):
             p = p.replace(":/", "_/", 1)
         # 末尾の '/' は抽出名としては無視
@@ -785,7 +785,7 @@ def download_and_extract_tar(
             if comp == ".":
                 continue
             if comp == "..":
-                # _safe_members 側で排除済みのはずだが、念のため拒否
+                # _safe_members 側で排除済みのはずだが, 念のため拒否
                 continue
             comp = WINDOWS_FORBIDDEN_RE.sub("_", comp)
             comp = comp.rstrip(WINDOWS_TRAILING_STRIP)
@@ -800,7 +800,7 @@ def download_and_extract_tar(
     def _parent_chain_has_symlink(base_dir: str, relpath: str) -> bool:
         """親ディレクトリにシンボリックリンクが含まれるかを確認する。
 
-        展開対象の親ディレクトリを ``os.lstat`` で順次検査し、途中にシンボリックリンクが
+        展開対象の親ディレクトリを ``os.lstat`` で順次検査し, 途中にシンボリックリンクが
         混在していないかを確認して安全な展開を保証する。
 
         Args:
@@ -840,7 +840,7 @@ def download_and_extract_tar(
             members_all = tf.getmembers()
             members = list(_safe_members(dest_root, members_all))
 
-            # 1) 先にディレクトリを作成（正規化名で）
+            # 1) 先にディレクトリを作成 ( 正規化名で )
             dirs = [m for m in members if m.isdir()]
             for d in dirs:
                 norm_dir = _normalize_archive_relpath_for_local(d.name)
@@ -857,7 +857,7 @@ def download_and_extract_tar(
                 if key not in members_map:
                     members_map[key] = _m
 
-            # 2) 通常ファイルを抽出（symlink は抽出しない / hardlink は後段で特例処理）
+            # 2) 通常ファイルを抽出 ( symlink は抽出しない / hardlink は後段で特例処理 )
             extracted_map: Dict[str, str] = {}  # 正規化相対 -> ローカル絶対
             files = [m for m in members if m.isfile()]
 
@@ -871,11 +871,11 @@ def download_and_extract_tar(
                 # 書き出し
                 fobj = tf.extractfile(m)
                 if fobj is None:
-                    # 読み取り不能（デバイス等）はスキップ
+                    # 読み取り不能 ( デバイス等 ) はスキップ
                     continue
                 with open(abs_out, "wb") as w:
                     shutil.copyfileobj(fobj, w)
-                # パーミッション・時刻（可能な範囲で）を反映
+                # パーミッション・時刻 ( 可能な範囲で ) を反映
                 try:
                     os.chmod(abs_out, m.mode & 0o777)
                 except Exception:
@@ -888,7 +888,7 @@ def download_and_extract_tar(
                 extracted_paths.append(norm_rel)
                 extracted_map[norm_rel] = abs_out
 
-            # 3) GNU tar 最適化由来のハードリンク（islnk）を「通常ファイル」としてデマテリアライズ
+            # 3) GNU tar 最適化由来のハードリンク ( islnk ) を「通常ファイル」としてデマテリアライズ
             hardlinks = [m for m in members if m.islnk()]
             for m in hardlinks:
                 norm_rel = _normalize_archive_relpath_for_local(m.name)
@@ -899,7 +899,7 @@ def download_and_extract_tar(
                 abs_out = os.path.join(dest_root, norm_rel)
                 os.makedirs(os.path.dirname(abs_out), exist_ok=True)
 
-                # 3-1) 既に抽出済みのリンク先があれば、それをソースに複製
+                # 3-1) 既に抽出済みのリンク先があれば, それをソースに複製
                 norm_link = _normalize_archive_relpath_for_local(m.linkname or "")
                 src_abs = extracted_map.get(norm_link)
                 if src_abs and os.path.isfile(src_abs):
@@ -922,7 +922,7 @@ def download_and_extract_tar(
                         _LOG.warning(_("failed to materialize hardlink from extracted source: %s -> %s (%s)") % (
                             norm_rel, norm_link, e))
 
-                # 3-2) 未抽出なら、アーカイブ内の同名メンバー（通常ファイル）から抽出・複製
+                # 3-2) 未抽出なら, アーカイブ内の同名メンバー ( 通常ファイル ) から抽出・複製
                 src_member = members_map.get(norm_link)
                 if src_member is not None and src_member.isfile():
                     try:
@@ -955,7 +955,7 @@ def download_and_extract_tar(
         except Exception:
             pass
 
-    # verbose 時のみログ出力（QueueHandler/QueueListener配下で直列化され行崩れ防止）
+    # verbose 時のみログ出力 ( QueueHandler/QueueListener配下で直列化され行崩れ防止 )
     if verbose:
         _LOG.info(
             _("[pack] downloaded %s -> extracted %d file(s) to %s") % (
@@ -968,10 +968,10 @@ def download_and_extract_tar(
 def list_tar_members_local(tar_path: str) -> Tuple[List[str], List[str]]:
     """ローカル tar アーカイブの通常ファイルと空ディレクトリを列挙する。
 
-    戻り値は ``(regular_files, empty_dirs)`` のタプルで、それぞれアーカイブ内の相対パス。
+    戻り値は ``(regular_files, empty_dirs)`` のタプルで, それぞれアーカイブ内の相対パス。
     - ``regular_files`` は symlink・hardlink・特殊ファイルを除外した通常ファイルのみ。
     - ``empty_dirs`` は配下にメンバーを持たないディレクトリのみ。
-    - 先頭 ``/`` は除去し、必要に応じて末尾 ``/`` を調整して返す。
+    - 先頭 ``/`` は除去し, 必要に応じて末尾 ``/`` を調整して返す。
 
     Args:
         tar_path (str): 読み出す tar アーカイブのパス。

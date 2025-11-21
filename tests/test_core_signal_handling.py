@@ -52,7 +52,7 @@ def test_graceful_stop_request_stop_sets_abort_and_runs_cleanups_once() -> None:
 
     gs.register_cleanup(cleanup)
 
-    # 1 回目の request_stop で abort_event が set され、cleanup が実行されることを期待
+    # 1 回目の request_stop で abort_event が set され, cleanup が実行されることを期待
     gs.request_stop()
 
     assert gs.abort_event.is_set()
@@ -92,7 +92,7 @@ def test_register_signal_handlers_integration(monkeypatch: pytest.MonkeyPatch) -
         registered_handlers[signum] = handler
         return handler
 
-    # signal.signal を差し替えて、ハンドラ登録だけ検証する
+    # signal.signal を差し替えて, ハンドラ登録だけ検証する
     monkeypatch.setattr(signal, "signal", fake_signal) # type: ignore
 
     register_signal_handlers(
@@ -115,6 +115,6 @@ def test_register_signal_handlers_integration(monkeypatch: pytest.MonkeyPatch) -
     # summary が呼ばれていること
     assert summary_called_box[0] is True
 
-    # ハンドラをもう一度呼んでも cleanup が増えないこと（冪等性）
+    # ハンドラをもう一度呼んでも cleanup が増えないこと ( 冪等性 )
     handler_sigint(signal.SIGINT, dummy_frame)
     assert cleanup_call_count_box[0] == 1

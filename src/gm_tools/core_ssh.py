@@ -13,13 +13,13 @@
 # 著者が修正している部分があります。
 """Paramiko 互換の SSH 接続・SFTP クライアント・チャネルのライフサイクルを扱います。
 
-ここでいうライフサイクルとは、接続確立（open）から利用中の再利用管理、確実なクローズ
-（close）に至るまでの一連の工程を指します。ホスト単位で ``paramiko.SSHClient`` 互換オブ
-ジェクト（SSH 接続）、``paramiko.SFTPClient`` 互換オブジェクト（SFTP クライアント）、お
-よび ``Channel`` 相当オブジェクト（コマンド実行・転送チャネル）の参照を登録し、明示的な
+ここでいうライフサイクルとは, 接続確立 ( open ) から利用中の再利用管理, 確実なクローズ
+ ( close ) に至るまでの一連の工程を指します。ホスト単位で ``paramiko.SSHClient`` 互換オブ
+ジェクト ( SSH 接続 ) , ``paramiko.SFTPClient`` 互換オブジェクト ( SFTP クライアント ) , お
+よび ``Channel`` 相当オブジェクト ( コマンド実行・転送チャネル ) の参照を登録し, 明示的な
 close 呼び出しを忘れても安全に解放できるよう管理します。また長時間処理中の協調的な停
 止用チェックポイントも提供します。特定ライブラリへの強い依存を避けるため構造的型付け
-(PythonのProtocolを使用)を採用しており、モジュール import 時には副作用がありません。
+(PythonのProtocolを使用)を採用しており, モジュール import 時には副作用がありません。
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ class _PerHost:
     __slots__ = ("conns", "sftps", "chans")
 
     def __init__(self) -> None:
-        # Paramiko の SSHClient/SFTPClient/Channel はハッシュ化できないため、リストで管理する。
+        # Paramiko の SSHClient/SFTPClient/Channel はハッシュ化できないため, リストで管理する。
         self.conns: list[Closeable] = []
         self.sftps: list[Closeable] = []
         self.chans: list[Closeable] = []
@@ -144,7 +144,7 @@ def _get_bucket(host: str) -> _PerHost:
 
 
 def register_connection(host: str, conn: SSHClientLike) -> None:
-    """SSH 接続オブジェクトを登録し、後で冪等に close できるようにします。
+    """SSH 接続オブジェクトを登録し, 後で冪等に close できるようにします。
 
     Args:
         host (str): 接続を紐づけるホスト名。
@@ -164,7 +164,7 @@ def register_connection(host: str, conn: SSHClientLike) -> None:
 
 
 def register_sftp(host: str, sftp: SFTPClientLike) -> None:
-    """SFTP クライアントオブジェクトを登録し、後で冪等に close できるようにします。
+    """SFTP クライアントオブジェクトを登録し, 後で冪等に close できるようにします。
 
     Args:
         host (str): 接続を紐づけるホスト名。
@@ -184,7 +184,7 @@ def register_sftp(host: str, sftp: SFTPClientLike) -> None:
 
 
 def register_channel(host: str, chan: ChannelLike) -> None:
-    """コマンド実行・転送チャネルを登録し、後で冪等に close できるようにします。
+    """コマンド実行・転送チャネルを登録し, 後で冪等に close できるようにします。
 
     Args:
         host (str): 接続を紐づけるホスト名。
@@ -231,7 +231,7 @@ def close_connections(host: str) -> None:
     """指定ホストのチャネル・SFTP クライアント・SSH 接続を順番にクローズします。
 
     Args:
-        host (str): クローズ対象のホスト名（Paramiko 接続と紐づくキー）。
+        host (str): クローズ対象のホスト名 ( Paramiko 接続と紐づくキー ) 。
 
     Examples:
         >>> class Dummy:
@@ -247,7 +247,7 @@ def close_connections(host: str) -> None:
         return
 
     # クローズ順序: チャネル -> SFTP クライアント -> SSH 接続
-    # （チャネルと SFTP クライアントは基礎となる SSH 接続に依存するため）
+    #  ( チャネルと SFTP クライアントは基礎となる SSH 接続に依存するため )
     for obj in list(bucket.chans):
         _safe_close(obj)
     for obj in list(bucket.sftps):
@@ -333,7 +333,7 @@ def ssh_open(cfg: SSHConfig, *, debug_print: bool = False) -> SSHClientLike:
 
     Args:
         cfg (SSHConfig): 接続に使用する構成情報。
-        debug_print (bool): デバッグ出力の有無（互換性のため保持）。
+        debug_print (bool): デバッグ出力の有無 ( 互換性のため保持 ) 。
 
     Returns:
         SSHClientLike: 接続済みクライアントオブジェクト。
@@ -377,7 +377,7 @@ def ssh_open(cfg: SSHConfig, *, debug_print: bool = False) -> SSHClientLike:
         look_for_keys=True,
         allow_agent=True,
     )
-    # 互換性維持のため、明示的に close しない呼び出し元に備えて登録しておく。
+    # 互換性維持のため, 明示的に close しない呼び出し元に備えて登録しておく。
     register_connection(cfg.host, client)  # type: ignore[arg-type]
     return client  # type: ignore[return-value]
 

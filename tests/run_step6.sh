@@ -20,13 +20,13 @@
 #   3) ./run_step6.sh
 set -Eeuo pipefail
 
-# スクリプトの所在ディレクトリ（tests ディレクトリ想定）
+# スクリプトの所在ディレクトリ ( tests ディレクトリ想定 )
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# プロジェクトルート（tests の 1 つ上）を決定
+# プロジェクトルート ( tests の 1 つ上 ) を決定
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CWD="$(pwd)"
 
-# 1) 明示指定があれば最優先（例: ENV_FILE=./my.env ./run_step6.sh）
+# 1) 明示指定があれば最優先 ( 例: ENV_FILE=./my.env ./run_step6.sh )
 ENV_FILE="${ENV_FILE:-}"
 
 # 2) 読み込み順: $ENV_FILE > $CWD/tests_env.sh > $SCRIPT_DIR/tests_env.sh.sample
@@ -41,7 +41,7 @@ else
   source "${SCRIPT_DIR}/tests_env.sh.sample"
 fi
 
-# Python 実行（runner_step6.py は現状プレースホルダ結果のみを出力）
+# Python 実行 ( runner_step6.py は現状プレースホルダ結果のみを出力 )
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 echo "PYTHON_BIN  : ${PYTHON_BIN}"
 

@@ -13,7 +13,7 @@
 # 著者が修正している部分があります。
 """gm-tools における協調的な停止処理とシグナルハンドリングを提供します。
 
-CLI レイヤーが起動時に初期化し、SIGINT/SIGTERM を受けた際に停止フラグとクリーンアップ処理を
+CLI レイヤーが起動時に初期化し, SIGINT/SIGTERM を受けた際に停止フラグとクリーンアップ処理を
 統合的に扱うユーティリティを定義します。モジュールインポート時に副作用は発生しません。
 """
 
@@ -27,7 +27,7 @@ from typing import Callable, List, Optional
 class GracefulStop:
     """協調的な停止と後処理をまとめて管理するコーディネータです。
 
-    ``abort_event`` が立った時点で停止要求を検知し、登録済みクリーンアップを LIFO で一度だけ
+    ``abort_event`` が立った時点で停止要求を検知し, 登録済みクリーンアップを LIFO で一度だけ
     実行します。スレッドセーフな API を提供します。
     """
 
@@ -63,7 +63,7 @@ class GracefulStop:
     # ---- stop request & cleanup ----
 
     def request_stop(self) -> None:
-        """停止要求フラグを立て、必要なクリーンアップを走らせます。
+        """停止要求フラグを立て, 必要なクリーンアップを走らせます。
 
         Examples:
             >>> gs = GracefulStop()
@@ -132,7 +132,7 @@ def register_signal_handlers(
             signum (int): 受信したシグナル番号。
             frame (object): シグナルを受け取ったスタックフレーム。未使用。
         """
-        # ここではログを出さない（CLI 層がユーザ向けログを担当）
+        # ここではログを出さない ( CLI 層がユーザ向けログを担当 )
         gs.request_stop()
         gs.run_cleanups()
         if on_summary is not None:

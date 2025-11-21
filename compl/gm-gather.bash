@@ -8,33 +8,30 @@ _gm_gather()
     # bash-completion 2.x API
     _init_completion -n : || return
 
-    # すべてのロング/ショートオプション ( 引数を取る/取らないを区別 )
+    # 現行 CLI のフラグ系オプション
     local -a opts_flags=(
         --help -h
-        --ignore-case -i
         --strict-host-key-checking -S
         --pack
-        --one-archive
+        --follow-symlinks
         --dry-run -n
         --verbose -v
+        --sudo-collect --no-sudo-collect -x
     )
 
+    # 引数を伴うオプション
     local -a opts_args=(
-        # expects ARG
-        --user -u
         --hosts -H
+        --user -u
         --ssh-user -s
-        --pattern-abs -a
-        --pattern-rel -r
-        --parallel -j
-        --roots -R
         --port -P
         --key -K
         --password -W
         --timeout -T
+        --parallel -j
     )
 
-    # --long=VAL 形式への対応： "--key=/p/t/h" のようなケース
+    # --long=VAL 形式への対応 :  "--key=/p/t/h" のようなケース
     local optname=${cur%%=*}
     local after_eq=
     if [[ $cur == *=* ]]; then
@@ -54,38 +51,33 @@ _gm_gather()
             ;;
         --hosts|-H)
             # ホストリストファイル
+            compopt -o filenames
             COMPREPLY=( $(compgen -f -- "$cur") )
             return
             ;;
-        --pattern-abs|-a|--pattern-rel|-r)
-            # 正規表現は自由入力：補完なし
-            COMPREPLY=()
-            return
-            ;;
-        --parallel|-j|--port|-P)
-            # 整数
+        --parallel|-j)
             COMPREPLY=( $(compgen -W "1 2 3 4 8 16 32 64 128 256" -- "$cur") )
             return
             ;;
-        --timeout|-T)
-            # 秒 ( float想定だが提示候補は整数 )
-            COMPREPLY=( $(compgen -W "5 10 15 20 30 45 60 90 120" -- "$cur") )
+        --port|-P)
+            COMPREPLY=( $(compgen -W "22" -- "$cur") )
             return
             ;;
-        --roots|-R)
-            # ディレクトリ複数 ( スペース区切り ) を想定
-            compopt -o filenames
-            COMPREPLY=( $(compgen -d -- "$cur") )
+        --timeout|-T)
+            COMPREPLY=( $(compgen -W "30 45 60 90 120" -- "$cur") )
             return
             ;;
         --key|-K)
-            # 秘密鍵ファイル
             compopt -o filenames
-            COMPREPLY=( $(compgen -f -- "$cur") )
+            if [[ $cur == /* || $cur == ~* ]]; then
+                COMPREPLY=( $(compgen -f -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -f -- "$HOME/.ssh/$cur") )
+            fi
             return
             ;;
         --password|-W)
-            # パスワードは自由入力：補完なし
+            # パスワードは自由入力 : 補完なし
             COMPREPLY=()
             return
             ;;
@@ -100,21 +92,22 @@ _gm_gather()
             --hosts)
                 COMPREPLY=( $(compgen -f -- "$after_eq") )
                 ;;
-            --pattern-abs|--pattern-rel)
-                COMPREPLY=() ;;  # 自由入力
-            --parallel|--port)
+            --parallel)
                 COMPREPLY=( $(compgen -W "1 2 3 4 8 16 32 64 128 256" -- "$after_eq") )
                 ;;
-            --timeout)
-                COMPREPLY=( $(compgen -W "5 10 15 20 30 45 60 90 120" -- "$after_eq") )
+            --port)
+                COMPREPLY=( $(compgen -W "22" -- "$after_eq") )
                 ;;
-            --roots)
-                compopt -o filenames
-                COMPREPLY=( $(compgen -d -- "$after_eq") )
+            --timeout)
+                COMPREPLY=( $(compgen -W "30 45 60 90 120" -- "$after_eq") )
                 ;;
             --key)
                 compopt -o filenames
-                COMPREPLY=( $(compgen -f -- "$after_eq") )
+                if [[ $after_eq == /* || $after_eq == ~* ]]; then
+                    COMPREPLY=( $(compgen -f -- "$after_eq") )
+                else
+                    COMPREPLY=( $(compgen -f -- "$HOME/.ssh/$after_eq") )
+                fi
                 ;;
             --password)
                 COMPREPLY=() ;;  # 自由入力
@@ -137,9 +130,8 @@ _gm_gather()
         return
     fi
 
-    # 位置引数 ( dest ) : ディレクトリを補完
-    compopt -o dirnames
-    COMPREPLY=( $(compgen -d -- "$cur") )
+    # 位置引数は自由入力とする
+    COMPREPLY=()
 }
 
 # command name aliases

@@ -18,7 +18,7 @@ def _safe_rmtree_abs(path: Union[str, Path]) -> None:
     - symlink なら削除しない
     - 相対パスなら何もしない
     - 存在しなければ何もしない
-    - 例外は握りつぶす（best effort）
+    - 例外は握りつぶす ( best effort )
     """
     try:
         p = Path(path)

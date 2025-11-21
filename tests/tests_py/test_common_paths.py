@@ -15,7 +15,7 @@
 パス操作ユーティリティ。絶対パスの正規化と探索ヘルパを提供します。
 
 Notes:
-- 安全性を優先し、一部の関数は例外発生時に保守的な結果（False / None）を返します。
+- 安全性を優先し, 一部の関数は例外発生時に保守的な結果 ( False / None ) を返します。
 """
 # tests/tests_py/test_common_paths.py
 # 共有パスユーティリティ
@@ -29,8 +29,8 @@ from typing import Optional
 
 def as_posix_rel(path_abs: str) -> str:
     """
-    絶対パスをリモート展開用の相対表記へ正規化します。区切りを "/" に統一し、
-    先頭の "/" をすべて除去、末尾のスラッシュ有無は入力を尊重します。
+    絶対パスをリモート展開用の相対表記へ正規化します。区切りを "/" に統一し,
+    先頭の "/" をすべて除去, 末尾のスラッシュ有無は入力を尊重します。
 
     Args:
     - path_abs (str): 正規化対象の絶対パス。
@@ -52,7 +52,7 @@ def as_posix_rel(path_abs: str) -> str:
 
 def ensure_under(base: str, path_abs: str) -> bool:
     """
-    path_abs が base 配下（または base と同一）であることを確認します。両者は絶対パスで評価し、
+    path_abs が base 配下 ( または base と同一 ) であることを確認します。両者は絶対パスで評価し,
     シンボリックリンクは通さない安全側の判定を行います。
 
     Args:
@@ -60,10 +60,10 @@ def ensure_under(base: str, path_abs: str) -> bool:
     - path_abs (str): 確認対象の絶対パス。
 
     Returns:
-    - bool: True は許可、False は不許可（例外発生時も False）。
+    - bool: True は許可, False は不許可 ( 例外発生時も False ) 。
 
     Notes:
-    - ベース自身（path_abs == base）は許可されます。
+    - ベース自身 ( path_abs == base ) は許可されます。
     - 末尾セパレータを付与して接頭辞判定を行います。
     """
     try:
@@ -83,13 +83,13 @@ def ensure_under(base: str, path_abs: str) -> bool:
 
 def walk_find_first(root: str, *, name: Optional[str] = None, pattern: Optional[str] = None) -> Optional[str]:
     """
-    ローカルの出力ツリーを走査し、最初に一致したパスを返します。`name` は完全一致名、
+    ローカルの出力ツリーを走査し, 最初に一致したパスを返します。`name` は完全一致名,
     `pattern` は `fnmatch` 互換のグロブを受け付けます。
 
     Args:
-    - root (str): 走査の起点ディレクトリ（絶対/相対いずれも可）。
-    - name (Optional[str]): 完全一致で探すファイル名（例: ``l.txt``）。
-    - pattern (Optional[str]): グロブパターン（例: ``**/src/l.txt``）。
+    - root (str): 走査の起点ディレクトリ ( 絶対/相対いずれも可 ) 。
+    - name (Optional[str]): 完全一致で探すファイル名 ( 例: ``l.txt`` ) 。
+    - pattern (Optional[str]): グロブパターン ( 例: ``**/src/l.txt`` ) 。
 
     Returns:
     - Optional[str]: 最初に一致した項目の絶対パス。見つからなければ None。

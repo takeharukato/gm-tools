@@ -37,7 +37,7 @@ def test_internal_empty_segment_becomes_underscore():
     assert _sanitize_remote_abs_for_local("/a//b") == "a/_/b"
 
 def test_reserved_device_names_safe():
-    # 小文字でも予約名として安全化（ケース保持）
+    # 小文字でも予約名として安全化 ( ケース保持 )
     assert _sanitize_remote_abs_for_local("/com1/lpt9") == "_com1/_lpt9"
     # 拡張子付きでもベース名が予約名なら安全化する
     assert _sanitize_remote_abs_for_local("/CON.txt") == "_CON.txt"
@@ -47,9 +47,9 @@ def test_reserved_device_names_safe():
 def test_component_becomes_empty_after_strip():
     # 'name. ' -> 末尾ドット/スペース削除で 'name'
     assert _sanitize_remote_abs_for_local("/dir/name. ") == "dir/name"
-    # comp が全部ドットとスペースで出来ている場合は空→'_' に
+    # comp が全部ドットとスペースで出来ている場合は空 => '_' に
     assert _sanitize_remote_abs_for_local("/dir/ . ") == "dir/_"
 
 def test_backslashes_and_trailing_double_slash():
-    # 末尾の空セグメントは連続で全て無視（末尾 '_' は付与しない）
+    # 末尾の空セグメントは連続で全て無視 ( 末尾 '_' は付与しない )
     assert _sanitize_remote_abs_for_local(r"C:\Users\name\Desktop\\") == "C_/Users/name/Desktop"

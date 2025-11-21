@@ -41,7 +41,7 @@ def parse_keyval_line(raw: str) -> Dict[str, str]:
 
 def is_parallel_log_line(raw: str) -> bool:
     """
-    簡易ヒューリスティック: `' level='` を含み、かつ `key="value"` 形式のペアが 1 つ以上ある行を並列ログとみなします。
+    簡易ヒューリスティック: `' level='` を含み, かつ `key="value"` 形式のペアが 1 つ以上ある行を並列ログとみなします。
 
     Args:
     - raw (str): 入力ログ行。
@@ -102,13 +102,13 @@ def format_parallel_log_line(raw: str) -> str:
 
 def summarize_parallel_logs(lines: List[str]) -> Dict[str, Any]:
     """
-    `level=` を含む行を対象に集計します（非該当行は無視）。
+    `level=` を含む行を対象に集計します ( 非該当行は無視 ) 。
 
     Args:
     - lines (List[str]): ログ行の配列。
 
     Returns:
-    - Dict[str, Any]: 総行数、対象行数、レベル別/ホスト別件数、警告/エラー合計など。
+    - Dict[str, Any]: 総行数, 対象行数, レベル別/ホスト別件数, 警告/エラー合計など。
     """
     level_counts: Dict[str, int] = {}
     host_counts: Dict[str, int] = {}

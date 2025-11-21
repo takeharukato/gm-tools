@@ -21,7 +21,7 @@ from ._local_types import CommandResult, Config
 
 def _base_ssh_args(cfg: Config, host: str) -> List[str]:
     """
-    ssh 実行の共通引数配列を構築します（内部ヘルパ）。
+    ssh 実行の共通引数配列を構築します ( 内部ヘルパ ) 。
 
     Args:
     - cfg (Config): 実行時構成。
@@ -47,7 +47,7 @@ def run_remote(cfg: Config, host: str, argv: List[str]) -> CommandResult:
     - argv (List[str]): リモートで実行するコマンド。
 
     Returns:
-    - CommandResult: 実行結果（rc/stdout/stderr）。
+    - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
     """
     cmd = _base_ssh_args(cfg, host) + ["--"] + argv
     p = subprocess.run(cmd, capture_output=True, text=True)
@@ -55,7 +55,7 @@ def run_remote(cfg: Config, host: str, argv: List[str]) -> CommandResult:
 
 def run_sudo(cfg: Config, host: str, argv: List[str]) -> CommandResult:
     """
-    sudo 経由でリモートコマンドを実行します（`sudo -n`）。
+    sudo 経由でリモートコマンドを実行します ( `sudo -n` ) 。
 
     Args:
     - cfg (Config): 実行時構成。
@@ -63,7 +63,7 @@ def run_sudo(cfg: Config, host: str, argv: List[str]) -> CommandResult:
     - argv (List[str]): リモートで実行するコマンド。
 
     Returns:
-    - CommandResult: 実行結果（rc/stdout/stderr）。
+    - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
     """
     cmd = _base_ssh_args(cfg, host) + ["--"] + ["sudo", "-n"] + argv
     p = subprocess.run(cmd, capture_output=True, text=True)
@@ -81,7 +81,7 @@ def pipe_to_tee(cfg: Config, host: str, path: str, content: str, sudo: bool) -> 
     - sudo (bool): sudo 経由で実行する場合は True。
 
     Returns:
-    - CommandResult: 実行結果（rc/stdout/stderr）。
+    - CommandResult: 実行結果 ( rc/stdout/stderr ) 。
     """
     base = _base_ssh_args(cfg, host)
     tee_argv = ["tee", path]
@@ -97,20 +97,20 @@ def ssh_run_raw(
     *remote_argv: str,
 ) -> subprocess.CompletedProcess[str]:
     """
-    素の ssh を直接叩く低レベルヘルパ（Config 非依存）。
+    素の ssh を直接叩く低レベルヘルパ ( Config 非依存 ) 。
 
     Args:
     - ssh_user (str): SSH ユーザ。
     - host (str): 対象ホスト。
     - port (int): ポート番号。
-    - strict (Union[bool, str]): StrictHostKeyChecking の設定（bool は yes/no に正規化）。
+    - strict (Union[bool, str]): StrictHostKeyChecking の設定 ( bool は yes/no に正規化 ) 。
     - remote_argv (str): リモートで実行する引数列。
 
     Returns:
     - subprocess.CompletedProcess[str]: 実行結果オブジェクト。
 
     Notes:
-    - 用途: スナップショット採取など、cfg に依存したくない場面。
+    - 用途: スナップショット採取など, cfg に依存したくない場面。
     """
     strict_str: str = strict if isinstance(strict, str) else ("yes" if strict else "no")
     argv: List[str] = [

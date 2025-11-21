@@ -5,7 +5,7 @@ index e5bb593..3947ab2 100644
 @@ -235,6 +235,13 @@ def _filter(ti: tarfile.TarInfo) -> Optional[tarfile.TarInfo]:
              tf.add(ap, arcname=arcname, recursive=True, filter=_filter)
              added.append(arcname)
- 
+
 +    # DEBUG: 生成された tar と arcname 実績のサンプルを出す
 +    if _DEBUG:
 +        added_len: int = len(added)
@@ -14,12 +14,12 @@ index e5bb593..3947ab2 100644
 +        _dbg_log(f"[pack.local] tar={tar_path} added_count={added_len} head={added_head} tail={added_tail}")
 +
      return tar_path, added
- 
+
  def write_members_file(
 @@ -404,6 +411,16 @@ def _cleanup_all() -> None:
              report.add(host, TransferItem(host=host, remote_path=dest_abs_root, phase="transfer", status="failed", reason=f"E_TAR_LIST: {str(_ex)}"))
              return
- 
+
 +
 +        # DEBUG: アーカイブ側の相対ファイル名サンプル
 +        if _DEBUG:
@@ -36,15 +36,15 @@ index e5bb593..3947ab2 100644
 @@ -419,6 +436,21 @@ def _cleanup_all() -> None:
          exist_list: List[str] = [r for r in rel_order if r in exist_set]
          new_list:   List[str] = [r for r in rel_order if r in new_set]
- 
-+        # DEBUG: NEW/EXIST のサンプルと差集合（抽出対象と tar メンバーの不一致検出）
+
++        # DEBUG: NEW/EXIST のサンプルと差集合 ( 抽出対象と tar メンバーの不一致検出 )
 +        if _DEBUG:
 +            ex_count: int = len(exist_list)
 +            new_count: int = len(new_list)
 +            ex_head: List[str] = exist_list[:5]
 +            new_head: List[str] = new_list[:5]
 +            _dbg_log(f"[preflight.split] exist={ex_count} head={ex_head} new={new_count} head={new_head}")
-+            # -T に渡す new_list と rel_files の不一致（欠落）を検出
++            # -T に渡す new_list と rel_files の不一致 ( 欠落 ) を検出
 +            rel_set: Set[str] = set(rel_files)
 +            missing_in_tar: List[str] = [m for m in new_list if m not in rel_set]
 +            if missing_in_tar:
@@ -52,7 +52,7 @@ index e5bb593..3947ab2 100644
 +                miss_head: List[str] = missing_in_tar[:5]
 +                _dbg_log(f"[preflight.diff] new_minus_rel_files count={miss_count} sample={miss_head}")
 +
-         # 6) 空ディレクトリを作成（属性は変更しない）
+         # 6) 空ディレクトリを作成 ( 属性は変更しない )
          empty_dir_created: Dict[str, bool] = {}
          for _d in empty_dirs:
 diff --git a/src/gm_tools/scatter_cli.py b/src/gm_tools/scatter_cli.py
@@ -68,18 +68,18 @@ index 71bcfe1..d9d289e 100644
  from pathlib import Path
  from typing import Dict, List, Optional, Tuple, Final, Sequence
 @@ -327,6 +328,7 @@ def _make_push_one_pack(
-     pack 経路：最初の 1 回だけ local pack  =>  upload  =>  remote extract。
+     pack 経路 : 最初の 1 回だけ local pack  =>  upload  =>  remote extract。
      """
      state: Dict[str, bool] = {"ran": False}
 +    lg_pack: logging.Logger = logging.getLogger("gm.scatter.pack")  # DEBUG ロガ
- 
+
      def _push_one(_sftp: SFTPClientLike, _local_path: Path, _remote_root: str, _is_dir: bool) -> None:
          if state["ran"]:
 @@ -337,12 +339,23 @@ def _push_one(_sftp: SFTPClientLike, _local_path: Path, _remote_root: str, _is_d
-         # フォールバックは許容しない：remote_rel_map に存在しないキーは例外
+         # フォールバックは許容しない : remote_rel_map に存在しないキーは例外
          src_list_abs: List[str] = [os.path.abspath(p) for p in src_list]
          abs_to_rel: Dict[str, str] = remote_rel_map
-+        # DEBUG: pack roots と rel の対応を確認（先頭数件）
++        # DEBUG: pack roots と rel の対応を確認 ( 先頭数件 )
 +        if lg_pack.isEnabledFor(logging.DEBUG):
 +            sample_pairs: List[Tuple[str, str]] = [(a, abs_to_rel.get(a, "__MISSING__")) for a in src_list_abs[:5]]
 +            lg_pack.debug("pack_srcs_abs_sample: %s", sample_pairs)
@@ -87,7 +87,7 @@ index 71bcfe1..d9d289e 100644
          if missing:
              miss_join: str = ", ".join(missing)
              raise ValueError(f"E_ARCNAME_KEY: missing remote_rel for pack roots: {miss_join}")
-         # ここで '' が含まれていてよい（src='/' の正規表現／リテラル入力に対応）
+         # ここで '' が含まれていてよい ( src='/' の正規表現／リテラル入力に対応 )
          arc_list: List[str] = [abs_to_rel[a] for a in src_list_abs]
 +        if lg_pack.isEnabledFor(logging.DEBUG):
 +            pairs_all: List[Tuple[str, str]] = list(zip(src_list_abs, arc_list))
@@ -96,11 +96,11 @@ index 71bcfe1..d9d289e 100644
 +            lg_pack.debug("arc_pairs_head: %s", pairs_head)
 +            if pairs_tail:
 +                lg_pack.debug("arc_pairs_tail: %s", pairs_tail)
- 
+
          # アンパック代入に直接の型注釈は不可なため, いったんタプルに受けてから展開する。
          # local_pack_paths_to_tmp の戻り値は Tuple[str, List[str]]
 @@ -461,15 +474,32 @@ def _open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
- 
+
      # push_one をホスト毎に割当
      def _dedup_roots_for_pack(paths: List[Path]) -> List[Path]:
 -        # 親ディレクトリがある場合は子を除外して最小集合にする
@@ -133,8 +133,7 @@ index 71bcfe1..d9d289e 100644
 +            files_out: List[str] = [p for p in roots if os.path.isfile(p)]
 +            if files_out:
 +                 lg_dedup.debug("dedup_out_contains_files: count=%d sample=%s", len(files_out), files_out[:3])
- 
+
 +        return [Path(p) for p in roots]
      push_one_map: Dict[str, PushOne] = {}
      for host, meta in meta_per_host.items():
- 

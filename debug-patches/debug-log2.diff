@@ -3,10 +3,10 @@ index 5094e6d..6543ea9 100644
 --- a/src/gm_tools/scatter_cli.py
 +++ b/src/gm_tools/scatter_cli.py
 @@ -307,6 +307,9 @@ def _build_plan_for_host(
-     # --pack 用のルートは、正規表現なら split で得た root、リテラルなら従来の abs を使用
+     # --pack 用のルートは, 正規表現なら split で得た root, リテラルなら従来の abs を使用
      pack_roots_abs: List[str] = [os.path.abspath(p) for p in pack_roots_abs_local]
- 
-+    # 観測用: Plan.entries の絶対パス一覧を保持（pack 経路の manifest と突き合わせる）
+
++    # 観測用: Plan.entries の絶対パス一覧を保持 ( pack 経路の manifest と突き合わせる )
 +    plan_entries_abs: List[str] = [str(e.path.resolve()) for e in plan.entries]
 +
      meta: Dict[str, object] = {
@@ -14,13 +14,13 @@ index 5094e6d..6543ea9 100644
          "sftp": sftp,
 @@ -323,6 +326,8 @@ def _build_plan_for_host(
          "remote_rel_map": remote_rel_map,
-         # pack ルート（解決済みトークンの abs_root のみ）
+         # pack ルート ( 解決済みトークンの abs_root のみ )
          "pack_roots_abs": pack_roots_abs,
-+        # 観測用: Plan.entries の絶対パス一覧（_make_push_one_pack で突き合わせに使用）
++        # 観測用: Plan.entries の絶対パス一覧 ( _make_push_one_pack で突き合わせに使用 )
 +        "plan_entries_abs": plan_entries_abs,
      }
      return plan, meta
- 
+
 @@ -375,6 +380,7 @@ def _make_push_one_pack(
      _timeout: float, # 現状 _timeout は未使用。将来のリトライ/監視に利用する想定で受け取っている。
      host: str,
@@ -32,9 +32,9 @@ index 5094e6d..6543ea9 100644
 @@ -397,6 +403,21 @@ def _push_one(_sftp: SFTPClientLike, _local_path: Path, _remote_root: str, _is_d
          # ここで '' が含まれていてよい ( src='/' の正規表現／リテラル入力に対応 )
          arc_list: List[str] = [abs_to_rel[a] for a in src_list_abs]
- 
+
 +
-+        # === 観測ログ（1）pack に渡す入力（根）とアーカイブ内相対名 ===
++        # === 観測ログ ( 1 ) pack に渡す入力 ( 根 ) とアーカイブ内相対名 ===
 +        _dbg_n_show: int = 10
 +        _dbg_host: str = str(host)
 +        _dbg_src_count: int = len(src_list_abs)
@@ -57,14 +57,14 @@ index 5094e6d..6543ea9 100644
          tar_path, _src_manifest = tar_tuple
 +
 +
-+        # === 観測ログ（2）実際に tar に入った中身（manifest） ===
++        # === 観測ログ ( 2 ) 実際に tar に入った中身 ( manifest )  ===
 +        _dbg_manifest_count: int = len(_src_manifest)
 +        print(f"[DEBUG][{_dbg_host}] manifest.count={_dbg_manifest_count}")
 +        for _i in range(min(_dbg_n_show, _dbg_manifest_count)):
 +            _m: str = _src_manifest[_i]
 +            print(f"[DEBUG][{_dbg_host}] manifest[{_i}]={_m}")
 +
-+        # === 観測ログ（3）Plan.entries と manifest の集合比較 ===
++        # === 観測ログ ( 3 ) Plan.entries と manifest の集合比較 ===
 +        _plan_entries_abs: List[str] = list(plan_entries_abs)
 +        _plan_count: int = len(_plan_entries_abs)
 +        print(f"[DEBUG][{_dbg_host}] plan.entries.abs.count={_plan_count}")
