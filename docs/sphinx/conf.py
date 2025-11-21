@@ -6,7 +6,7 @@ ROOT_DIR = os.path.abspath("../..")
 sys.path.insert(0, os.path.join(ROOT_DIR, "src"))
 sys.path.insert(0, ROOT_DIR)
 
-project = "gm-tools Test Framework"
+project = "gm-tools"
 author = "gm-tools contributors"
 copyright = f"{datetime.now().year}, gm-tools"
 master_doc = "index"
