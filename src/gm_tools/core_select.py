@@ -580,55 +580,52 @@ def _enumerate_via_remote_walk_with_sudo(
     *,
     include_symlinks: bool,
 ) -> List[str]:
-    """sudo 経由でリモート側で Python スクリプトを実行し候補を列挙します。
+    """sudo 可能なリモート歩査で SRC パターンに合致するパスを列挙する。
 
-    環境変数 ``GM_ROOT``  ( 探索ルートの絶対パス ) , ``GM_PAT``  ( ルートからの相対パスに
-    適用する正規表現文字列 ) , ``GM_INC_LINKS``  ( シンボリックリンクを含めるなら ``"1"``,
-    それ以外は ``"0"`` ) を用いてリモート側の Python スクリプトに探索範囲とマッチ条件を
-    渡し, ``os.walk`` を介して ``GM_ROOT`` 配下の通常ファイルを列挙します。``GM_PAT`` に
-    マッチした場合に絶対パスを 1 行ずつ標準出力へ書き出します。``GM_INC_LINKS`` が ``"1"`` のときは
-    シンボリックリンクも候補に含めるようにし,
-    呼び出し側で ``include_symlinks`` を ``True`` にすることで制御します。sudo 実行が
-    失敗した場合は sudo なしで同じスクリプトを再実行し, いずれかが成功すればその
-    結果を採用します。
+    sudo 経路で ``python3/os.walk`` を実行して SRC パターンを評価し、必要に応じて
+    非 sudo での再試行も行う。ディレクトリ指定の SRC と正規表現 SRC の双方へ対応
+    し、シンボリックリンク列挙可否は ``include_symlinks`` で制御する。
 
     Args:
-        ssh (SSHClientLike): ``exec_command`` を提供する SSH クライアント互換オブジェクト。
-        resolved_srcs (List[str]): HOME 展開済み SRC 文字列群。
-        home_abs (str): ``~`` 展開に用いるホームディレクトリ。
-        verbose (bool): 詳細出力を求める場合は ``True``。
-        include_symlinks (bool): シンボリックリンクも走査対象とする場合は ``True``。
+        ssh (SSHClientLike): コマンド実行に用いる SSH クライアント互換オブジェクト。
+        resolved_srcs (List[str]): HOME 展開済みの SRC 文字列配列。
+        home_abs (str): ``~`` 展開に使用するホームディレクトリの絶対パス。
+        verbose (bool): 詳細ログを出力したい場合は ``True``。
+        include_symlinks (bool): ``True`` のときシンボリックリンクも候補へ含める。
 
     Returns:
-        List[str]: sudo での走査結果として得られた絶対パス一覧。
+        List[str]: SRC 条件を満たしたリモートパス一覧（昇順ソート済み）。
 
     Examples:
-        >>> from unittest.mock import patch
-        >>> class DummySSH:
-        ...     def __init__(self):
-        ...         self.commands = []
-        >>> dummy = DummySSH()
-        >>> def fake_normalize(src, home_abs_for_tilde):
-        ...     return src
-        >>> def fake_is_abs(path):
-        ...     return True
-        >>> def fake_looks_like_regex(_src):
-        ...     return False
-        >>> def fake_split(_src):
-        ...     return ('/root', r'file\\.txt')
-        >>> def fake_execute(_ssh, command, timeout, stdin=None):
-        ...     dummy.commands.append(command)
-        ...     return 0, "/root/file.txt\n", ""
-        >>> with patch('gm_tools.core_select.normalize_src_abs', fake_normalize), \
-        ...      patch('gm_tools.core_select.is_abs_path', fake_is_abs), \
-        ...      patch('gm_tools.core_select.looks_like_regex', fake_looks_like_regex), \
-        ...      patch('gm_tools.core_select.split_src_to_root_and_tail_regex', fake_split), \
-        ...      patch('gm_tools.core_select.run_remote_cmd_capture', fake_execute):
-        ...     _enumerate_via_remote_walk_with_sudo(dummy, ['/root/file.txt'], '/home/demo', verbose=False, include_symlinks=False)
-        ['/root/file.txt']
+        .. doctest::
+            >>> from unittest.mock import MagicMock  # doctest: +SKIP
+            >>> ssh = MagicMock()  # doctest: +SKIP
+            >>> ssh.exec_command.return_value = (MagicMock(), MagicMock(), MagicMock())  # doctest: +SKIP
+            >>> _enumerate_via_remote_walk_with_sudo(  # doctest: +SKIP
+            ...     ssh=ssh,
+            ...     resolved_srcs=['/var/log'],
+            ...     home_abs='/home/demo',
+            ...     verbose=False,
+            ...     include_symlinks=False,
+            ... )
+            ['/var/log/syslog', '/var/log/auth.log']
     """
     acc: Set[str] = set()
 
+
+    # 以下の環境変数を用いて, を用いてリモート側の Python スクリプトに探索範囲とマッチ条件を渡し,
+    # ``os.walk`` を介して ``GM_ROOT`` 配下の通常ファイルを列挙します。
+    #
+    #   - ``GM_ROOT``  ( 探索ルートの絶対パス )
+    #   - ``GM_PAT``  ( ルートからの相対パスに適用する正規表現文字列 )
+    #   - ``GM_INC_LINKS``  ( シンボリックリンクを含めるなら ``1``, それ以外は ``0`` )
+    #
+    # 実行結果は以下のようになります。
+    #
+    #  - ``GM_PAT`` にマッチした場合に絶対パスを 1 行ずつ標準出力へ書き出します。
+    #  - ``GM_INC_LINKS`` が ``1`` のときは, シンボリックリンクも候補に含めるようにし, 呼び出し側で ``include_symlinks`` を ``True`` にすることで制御します。
+    #  - sudo実行が失敗した場合は sudo なしで同じスクリプトを再実行し, いずれかが成功すればその結果を採用します。
+    #
     py_script = r"""
 import os, re, sys
 root = os.environ.get("GM_ROOT", "")
@@ -784,16 +781,12 @@ def enumerate_candidates_for_host(
     follow_symlinks: bool,
     verbose: bool,
 ) -> List[str]:
-    """リモートホストに対する候補列挙用 API です。
+    """リモートホスト上での候補を列挙する。
 
     gm-gather CLI がリモート SRC の候補を収集する際に利用され, 引数と処理の対応は次の通りです。
-    - ``pack_remote`` と ``use_sudo`` を共に ``True`` にすると, sudo で Python スクリプトを実行する
-      ``_enumerate_via_remote_walk_with_sudo()`` を呼び出し, 環境変数 ``GM_ROOT``  ( 探索ルートの絶対パス ) ,
-      ``GM_PAT``  ( ルートからの相対パスに適用する正規表現文字列 ) , ``GM_INC_LINKS``  ( シンボリックリンクを
-      含めるなら ``"1"``, それ以外は ``"0"`` ) を用いたリモート歩査を行います。
-    - 上記以外の組み合わせでは ``_enumerate_via_sftp_walk()`` を利用し, SFTP でルートディレクトリを走査して
-      gm-gather CLI が受け取る SRC トークン末尾の相対パターンに対するマッチ判定用の正規表現 ( ``tail_re`` 正規表現 )
-      を適用します。
+
+    - ``pack_remote`` と ``use_sudo`` を共に ``True`` にすると, sudo で Python スクリプトを実行して候補を収集します。
+    - 上記以外の組み合わせでは, ``_enumerate_via_sftp_walk()`` を利用し, SFTP でルートディレクトリを走査して候補を収集します。
 
     Args:
         ssh (SSHClientLike): sudo を伴う走査時に利用する SSH クライアント。

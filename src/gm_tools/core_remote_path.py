@@ -52,7 +52,7 @@ def detect_remote_home(ssh: SSHClientLike, user: str, timeout: float) -> str:
         >>> import gm_tools.core_remote_path as mod  # doctest: +SKIP
         >>> def fake_run_remote_cmd_capture(_ssh, argv, timeout):  # doctest: +SKIP
         ...     assert argv[2].startswith('getent passwd')
-        ...     return (0, '/home/demo\n', '')
+        ...     return (0, '/home/demo\\n', '')
         >>> original = mod.run_remote_cmd_capture  # doctest: +SKIP
         >>> mod.run_remote_cmd_capture = fake_run_remote_cmd_capture  # doctest: +SKIP
         >>> try:  # doctest: +SKIP
