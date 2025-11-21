@@ -198,21 +198,21 @@ Specified a path containing \fI`~user`\fR.
 .SH Behavior upon Signal Receipt
 .PP
 Upon receiving SIGINT or SIGTERM, no new host processing is initiated, and cancellation is notified to ongoing hosts. After interruption, the warning log "Interrupt requested; cancelling remaining transfers..." is output, and exit code 0 or 2 is returned based on completion status. Termination processing closes open sessions and deletes temporary directories.
+
+
 .SH Output Log
 .PP
- Logs output fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, followed by optional keys like `warnings`, `errors`, `duration`, `seq` in key=value format. `phase` uses `start`, `processing`, `done`. Aggregate lines append `host=-` and `msg=summary`.
+The log follows fixed keys `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total`, and outputs optional keys like `warnings`, `errors`, `duration`, `seq`. `phase` uses `start`, `processing`, `done`. Aggregate lines add `host=-` and `msg=summary`.
 .PP
+
 The output log for this command includes the following information.
-.RS
+
 .IP "\(bu" 2
 \fBtimestamp\fR
-.RS
 .IP "\(bu" 2
-Time in ISO-8601 format (e.g., \fC2025-11-19T12:10:00.000+09:00\fR). Outputs the execution time including time zone and milliseconds.
-.RE
+ISO-8601 timestamp (e.g., \fC2025-11-19T12:10:00.000+09:00\fR). The execution time including time zone and milliseconds is output.
 .IP "\(bu" 2
 \fBlevel\fR
-.RS
 .IP "\(bu" 2
 \fBDEBUG\fR Detailed/debug information such as progress. Output to standard output.
 .IP "\(bu" 2
@@ -223,88 +223,85 @@ Time in ISO-8601 format (e.g., \fC2025-11-19T12:10:00.000+09:00\fR). Outputs the
 \fBERROR\fR Error. Output to standard error.
 .IP "\(bu" 2
 \fBCRITICAL\fR Fatal error. Output to standard error.
-.RE
 .IP "\(bu" 2
-\fBhost\fR Target host name. Outputs \fC-\fR (indicating overall summary) in summary lines (\fCsummary\fR).
+\fBhost\fR Target host name. Output \fC-\fR to summary lines (\fCsummary\fR) to indicate overall totals.
 .IP "\(bu" 2
 \fBop\fR Operation type.
-.RS
 .IP "\(bu" 2
 \fBgather\fR Transfer from remote host to local host.
 .IP "\(bu" 2
 \fBscatter\fR Transfer from local host to remote host.
-.RE
 .IP "\(bu" 2
 \fBphase\fR Operation phase.
-.RS
 .IP "\(bu" 2
-\fBstart\fR Indicates processing of the host has begun (start line).
+\fBstart\fR Indicates processing of the host has started (start line).
 .IP "\(bu" 2
-\fBprocessing\fR Indicates processing of the host is in progress (processing line).
+\fBprocessing\fR Indicates processing of the host is in progress (progress line).
 .IP "\(bu" 2
-\fBdone\fR Indicates processing of the host has completed (completion line).
-.RE
+\fBdone\fR Indicates processing for this host is complete (completion line).
 .IP "\(bu" 2
-\fBtrial\fR Number of attempts made on this host so far (including successes and failures). Starts at \fC0\fR and increases as processing progresses. In the completion line (\fBdone\fR) when transfer completes successfully, the number of trials (\fCtrial\fR) matches the planned number (\fCtotal\fR).
+\fBtrial\fR Number of attempts made on this host so far (including successes and failures). Initially set to \fC0\fR, increases as processing progresses. In the completion line (\fBdone\fR) for a successful transfer, the number of attempts (\fCtrial\fR) matches the planned total (\fCtotal\fR).
 .IP "\(bu" 2
 \fBprocessed\fR Number of items processed up to this phase.
 .IP "\(bu" 2
 \fBtotal\fR Total number of transfers planned for this host.
 .IP "\(bu" 2
-\fBwarnings\fR Number of warnings. Primarily displayed in the completion row (\fBdone\fR) and summary row (\fCsummary\fR).
-
+\fBwarnings\fR Number of warnings. Primarily displayed in the completion line (\fBdone\fR) and summary line (\fCsummary\fR).
 .IP "\(bu" 2
-\fBerrors\fR Number of errors. Primarily displayed in the completion row (\fBdone\fR) and summary row (\fCsummary\fR).
+\fBerrors\fR Number of errors. Primarily displayed in completion lines (\fBdone\fR) and summary lines (\fCsummary\fR).
 .IP "\(bu" 2
-\fBduration\fR Duration of phase or host processing (seconds). Displayed only in the completion line (\fBdone\fR) for each host.
+\fBduration\fR Time taken for phase or host processing (seconds). Displayed only in the completion row (\fBdone\fR) for each host.
 .IP "\(bu" 2
-\fBseq\fR Sequential log number. Displayed only in the processing line (\fBprocessing\fR) when the \fB\-\-verbose\fR option is specified.
-.RE
+\fBseq\fR Sequential log number. Displayed only in the processing row (\fBprocessing\fR) when the \fB\-\-verbose\fR option is specified.
 .PP
 
-.SS Content displayed in the host-level completion line
+.SS Display content for host-level completion lines
 .PP
-The log output when processing for a specific host completes is called the host-level completion line. It displays the final number of processed items and the result for that single host. `phase` is always \fCdone\fR, `host` contains the host name, and `warnings`, `errors`, and `duration` are listed together.
-.RS
+
+The log output when processing for a specific host completes is called a host-level completion line. It displays the final number of processed items and the result for that single host. `phase` is always \fCdone\fR, `host` contains the hostname, and `warnings`, `errors`, and `duration` are listed together.
+
 .IP "\(bu" 2
 \fBlevel\fR \fCINFO\fR.
 .IP "\(bu" 2
 \fBhost\fR Host name of the host whose operation completed.
 .IP "\(bu" 2
-\fBop\fR Type of operation executed (\fCgather\fR or \fCscatter\fR).
+\fBop\fR Operation type performed (\fCgather\fR or \fCscatter\fR).
 .IP "\(bu" 2
 \fBphase\fR \fCdone\fR.
 .IP "\(bu" 2
-\fBtrial\fR Total number of trials for hosts that completed the operation (sum of \fCtrial\fR output for each host).
+\fBtrial\fR Total number of trials for hosts where the operation completed (sum of \fCtrial\fR output for each host).
 .IP "\(bu" 2
-\fBprocessed\fR Total number of successful processes for hosts that completed the operation (sum of \fCprocessed\fR output for each host).
+\fBprocessed\fR Total number of successful processes for hosts where the operation completed (sum of \fCprocessed\fR output for each host).
 .IP "\(bu" 2
 \fBtotal\fR Total number of transfers planned for hosts that completed operations.
 .IP "\(bu" 2
 \fBwarnings\fR Total number of warnings for hosts that completed operations.
 .IP "\(bu" 2
 \fBerrors\fR Total number of errors for hosts that completed operations.
-.RE
+
+.PP
 
 .SS Display content of the summary row (\fCsummary\fR)
+
 .PP
 The log output once after processing of all hosts is complete is called the summary row (\fCsummary\fR). The format is as follows:
 .EX
 timestamp="..." level="INFO" host="-" op="<op>" phase="done" trial="<total>" processed="<processed>" total="<total>" warnings="<n>" errors="<m>" msg="summary"
 .EE
 .PP
-The summary line (\fCsummary\fR) contains the following information.
-.RS
+
+The summary row (\fCsummary\fR) contains the following information.
+
 .IP "\(bu" 2
 \fBlevel\fR \fCINFO\fR.
 .IP "\(bu" 2
-\fBhost\fR \fC-\fR (indicates overall aggregation).
+\fBhost\fR \fC-\fR (indicating overall aggregation).
 .IP "\(bu" 2
 \fBop\fR Operation type executed (\fCgather\fR or \fCscatter\fR).
 .IP "\(bu" 2
 \fBphase\fR \fCdone\fR.
 .IP "\(bu" 2
-\fBtrial\fR Total number of trials across all hosts (sum of \fCtrial\fR for each host).
+\fBtrial\fR Total number of trials across all hosts (sum of each host's \fCtrial\fR).
 .IP "\(bu" 2
 \fBprocessed\fR Total number of successful processes across all hosts (sum of \fCprocessed\fR for each host).
 .IP "\(bu" 2
@@ -315,12 +312,11 @@ The summary line (\fCsummary\fR) contains the following information.
 \fBerrors\fR Total number of errors across all hosts.
 .IP "\(bu" 2
 \fBmsg\fR \fCsummary\fR.
-.RE
 .PP
+
 .SH Limitations and Notes
 .PP
 
-.RS
 .IP "\(bu" 2
 \fCSRC\fR regular expressions follow Python \fCre\fR specifications, so they may contain locale-dependent metacharacters. Use explicit flags as needed.
 .IP "\(bu" 2
@@ -337,9 +333,6 @@ UNC paths on Windows hosts (e.g., \fC//srv/share\fR) can be specified, but they 
 Sending \fBSIGINT\fR during a long collection may result in only some hosts being collected. Check the logs and output, and rerun if necessary.
 .IP "\(bu" 2
 Integrity checks (such as hash verification) for acquired files are not implemented. Verify separately as needed.
-.IP "\(bu" 2
-Integrity checks (such as hash verification) for acquired files are not implemented. Verify separately as needed.
-.RE
 
 .SH SEE ALSO
 .PP

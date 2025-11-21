@@ -79,9 +79,12 @@ SSH セッションおよびリモートコマンドのタイムアウト秒。�
 \fB\-\-selinux\fR {auto|policy|ignore}
 パック転送での SELinux ラベル復元方針。`auto` は対応可能なホストのみ `restorecon` を実行し, `policy` は要件を満たさないホストでエラーとする。`ignore` は常にスキップする。
 
-.SS 転送方式
+.SH 転送方式
+.PP
+
 .SS SFTP逐次転送 (既定)
-.RS
+.PP
+
 .IP "\(bu" 2
 送信候補ごとに SFTP の \fCput\fR を呼び出しファイルをアップロードする。ディレクトリはローカルで走査し, 中身のファイルを一つずつ送信する。リモートでは必要に応じて \fCmkdir -p\fR を実行して親ディレクトリを作成する。
 .IP "\(bu" 2
@@ -92,9 +95,9 @@ SSH ログインユーザと配置対象ユーザが異なる場合, 親ディ�
 既存ファイルを上書きする場合, 親ディレクトリ作成に sudo を使っているときだけ, 上書き前に所有者・グループ・アクセス権・ACL・拡張属性を取得し, アップロード後に復元を試みる。対応ツールがリモートに無い場合や復元に失敗しても転送は継続する。
 .IP "\(bu" 2
 シンボリックリンクは常に転送対象から除外され, ログにはリンクを無視した旨が記録される。
-.RE
+
 .SS \-\-pack
-.RS
+
 .IP "\(bu" 2
 各ホストについて最初の転送候補を処理するときだけ, ローカル側で送信対象を一括して \fCtar.gz\fR にまとめる(\fBパック転送\fR)。重複指定や親子関係はこの時点で整理される。
 .IP "\(bu" 2
@@ -107,10 +110,10 @@ tar コマンドの種類を自動判定して対応オプションで展開す�
 \fC--follow-symlinks\fR が有効な場合, シンボリックリンクはリンク先の実体をアーカイブへ含める。無効な場合はアーカイブにも含めない。親ディレクトリがシンボリックリンクなら展開時に警告を出し, その項目をスキップする。
 .IP "\(bu" 2
 展開後は \fCrestorecon\fR による SELinux ラベル復元や一時ファイル削除を行い, sudo を使用する設定ならこれらも \fCsudo -n\fR 経由で実行する。
-.RE
 
+.SH 各転送方式での転送対象
+.SS
 
-.SS 対象の違い
 .TP
 通常ファイル
 \fBSFTP逐次転送\fR では個別にアップロードし, 必要であれば所有者や権限を復元する。パック転送ではまとめて展開し, 一時領域経由で上書きするときも所有者や権限を復元する。
@@ -173,7 +176,7 @@ web02.example.com    # 任意の注記 ( 例: 設置場所 )
 .PP
 
 .SH パスと正規表現仕様
-.RS
+
 .IP "\(bu" 2
 \fCSRC\fR はローカルパスを前提として以下のように解釈する。
 .RS
@@ -196,9 +199,18 @@ web02.example.com    # 任意の注記 ( 例: 設置場所 )
 リテラル指定のパスが存在しない場合は警告なしに対象から外す。同じ場所を繰り返し指定しても一度だけ扱う。
 .IP "\(bu" 2
 \fBパック転送\fR 使用時はローカルでディレクトリを指定した候補に末尾スラッシュを付け, tar 作成時にディレクトリ扱いであることを明示する。正規表現で一致した結果はそのまま扱う。
-.RE
+
 .SH SRC と DEST の解釈とレイアウト
+
+.IP "\(bu" 2
+\fCSRC\fR の解釈は次のとおり。
 .RS
+.IP "\(bu" 2
+\fCSRC\fR で指定されたパスは, リモート側で \fC/\fR 区切りの相対パスへ変換する。絶対パスは先頭スラッシュを除去し, Windows のドライブは \fCC/... \fR のように整形する。相対パスは指定どおりの構造を保持する。
+.IP "\(bu" 2
+正規表現でマッチした結果は走査起点からの相対パスを保ったまま \fCDEST\fR に配置される。パストラバーサルの危険があるパス ( \fC..\fR や先頭 \fC/\fR )は正規化時に除去し, 変換後に空文字になった場合は元ファイル名を用いる。
+.RE
+
 .IP "\(bu" 2
 \fCDEST\fR の解釈は次のとおり。
 .RS
@@ -212,22 +224,19 @@ web02.example.com    # 任意の注記 ( 例: 設置場所 )
 相対パスはターゲットユーザのホーム配下に配置される。
 .IP "\(bu" 2
 \fC~\fR や \fC~user\fR は無効で, 位置引数エラーとして終了する。
-.RE
-.IP "\(bu" 2
-送信元パスはリモート側で \fC/\fR 区切りの相対パスへ変換する。絶対パスは先頭スラッシュを除去し, Windows のドライブは \fCC/... \fR のように整形する。相対パスは指定どおりの構造を保持する。
-.IP "\(bu" 2
-正規表現でマッチした結果は走査起点からの相対パスを保ったまま \fCDEST\fR に配置される。パストラバーサルの危険があるパス ( \fC..\fR や先頭 \fC/\fR )は正規化時に除去し, 変換後に空文字になった場合は元ファイル名を用いる。
 .IP "\(bu" 2
 すべてのホストで同じ \fCDEST\fR を使い, ホスト別のサブディレクトリは作らない。したがって各ホストが \fCDEST/相対パス\fR に直接書き込む。
 .RE
 .PP
 
 .SH SELinux対応
+
 .SS SELinux 利用可否の判定
 .PP
 \fBgm-scatter\fR はリモートホストで SELinux の仮想ファイルシステムがマウントされているか, または \fCrestorecon\fR コマンドが利用可能かを確認する。どちらかが欠けている場合は SELinux ラベルの復元を行わない。
+
 .SS \fB\-\-selinux\fR オプションの挙動
-.RS
+
 .IP "\(bu" 2
 \fCignore\fR: どのホストでも SELinux の復元処理を実施しない。
 .IP "\(bu" 2
@@ -236,95 +245,44 @@ web02.example.com    # 任意の注記 ( 例: 設置場所 )
 \fCpolicy\fR: 対応要件を満たさないホストではエラーとして転送を失敗させ, 対応ホストでは \fCrestorecon -RF\fR を必ず実行する。
 .IP "\(bu" 2
 処理対象は \fBパック転送\fR で新規作成または更新されたファイルと空ディレクトリであり, 既存ファイルを上書きした場合も含まれる。\fBSFTP逐次転送\fR では \fCrestorecon\fR を呼び出さない。
-.RE
-.SS メタデータ復元条件
-.RS
-.IP "\(bu" 2
-\fB所有者・グループ・パーミッション\fR
-.RS
+
+.SH メタデータ復元条件
+
+.SS \fB所有者・グループ・パーミッション\fR
+.PP
+
 .IP "\(bu" 2
 \fBSFTP逐次転送\fR : 親ディレクトリ作成に sudo を使用している場合のみ, 既存ファイルの上書き時に所有者やアクセス権を復元する。必要なツールが無い場合や復元に失敗しても転送は継続し, 新規ファイルは SSH ログインユーザ所有で作成される。
 .IP "\(bu" 2
 \fBパック転送\fR: \fB\-\-sudo-extract\fR が有効なら既存ファイルで記録した所有者やアクセス権を復元し, 新規ファイル・ディレクトリもターゲットユーザと主要グループに合わせて \fCchown\fR する。sudo を使わない設定では復元しない。
-.RE
-.IP "\(bu" 2
-\fBタイムスタンプ\fR
-.RS
+
+.SS \fBタイムスタンプ\fR
+.PP
+
 .IP "\(bu" 2
 \fBSFTP逐次転送\fR : 更新時刻の保持は保証されない。
 .IP "\(bu" 2
 \fBパック転送\fR: 上書き対象に対してアーカイブの更新時刻を用いて \fCtouch -r\fR を実行し, 元の mtime に合わせる。失敗しても転送は中断しない。
-.RE
-.IP "\(bu" 2
-\fBACL と拡張属性\fR
-.RS
+
+.SS \fBACL と拡張属性\fR
+.PP
+
 .IP "\(bu" 2
 どの転送方式でもリモートに \fCgetfacl\fR/\fCsetfacl\fR や \fCgetfattr\fR/\fCsetfattr\fR が無い場合は取得・復元を行わない。
+.RS
 .IP "\(bu" 2
 \fBSFTP逐次転送\fR : 親ディレクトリ作成に sudo を使用し必要なツールが存在する場合に限り, 既存ファイルの ACL/xattr を復元する。新規作成では実行しない。
 .IP "\(bu" 2
 \fBパック転送\fR: \fB\-\-sudo-extract\fR が有効で必要なツールがあるときに既存ファイルの ACL/xattr を復元する。新規ファイルはデフォルト値のまま。
 .RE
-.IP "\(bu" 2
-\fBSELinux コンテキスト\fR
-.RS
-.IP "\(bu" 2
-\fBパック転送\fR で \fB\-\-selinux\fR が \fCauto\fR または \fCpolicy\fR の場合, 条件を満たしたホストでは \fCrestorecon\fR で再設定する。
-.IP "\(bu" 2
-\fBSFTP逐次転送\fR では SELinux ラベルの変更を行わない。
-.RE
-.RE.SS SELinux 対応
-.SS SELinux 利用可否の判定
+
+.SS \fBSELinux コンテキスト\fR
 .PP
-\fBgm-scatter\fR はリモートホストで SELinux の仮想ファイルシステムがマウントされているか, または \fCrestorecon\fR コマンドが利用可能かを確認する。どちらかが欠けている場合は SELinux ラベルの復元を行わない。
-.SS \fB\-\-selinux\fR オプションの挙動
-.RS
-.IP "\(bu" 2
-\fCignore\fR: どのホストでも SELinux の復元処理を実施しない。
-.IP "\(bu" 2
-\fCauto\fR (既定): SELinux の要件を満たすホストでのみ \fCrestorecon -RF\fR を実行し, 非対応ホストでは黙ってスキップする。
-.IP "\(bu" 2
-\fCpolicy\fR: 対応要件を満たさないホストではエラーとして転送を失敗させ, 対応ホストでは \fCrestorecon -RF\fR を必ず実行する。
-.IP "\(bu" 2
-処理対象は \fBパック転送\fR で新規作成または更新されたファイルと空ディレクトリであり, 既存ファイルを上書きした場合も含まれる。\fBSFTP逐次転送\fR では \fCrestorecon\fR を呼び出さない。
-.RE
-.SS メタデータ復元条件
-.RS
-.IP "\(bu" 2
-\fB所有者・グループ・パーミッション\fR
-.RS
-.IP "\(bu" 2
-SFTP: 親ディレクトリ作成に sudo を使用している場合のみ, 既存ファイルの上書き時に所有者やアクセス権を復元する。必要なツールが無い場合や復元に失敗しても転送は継続し, 新規ファイルは SSH ログインユーザ所有で作成される。
-.IP "\(bu" 2
-\fBパック転送\fR: \fB\-\-sudo-extract\fR が有効なら既存ファイルで記録した所有者やアクセス権を復元し, 新規ファイル・ディレクトリもターゲットユーザと主要グループに合わせて \fCchown\fR する。sudo を使わない設定では復元しない。
-.RE
-.IP "\(bu" 2
-\fBタイムスタンプ\fR
-.RS
-.IP "\(bu" 2
-SFTP: 更新時刻の保持は保証されない。
-.IP "\(bu" 2
-\fBパック転送\fR: 上書き対象に対してアーカイブの更新時刻を用いて \fCtouch -r\fR を実行し, 元の mtime に合わせる。失敗しても転送は中断しない。
-.RE
-.IP "\(bu" 2
-\fBACL と拡張属性\fR
-.RS
-.IP "\(bu" 2
-どの転送方式でもリモートに \fCgetfacl\fR/\fCsetfacl\fR や \fCgetfattr\fR/\fCsetfattr\fR が無い場合は取得・復元を行わない。
-.IP "\(bu" 2
-SFTP: 親ディレクトリ作成に sudo を使用し必要なツールが存在する場合に限り, 既存ファイルの ACL/xattr を復元する。新規作成では実行しない。
-.IP "\(bu" 2
-\fBパック転送\fR: \fB\-\-sudo-extract\fR が有効で必要なツールがあるときに既存ファイルの ACL/xattr を復元する。新規ファイルはデフォルト値のまま。
-.RE
-.IP "\(bu" 2
-\fBSELinux コンテキスト\fR
-.RS
+
 .IP "\(bu" 2
 \fBパック転送\fR で \fB\-\-selinux\fR が \fCauto\fR または \fCpolicy\fR の場合, 条件を満たしたホストでは \fCrestorecon\fR で再設定する。
 .IP "\(bu" 2
 \fBSFTP逐次転送\fR では SELinux ラベルの変更を行わない。
-.RE
-.RE
 
 .SH EXIT STATUS
 .TP
@@ -342,20 +300,20 @@ SFTP: 親ディレクトリ作成に sudo を使用し必要なツールが存�
 .SH シグナル受信時の動作
 .PP
 SIGINT/SIGTERM を受信すると中断フラグを立て, 新しいホスト処理を開始しない。進行中の転送にはキャンセルを通知し, 警告ログ "Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories)." を出力する。終了コードは完了状況に応じて 0 または 2 を返す。
+
 .SH 出力ログ
 .PP
 ログは `timestamp`, `level`, `host`, `op`, `phase`, `trial`, `processed`, `total` の固定キーに続き, `warnings`, `errors`, `duration`, `seq` などの任意キーを key=value 形式で出力する。`phase` は `start`, `processing`, `done` を用い, 集計行では `host=-`, `msg=summary` を付加する。
+
 .PP
 本コマンドの出力ログには以下の情報が出力される。
-.RS
+
 .IP "\(bu" 2
-\fBtimestamp\fR
-.RS
-.IP "\(bu" 2
-ISO-8601 形式の時刻 (例: \fC2025-11-19T12:10:00.000+09:00\fR)。タイムゾーンとミリ秒を含む実行時刻が出力される。
-.RE
+\fBtimestamp\fR ISO-8601 形式の時刻 (例: \fC2025-11-19T12:10:00.000+09:00\fR)。タイムゾーンとミリ秒を含む実行時刻が出力される。
+
 .IP "\(bu" 2
 \fBlevel\fR
+
 .RS
 .IP "\(bu" 2
 \fBDEBUG\fR 進捗など詳細/デバッグ情報。標準出力に出力される。
@@ -368,16 +326,20 @@ ISO-8601 形式の時刻 (例: \fC2025-11-19T12:10:00.000+09:00\fR)。タイム�
 .IP "\(bu" 2
 \fBCRITICAL\fR 致命的エラー。標準エラー出力に出力される。
 .RE
+
 .IP "\(bu" 2
 \fBhost\fR 操作対象ホスト名。集計行 (\fCsummary\fR) には全体集計を示す \fC-\fR を出力する。
+
 .IP "\(bu" 2
 \fBop\fR 操作種別。
+
 .RS
 .IP "\(bu" 2
 \fBgather\fR リモートホストからローカルホストへの転送。
 .IP "\(bu" 2
 \fBscatter\fR ローカルホストからリモートホストへの転送。
 .RE
+
 .IP "\(bu" 2
 \fBphase\fR 動作フェーズ。
 .RS
@@ -388,6 +350,7 @@ ISO-8601 形式の時刻 (例: \fC2025-11-19T12:10:00.000+09:00\fR)。タイム�
 .IP "\(bu" 2
 \fBdone\fR 当該ホストの処理が完了したことを示す (完了行)。
 .RE
+
 .IP "\(bu" 2
 \fBtrial\fR 当該ホストでこれまでに試行した件数 (成功・失敗を含む)。開始時は \fC0\fR で, 処理の進行に伴い増加する。正常に転送が完了した場合の完了行 (\fBdone\fR) では試行件数 (\fCtrial\fR) と計画件数 (\fCtotal\fR) が一致する。
 .IP "\(bu" 2
@@ -402,13 +365,13 @@ ISO-8601 形式の時刻 (例: \fC2025-11-19T12:10:00.000+09:00\fR)。タイム�
 \fBduration\fR フェーズまたはホスト処理の所要時間 (秒)。各ホスト単位での完了行 (\fBdone\fR) にのみ表示される。
 .IP "\(bu" 2
 \fBseq\fR ログの逐次番号。 \fB\-\-verbose\fR オプション指定時の進行行 (\fBprocessing\fR) にのみ表示される。
-.RE
+
 .PP
 
 .SS ホスト単位での完了行の表示内容
 .PP
 特定ホストの処理が完了した時点で出力されるログをホスト単位での完了行と呼ぶ。対象ホスト 1 台に関する最終的な処理件数と結果が表示され, `phase` は常に \fCdone\fR, `host` には当該ホスト名が入り, `warnings`・`errors`・`duration` が併記される。
-.RS
+
 .IP "\(bu" 2
 \fBlevel\fR  \fCINFO\fR。
 .IP "\(bu" 2
@@ -427,7 +390,6 @@ ISO-8601 形式の時刻 (例: \fC2025-11-19T12:10:00.000+09:00\fR)。タイム�
 \fBwarnings\fR  操作完了したホストの警告件数の合計。
 .IP "\(bu" 2
 \fBerrors\fR  操作完了したホストのエラー件数の合計。
-.RE
 
 .SS 集計行 (\fCsummary\fR) の表示内容
 .PP
@@ -437,7 +399,7 @@ timestamp="..." level="INFO" host="-" op="<op>" phase="done" trial="<total>" pro
 .EE
 .PP
 集計行 (\fCsummary\fR) には以下の情報が含まれる。
-.RS
+
 .IP "\(bu" 2
 \fBlevel\fR  \fCINFO\fR。
 .IP "\(bu" 2
@@ -458,12 +420,12 @@ timestamp="..." level="INFO" host="-" op="<op>" phase="done" trial="<total>" pro
 \fBerrors\fR  全ホストのエラー件数の合計。
 .IP "\(bu" 2
 \fBmsg\fR  \fCsummary\fR。
-.RE
+
 .PP
 
 .SH 制限と注意事項
 .PP
-.RS
+
 .IP "\(bu" 2
 正規表現は Python \fCre\fR の仕様に従うため, \fC\ew\fR などの文字クラスはロケールに依存する場合がある。必要に応じて明示的なフラグを利用すること。
 .IP "\(bu" 2
@@ -482,7 +444,6 @@ ACL や拡張属性の復元は必要なツールがインストールされて�
 環境変数 \fCGM_SCATTER_DEBUG=1\fR を設定すると詳細ログが出力されるが, 出力量が多いため本番運用では推奨されない。
 .IP "\(bu" 2
 中断が発生すると \fC"Interrupt requested; cancelling remaining transfers (some remote hosts may see partial files or directories)."\fR を WARN ログに記録する。
-.RE
 
 .SH SEE ALSO
 .PP
