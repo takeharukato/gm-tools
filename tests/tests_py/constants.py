@@ -38,5 +38,5 @@ GM_SCATTER_CMD_DEFAULT: str = __import__("os").environ.get("GM_SCATTER_CMD", "py
 # Behavior
 VERBOSE_DEFAULT: bool = __import__("os").environ.get("VERBOSE", "1") == "1"
 
-# Step5
+# Parallelism
 PARALLEL_DEFAULT: int = int(__import__("os").environ.get("PARALLEL", "2"))

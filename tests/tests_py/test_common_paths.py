@@ -33,14 +33,14 @@ def as_posix_rel(path_abs: str) -> str:
     先頭の "/" をすべて除去, 末尾のスラッシュ有無は入力を尊重します。
 
     Args:
-    - path_abs (str): 正規化対象の絶対パス。
+        path_abs (str): 正規化対象の絶対パス。
 
     Returns:
-    - str: POSIX 風に正規化された相対表記。
+        str: POSIX 風に正規化された相対表記。
 
     Examples:
-    - '/tmp/a/b/' -> 'tmp/a/b/'
-    - 'C:\\work\\x\\y' -> 'C/work/x/y'
+        - '/tmp/a/b/' -> 'tmp/a/b/'
+        - 'C:\\work\\x\\y' -> 'C/work/x/y'
     """
     s0: str = path_abs.replace("\\", "/")
     had_trailing: bool = s0.endswith("/")
@@ -56,15 +56,15 @@ def ensure_under(base: str, path_abs: str) -> bool:
     シンボリックリンクは通さない安全側の判定を行います。
 
     Args:
-    - base (str): ベースとなる絶対パス。
-    - path_abs (str): 確認対象の絶対パス。
+        base (str): ベースとなる絶対パス。
+        path_abs (str): 確認対象の絶対パス。
 
     Returns:
-    - bool: True は許可, False は不許可 ( 例外発生時も False ) 。
+        bool: True は許可, False は不許可 ( 例外発生時も False ) 。
 
     Notes:
-    - ベース自身 ( path_abs == base ) は許可されます。
-    - 末尾セパレータを付与して接頭辞判定を行います。
+        - ベース自身 ( path_abs == base ) は許可されます。
+        - 末尾セパレータを付与して接頭辞判定を行います。
     """
     try:
         b = os.path.abspath(base)
@@ -87,17 +87,17 @@ def walk_find_first(root: str, *, name: Optional[str] = None, pattern: Optional[
     `pattern` は `fnmatch` 互換のグロブを受け付けます。
 
     Args:
-    - root (str): 走査の起点ディレクトリ ( 絶対/相対いずれも可 ) 。
-    - name (Optional[str]): 完全一致で探すファイル名 ( 例: ``l.txt`` ) 。
-    - pattern (Optional[str]): グロブパターン ( 例: ``**/src/l.txt`` ) 。
+        root (str): 走査の起点ディレクトリ ( 絶対/相対いずれも可 ) 。
+        name (Optional[str]): 完全一致で探すファイル名 ( 例: ``l.txt`` ) 。
+        pattern (Optional[str]): グロブパターン ( 例: ``**/src/l.txt`` ) 。
 
     Returns:
-    - Optional[str]: 最初に一致した項目の絶対パス。見つからなければ None。
+        Optional[str]: 最初に一致した項目の絶対パス。見つからなければ None。
 
     Notes:
-    - `pattern` 指定時は `fnmatch.fnmatch` による一致判定を行います。
-    - `name` 指定時は `pathlib.Path.rglob` による名前一致で探索します。
-    - 返却値は `Path.resolve()` により絶対パスへ正規化されます。
+        - `pattern` 指定時は `fnmatch.fnmatch` による一致判定を行います。
+        - `name` 指定時は `pathlib.Path.rglob` による名前一致で探索します。
+        - 返却値は `Path.resolve()` により絶対パスへ正規化されます。
     """
     root_path: pathlib.Path = pathlib.Path(root)
     if pattern:

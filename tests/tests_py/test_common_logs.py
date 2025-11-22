@@ -29,10 +29,10 @@ def parse_keyval_line(raw: str) -> Dict[str, str]:
     ログ行から `key="value"` のペアを抽出して辞書化します。
 
     Args:
-    - raw (str): 入力ログ行。
+        raw (str): 入力ログ行。
 
     Returns:
-    - Dict[str, str]: パース結果。該当なしの場合は空辞書。
+        Dict[str, str]: パース結果。該当なしの場合は空辞書。
     """
     matches = _PAIR_RE.findall(raw)
     if not matches:
@@ -44,10 +44,10 @@ def is_parallel_log_line(raw: str) -> bool:
     簡易ヒューリスティック: `' level='` を含み, かつ `key="value"` 形式のペアが 1 つ以上ある行を並列ログとみなします。
 
     Args:
-    - raw (str): 入力ログ行。
+        raw (str): 入力ログ行。
 
     Returns:
-    - bool: 並列ログとみなせる場合は True。
+        bool: 並列ログとみなせる場合は True。
     """
     if " level=" not in raw:
         return False
@@ -58,10 +58,10 @@ def format_parallel_log_line(raw: str) -> str:
     gather/scatter の並列ログ行を要約した短い文字列へ正規化します。
 
     Args:
-    - raw (str): 入力ログ行。
+        raw (str): 入力ログ行。
 
     Returns:
-    - str: 正規化後の簡潔な表現。
+        str: 正規化後の簡潔な表現。
     """
     kv = parse_keyval_line(raw)
     if not kv:
@@ -105,10 +105,10 @@ def summarize_parallel_logs(lines: List[str]) -> Dict[str, Any]:
     `level=` を含む行を対象に集計します ( 非該当行は無視 ) 。
 
     Args:
-    - lines (List[str]): ログ行の配列。
+        lines (List[str]): ログ行の配列。
 
     Returns:
-    - Dict[str, Any]: 総行数, 対象行数, レベル別/ホスト別件数, 警告/エラー合計など。
+        Dict[str, Any]: 総行数, 対象行数, レベル別/ホスト別件数, 警告/エラー合計など。
     """
     level_counts: Dict[str, int] = {}
     host_counts: Dict[str, int] = {}

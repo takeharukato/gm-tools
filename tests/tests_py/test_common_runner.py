@@ -14,21 +14,12 @@
 """
 Step7: Common runner framework
 
-- Step4/Step5/Step6 runner の共通処理
-- case_xxx の例外捕捉
-- CaseResult 化
-- cleanup の呼び出し
-- JSON summary 出力
+    - Step4/Step5/Step6 runner の共通処理
+    - case_xxx の例外捕捉
+    - CaseResult 化
+    - cleanup の呼び出し
+    - JSON summary 出力
 """
-# tests/tests_py/test_common_runner.py
-# Step7: Common runner framework
-#
-# - Step4/Step5/Step6 runner の共通処理
-# - case_xxx の例外捕捉
-# - CaseResult 化
-# - cleanup の呼び出し
-# - JSON summary 出力
-#
 
 from __future__ import annotations
 
@@ -57,12 +48,12 @@ def _run_case_safely(
     テストケースを安全に実行し, 例外も失敗として `CaseResult` にカプセル化して返します。
 
     Args:
-    - case_name (str): ケース名 ( 表示や識別に使用 ) 。
-    - cfg (Config): ケースへ渡す構成オブジェクト。
-    - case_func (Callable[[Config], Any]): ケース本体の呼び出し可能オブジェクト。
+        case_name (str): ケース名 ( 表示や識別に使用 ) 。
+        cfg (Config): ケースへ渡す構成オブジェクト。
+        case_func (Callable[[Config], Any]): ケース本体の呼び出し可能オブジェクト。
 
     Returns:
-    - CaseResult: 実行結果。非 `CaseResult` が返却された場合は失敗として扱います。
+        CaseResult: 実行結果。非 `CaseResult` が返却された場合は失敗として扱います。
     """
     try:
         result = case_func(cfg)
@@ -101,15 +92,14 @@ def run_cases(
     cleanup, サマリ生成と出力までを行います。
 
     Args:
-    - step_number (int): 実行ステップ番号 ( 4/5/6 など ) 。
-    - cfg (Config): 実行用構成オブジェクト。
-    - cases (List[Tuple[str, Callable[[Config], CaseResult]]]): (ケース名, ケース関数) の配列。
-
+        step_number (int): 実行ステップ番号 ( 4/5/6 など ) 。
+        cfg (Config): 実行用構成オブジェクト。
+        cases (List[Tuple[str, Callable[[Config], CaseResult]]]): (ケース名, ケース関数) の配列。
     Returns:
-    - SummaryDict: 実行サマリ ( JSON 互換ディクショナリ ) 。
+        SummaryDict: 実行サマリ ( JSON 互換ディクショナリ ) 。
 
     Notes:
-    - summary の標準出力, ファイル書き出し, テスト一時領域の cleanup を伴います。
+        - summary の標準出力, ファイル書き出し, テスト一時領域の cleanup を伴います。
     """
     results: List[CaseResult] = []
 

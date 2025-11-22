@@ -15,8 +15,8 @@
 環境変数からの設定生成, 設定スナップショット, 環境情報の出力ユーティリティ。
 
 Notes:
-- `_clear_dir` は CWD 配下限定で安全に削除/再作成します。
-- `print_env` は安定化された表示形式を出力します。
+    - `_clear_dir` は CWD 配下限定で安全に削除/再作成します。
+    - `print_env` は安定化された表示形式を出力します。
 """
 # gm-tools-tests-20251116/tests_py/test_common_config.py
 
@@ -51,11 +51,11 @@ def _split_cmd_env(env_name: str, default: str) -> List[str]:
     環境変数の値を `shlex.split` で分割し配列化します。未設定時は `default` を使用します。
 
     Args:
-    - env_name (str): 環境変数名。
-    - default (str): デフォルトのコマンド文字列。
+        env_name (str): 環境変数名。
+        default (str): デフォルトのコマンド文字列。
 
     Returns:
-    - List[str]: 分割された引数配列。
+        List[str]: 分割された引数配列。
     """
     value: str = os.environ.get(env_name, default)
     return shlex.split(value)
@@ -66,11 +66,10 @@ def _clear_dir(path_str: str) -> None:
     指定ディレクトリを一度まるごと削除してから作り直します。
 
     Args:
-    - path_str (str): 対象ディレクトリのパス。
-
+        path_str (str): 対象ディレクトリのパス。
     Notes:
-    - 安全装置: CWD 配下のパスのみ削除対象。シンボリックリンクは削除しません。
-    - 既存がファイルの場合は削除後にディレクトリを作成します。
+        - 安全装置: CWD 配下のパスのみ削除対象。シンボリックリンクは削除しません。
+        - 既存がファイルの場合は削除後にディレクトリを作成します。
     """
     p: Path = Path(path_str).resolve()
     base: Path = Path(os.getcwd()).resolve()
@@ -102,13 +101,13 @@ def load_config_from_env(*, clear_local_root: bool = True) -> Config:
     環境変数から `Config` を構築する共通入口です。
 
     Args:
-    - clear_local_root (bool): True の場合, `local_work_root` を削除して作り直します。
+        clear_local_root (bool): True の場合, `local_work_root` を削除して作り直します。
 
     Returns:
-    - Config: 実行時構成オブジェクト。
+        Config: 実行時構成オブジェクト。
 
     Notes:
-    - False の場合, `local_work_root` の削除は行いません ( 中身を保持 ) 。
+        - False の場合, `local_work_root` の削除は行いません ( 中身を保持 ) 。
     """
     # SSH / ユーザ
     ssh_user: str = os.environ.get("SSH_USER", SSH_USER_DEFAULT)
@@ -171,14 +170,14 @@ def snapshot_config(cfg: Config) -> ConfigSnapshot:
     `Config` を JSON 互換の `ConfigSnapshot` にスナップショットします。
 
     Args:
-    - cfg (Config): 変換対象の構成。
+        cfg (Config): 変換対象の構成。
 
     Returns:
-    - ConfigSnapshot: スナップショット辞書。
+        ConfigSnapshot: スナップショット辞書。
 
     Notes:
-    - list/dict フィールドは shallow copy を行います。
-    - `Config` にフィールドが増えた場合はここをメンテナンスします。
+        - list/dict フィールドは shallow copy を行います。
+        - `Config` にフィールドが増えた場合はここをメンテナンスします。
     """
     result: ConfigSnapshot = {
         "ssh_user": cfg.ssh_user,
@@ -205,7 +204,7 @@ def resolve_parallel_pair_from_env() -> Tuple[int, int]:
     並列度を環境変数から解決します。
 
     Returns:
-    - Tuple[int, int]: `(j1, j2)` の並列度ペア。`GM_PARALLEL` 設定時は `(1, GM_PARALLEL)`, 未設定時は `(1, 4)`。
+        Tuple[int, int]: `(j1, j2)` の並列度ペア。`GM_PARALLEL` 設定時は `(1, GM_PARALLEL)`, 未設定時は `(1, 4)`。
     """
     gm_par_raw: str = os.environ.get("GM_PARALLEL", "").strip()
     if gm_par_raw:
@@ -222,8 +221,8 @@ def print_env(cfg: Config, *, extra: Optional[Dict[str, str]] = None) -> None:
     環境情報を安定した形式で出力します ( Step5 仕様に準拠 ) 。
 
     Args:
-    - cfg (Config): 実行時構成。
-    - extra (Optional[Dict[str, str]]): 追加出力する key/value ( 辞書順で出力 ) 。
+        cfg (Config): 実行時構成。
+        extra (Optional[Dict[str, str]]): 追加出力する key/value ( 辞書順で出力 )  。
     """
     j1, j2 = resolve_parallel_pair_from_env()
     msg1 = f"[env] SSH_USER={cfg.ssh_user} HOSTS_BOTH={' '.join(cfg.hosts_both)} PARALLEL={j1}/{j2}"

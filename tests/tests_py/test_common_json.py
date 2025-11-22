@@ -35,7 +35,7 @@ def _make_timestamp() -> str:
     ISO-8601 ( タイムゾーン付き ) のタイムスタンプを生成します。
 
     Returns:
-    - str: ローカルタイムゾーン付き ISO-8601 文字列。
+        str: ローカルタイムゾーン付き ISO-8601 文字列。
     """
     return datetime.now(timezone.utc).astimezone().isoformat()
 
@@ -54,13 +54,13 @@ def make_summary(
     統一 JSON summary (v1) を辞書として構築します。
 
     Args:
-    - step_number (int): 実行ステップ番号。
-    - cfg (Config): 実行時構成。
-    - results (List[CaseResult]): ケース結果の配列。
-    - version (int): スキーマバージョン ( 既定: 1 ) 。
+        step_number (int): 実行ステップ番号。
+        cfg (Config): 実行時構成。
+        results (List[CaseResult]): ケース結果の配列。
+        version (int): スキーマバージョン ( 既定: 1 ) 。
 
     Returns:
-    - SummaryDict: サマリ辞書 ( JSON シリアライズ可能 ) 。
+        SummaryDict: サマリ辞書 ( JSON シリアライズ可能 ) 。
     """
 
     # Config snapshot  =>  dict 化
@@ -88,10 +88,9 @@ def serialize_summary(summary: SummaryDict) -> str:
     サマリを JSON テキストにエンコードします。
 
     Args:
-    - summary (SummaryDict): サマリ辞書。
-
+        summary (SummaryDict): サマリ辞書。
     Returns:
-    - str: 整形 ( インデント付き ) の JSON 文字列。
+        str: 整形 ( インデント付き ) の JSON 文字列。
     """
     return json.dumps(
         summary,
@@ -105,7 +104,7 @@ def print_summary(summary: SummaryDict) -> None:
     標準出力に JSON summary を出力します ( runner 用 ) 。
 
     Args:
-    - summary (SummaryDict): サマリ辞書。
+        summary (SummaryDict): サマリ辞書。
     """
     print(serialize_summary(summary))
 
@@ -116,12 +115,11 @@ def write_summary_file(summary: SummaryDict, step: int, directory: str = ".") ->
     失敗しても例外は伝播させずパスを返す ( best-effort ) 。
 
     Args:
-    - summary (SummaryDict): サマリ辞書。
-    - step (int): ステップ番号。
-    - directory (str): 出力ディレクトリ ( 既定: '.' ) 。
-
+        summary (SummaryDict): サマリ辞書。
+        step (int): ステップ番号。
+        directory (str): 出力ディレクトリ ( 既定: '.' ) 。
     Returns:
-    - str: 書き出し先のファイルパス。
+        str: 書き出し先のファイルパス。
     """
     import os
     path: str = os.path.join(directory, f"summary_step{step}.json")
@@ -139,13 +137,13 @@ def print_human_summary(summary: SummaryDict) -> None:
     人間可読のテーブル形式で結果一覧を表示し, 失敗ケースは details を JSON で出力します。
 
     Args:
-    - summary (SummaryDict): サマリ辞書。
+        summary (SummaryDict): サマリ辞書。
 
     Notes:
-    - Header: Step / counts
-    - Table: NAME | RESULT | SKIP | REASON ( reason は 80 文字で切り詰め )
-    - Fail 詳細: 全 details を pretty-print
-    - `xskip` ( 意図的スキップ ) / `untested` をカウントに反映します。
+        - Header: Step / counts
+        - Table: NAME | RESULT | SKIP | REASON ( reason は 80 文字で切り詰め )
+        - Fail 詳細: 全 details を pretty-print
+        - `xskip` ( 意図的スキップ ) / `untested` をカウントに反映します。
     """
     results: List[SummaryResultEntry] = summary["results"]
     step: Any = summary["step"]

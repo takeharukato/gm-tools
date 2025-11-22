@@ -30,12 +30,12 @@ def cleanup_local_temps(cfg: Config, rel_dirs: Optional[List[str]] = None) -> No
     共通のローカル一時ディレクトリクリーンアップを行います。
 
     Args:
-    - cfg (Config): 実行時構成 ( `local_root` を参照 ) 。
-    - rel_dirs (Optional[List[str]]): カレント配下の相対ディレクトリ群。
+        cfg (Config): 実行時構成 ( `local_root` を参照 ) 。
+        rel_dirs (Optional[List[str]]): カレント配下の相対ディレクトリ群。
 
     Notes:
-    - `cfg.local_root` を安全に削除します。
-    - `rel_dirs` が与えられた場合, それらも安全に削除します。
+        - `cfg.local_root` を安全に削除します。
+        - `rel_dirs` が与えられた場合, それらも安全に削除します。
     """
     cwd: str = os.getcwd()
     safe_rmtree_abs(cfg.local_root, ensure_under=cwd)
@@ -49,10 +49,10 @@ def run_local_with_argv(argv: List[str]) -> LocalRun:
     公開ローカル実行ヘルパ。`gmwrap` の公開関数で実行し, 結果を `LocalRun` として返します。
 
     Args:
-    - argv (List[str]): 実行するコマンドライン。
+        argv (List[str]): 実行するコマンドライン。
 
     Returns:
-    - LocalRun: 実行結果 ( rc/stdout/stderr ) 。
+        LocalRun: 実行結果 ( rc/stdout/stderr ) 。
     """
     res: Any = _gm_run_local_argv_public(argv)
     return LocalRun(int(getattr(res, "rc", 0)), str(getattr(res, "stdout", "")), str(getattr(res, "stderr", "")))
