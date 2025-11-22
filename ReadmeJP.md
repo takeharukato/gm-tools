@@ -55,6 +55,83 @@ make install
 - `make uninstall` 翻訳済み `.mo`ファイル を削除します。
 - `make clean`, `make distclean`, `make maintainer-clean` 生成物 (`*.gmo`, `stamp-po` など) をクリンナップレベルに応じて削除します。
 
+## 使用例
+
+### ホストファイルの作成
+
+本例では, `localhost`, `vmlinux.local`の双方を操作対象リモートホストに設定します。本例では, 各リモートホストに, カレントユーザと同じ名前で, パスワード無しにsshログイン可能であることを前提とします。カレントユーザのユーザ名は, `user`であること, かつ, 同じユーザがリモートホストにも存在することを前提としています。
+
+ホストファイルを`hostfile`という名前で以下のように作成します。
+
+```:plaintext
+localhost
+vmlinux.local
+```
+
+### 正規表現によるファイルの取得の例
+
+リモートホストのホームディレクトリ配下にある`.zsh`で始まるファイルを取得する場合は, 以下のように`gm-gather`を使用します。
+
+```:shell
+gm-gather   "~/\.zsh.*" dest
+```
+
+実行例は以下のようになります。
+
+```:shell
+$ gm-gather   "~/\.zsh.*" dest
+timestamp="2025-11-23T01:14:33.209+09:00" level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
+timestamp="2025-11-23T01:14:33.210+09:00" level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
+timestamp="2025-11-23T01:14:33.214+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
+timestamp="2025-11-23T01:14:33.214+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
+timestamp="2025-11-23T01:14:33.218+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
+timestamp="2025-11-23T01:14:33.218+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
+timestamp="2025-11-23T01:14:33.221+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
+timestamp="2025-11-23T01:14:33.222+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
+timestamp="2025-11-23T01:14:33.225+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
+timestamp="2025-11-23T01:14:33.225+09:00" level="INFO" host="localhost" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp="2025-11-23T01:14:33.225+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
+timestamp="2025-11-23T01:14:33.225+09:00" level="INFO" host="vmlinux.local" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp="2025-11-23T01:14:33.226+09:00" level="INFO" host="-" op="gather" phase="done" trial="8" processed="8" total="8" warnings="0" errors="0" msg="summary"
+$ tree -a dest
+dest
+|-- localhost
+|   `-- home
+|       `-- user
+|           |-- .zshrc
+|           |-- .zshrc.lmod
+|           |-- .zshrc.mine
+|           `-- .zshrc.proxy
+`-- vmlinux.local
+    `-- home
+        `-- user
+            |-- .zshrc
+            |-- .zshrc.lmod
+            |-- .zshrc.mine
+            `-- .zshrc.proxy
+
+6 directories, 8 files
+```
+
+### 正規表現によるファイルの配布の例
+
+ローカルホストのカレントディレクトリ配下にある`host`で始まるファイルをリモートホストのホームディレクトリ直下の`dest-scatter`というディレクトリに展開する場合は, 以下のように`gm-scatter`を使用します。
+
+```:shell
+gm-scatter './host.*' ~/dest-scatter
+```
+
+カレントディレクトリに, `host`で始まるファイルとして, `hostfile`だけが存在する場合, 実行例は以下のようになります。
+
+```:shell
+$ gm-scatter './host.*' ~/dest-scatter
+$ tree -a dest-scatter
+dest-scatter
+`-- home
+    `-- user
+        `-- hostfile
+```
+
 ## 著作権表記
 
 Copyright 2025 Takeharu KATO.

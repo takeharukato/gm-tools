@@ -425,6 +425,46 @@ The summary row (\fCsummary\fR) contains the following information.
 \fBmsg\fR \fCsummary\fR.
 .PP
 
+.SH EXAMPLES
+.PP
+
+Here are some examples of file transfer using gm-scatter.
+.PP
+
+.SS Creating the host file
+.PP
+
+This example targets the remote hosts \fIlocalhost\fP and \fIvmlinux.local\fP. It assumes that each remote host allows passwordless SSH access for the user whose name matches the local account. The current user is \fIuser\fP, and the same user exists on the remote hosts.
+.PP
+
+Create the host file \fIhostfile\fP with the following contents.
+.PP
+.nf
+localhost
+vmlinux.local
+.fi
+
+.SS Distributing files with regular expressions
+.PP
+To deploy files in the current local directory whose names start with \fIhost\fP to \fIdest-scatter\fP under each remote home directory, use \fBgm-scatter\fP as follows.
+.PP
+.nf
+gm-scatter './host.*' ~/dest-scatter
+.fi
+.PP
+If the only file that begins with \fIhost\fP is \fIhostfile\fP, the command runs as follows.
+.PP
+.nf
+$ gm-scatter './host.*' ~/dest-scatter
+$ tree -a dest-scatter
+dest-scatter
+`-- home
+    `-- tkato
+        `-- hostfile
+
+2 directories, 1 file
+.fi
+
 .SH Limitations and Notes
 .PP
 
