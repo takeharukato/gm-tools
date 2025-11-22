@@ -21,4 +21,4 @@ _arguments -s -S \
   '(-T --timeout)'{-T+,--timeout=}'[SSH/command timeout seconds]:seconds:(30 45 60 90 120)' \
   '(-j --parallel)'{-j+,--parallel=}'[parallel host count]:count:(1 2 3 4 8 16 32 64 128 256)' \
   '--selinux[SELinux handling mode]:mode:(auto policy ignore)' \
-  '*:path:_files'
+  '*:argument:_files'
