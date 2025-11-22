@@ -2052,6 +2052,62 @@ def case_gather_src_regex_negative(cfg: Config) -> CaseResult:
     )
 
 
+def case_gather_src_regex_tilde_no_trailing_sep(cfg: Config) -> CaseResult:
+    """チルダ展開 + 正規表現末尾のケース (SRC 末尾が '/' ではない) を検証する。"""
+    name: str = "gather_src_regex_tilde_no_trailing_sep"
+    host: str = cfg.host_ubuntu
+    user: str = cfg.target_user
+
+    home: str = ssh_get_remote_home(cfg, host, user)
+    rel_top: str = "gm_step4_regex_tilde"
+    abs_root: str = os.path.join(home, rel_top)
+    src_dir: str = os.path.join(abs_root, "src")
+    dir1: str = os.path.join(src_dir, "dir1")
+    _ = _ssh_run_common(cfg, host, ["rm", "-rf", "--", abs_root])
+    _ = _ssh_run_common(cfg, host, ["mkdir", "-p", "--", dir1])
+    _ = _ssh_run_sudo_common(cfg, host, ["chown", "-R", "--", f"{user}:{user}", abs_root])
+    _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(src_dir, "a.txt"), "A\n", sudo=False)
+    _ = _ssh_pipe_to_tee_common(cfg, host, os.path.join(dir1, "b.txt"), "B\n", sudo=False)
+
+    pattern: str = f"~/{rel_top}/src/dir1/.*\\.txt"
+
+    out_dir: str = os.path.join(cfg.local_root, "g_regex_tilde_out")
+    _ = create_clean_dir(out_dir, ensure_under=cfg.local_root)
+
+    hosts_path: str = _write_temp_hosts([host])
+    argv: List[str] = (
+        cfg.gm_gather_cmd
+        + ["-H", hosts_path, "-u", user, "--pack"]
+        + (["-v"] if cfg.verbose else [])
+        + ["--", pattern, out_dir]
+    )
+    run: LocalRun = _run_local_argv(argv)
+
+    host_label: str = host
+    exp_b: str = os.path.join(out_dir, host_label, os.path.join(dir1, "b.txt").lstrip(os.sep))
+    exp_a: str = os.path.join(out_dir, host_label, os.path.join(src_dir, "a.txt").lstrip(os.sep))
+
+    b_ok: bool = os.path.isfile(exp_b)
+    a_ng: bool = not os.path.exists(exp_a)
+
+    passed: bool = (run.rc == 0 and b_ok and a_ng)
+    reason: str = "" if passed else f"rc={run.rc}, b_ok={b_ok}, a_ng={a_ng}, exp_b={exp_b}, exp_a={exp_a}"
+
+    return CaseResult(
+        name=name,
+        passed=passed,
+        skipped=False,
+        reason=reason,
+        details={
+            "rc": run.rc,
+            "argv": " ".join(shlex.quote(a) for a in argv),
+            "pattern": pattern,
+            "exp_b": exp_b,
+            "exp_a": exp_a,
+        },
+    )
+
+
 def case_scatter_src_regex_absolute(cfg: Config) -> CaseResult:
     """
     目的:
@@ -2276,6 +2332,7 @@ def main() -> int:
         ("scatter_nonpack_same_basename_collision_free", case_scatter_nonpack_same_basename_collision_free),
         ("gather_src_regex_absolute", case_gather_src_regex_absolute),
         ("gather_src_regex_relative", case_gather_src_regex_relative),
+        ("gather_src_regex_tilde_no_trailing_sep", case_gather_src_regex_tilde_no_trailing_sep),
         ("gather_src_regex_negative", case_gather_src_regex_negative),
         ("scatter_src_regex_absolute", case_scatter_src_regex_absolute),
         ("scatter_src_regex_relative", case_scatter_src_regex_relative),
