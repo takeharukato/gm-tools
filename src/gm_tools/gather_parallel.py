@@ -11,12 +11,12 @@
 # Author has modified some parts.
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
-"""ホスト単位の並列収集とログ集約を調停する補助モジュールです。
+"""ホスト単位の並列収集とログ集約を調停する補助モジュールである。
 
 gather_cli.py の実装へ破壊的な変更を加えない方針で, 事前に解析済みの引数や
-コールバックを受け取り, スレッドプール上でホスト並列の処理を進行させます。
+コールバックを受け取り, スレッドプール上でホスト並列の処理を進行させる。
 オプション処理や SELinux・sudo の詳細は呼び出し元が注入するコールバック側で
-担保する設計です。
+担保する設計である。
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ from .core_signal_handling import GracefulStop
 
 
 def _clamp_parallel(n: int) -> int:
-    """並列ホスト数を 1 以上に調整します。
+    """並列ホスト数を 1 以上に調整する。
 
     Args:
         n (int): 要求された並列ホスト数。
@@ -91,27 +91,27 @@ def execute(
     # 予約パラメータ (シグナルハンドラ登録は CLI 側で実施)
     register_signals: bool = False,
 ) -> int:
-    """ホストごとの gather を並列実行し, ログ集約とクリーンアップを統括します。
+    """ホストごとの gather を並列実行し, ログ集約とクリーンアップを統括する。
 
     Args:
         hosts (Sequence[str]): 対象ホスト名のシーケンス。
         plan (Optional[Plan]): 全ホスト共通で利用する転送計画(``Plan``)。
-        plan_per_host (Optional[Dict[str, Plan]]): ホスト別の転送計画。指定があれば ``Plan`` より優先されます。
-        remote_root (str): リモート側のルートパス。空文字列の場合は各エントリが絶対パスを保持します。
+        plan_per_host (Optional[Dict[str, Plan]]): ホスト別の転送計画。指定があれば ``Plan`` より優先される。
+        remote_root (str): リモート側のルートパス。空文字列の場合は各エントリが絶対パスを保持する。
         dest_root (_Path): ローカル側の配置ルート。
-        parallel (int): 並列実行するホスト数。0 以下は 1 として扱います。
+        parallel (int): 並列実行するホスト数。0 以下は 1 として扱う。
         verbose (bool): 詳細ログを出力する際は ``True``。
-        abort_event (Optional[threading.Event]): 協調停止に利用するイベント。未指定時は ``GracefulStop.abort_event`` を用います。
+        abort_event (Optional[threading.Event]): 協調停止に利用するイベント。未指定時は ``GracefulStop.abort_event`` を用いる。
         open_ssh (_SSHFactory): SSH 接続を生成するファクトリ関数。
         open_sftp (_SFTPFactory): SFTP 接続を生成するファクトリ関数。
         pull_one (_PullOne): ホスト単位の転送処理を行うコールバック。
         pull_one_map (Optional[Dict[str, _PullOne]]): ホストごとに ``pull_one`` を差し替えるマップ。
-        join_host_dir (bool): ``True`` の場合はホスト名ディレクトリを ``dest_root`` 配下に作成します。
+        join_host_dir (bool): ``True`` の場合はホスト名ディレクトリを ``dest_root`` 配下に作成する。
         remote_removers (Optional[Dict[str, RemoteRemover]]): リモート一時領域をクリーンアップするコールバック群。
         do_cleanup_local (bool): ローカル一時領域をクリーンアップする場合は ``True``。
         do_cleanup_remote (bool): リモート一時領域をクリーンアップする場合は ``True``。
-        graceful_stop (Optional[GracefulStop]): 既存の GracefulStop 管理器。未指定時は内部で生成します。
-        register_signals (bool): 予約パラメータ。シグナル登録は CLI 側で実施します。
+        graceful_stop (Optional[GracefulStop]): 既存の GracefulStop 管理器。未指定時は内部で生成する。
+        register_signals (bool): 予約パラメータ。シグナル登録は CLI 側で実施する。
 
     Returns:
         int: エラーが発生した場合は ``EXIT_ERR_GENERIC``, 成功した場合は ``EXIT_OK``。
@@ -150,7 +150,7 @@ def execute(
     abort_event_effective: threading.Event = gs.abort_event
 
     # クリーンアップ関数を期待する実行順の逆順で登録する
-    # GracefulStop.run_cleanups() が LIFO で呼び出すためです。
+    # GracefulStop.run_cleanups() が LIFO で呼び出すためである。
     def _cleanup_remote() -> None:
         if do_cleanup_remote and remote_removers:
             try:
@@ -189,7 +189,7 @@ def execute(
 
     # ホスト別の進捗通知クロージャ
     def _make_on_progress(host: str, total: int) -> _OnProgress:
-        """進捗通知コールバックを生成します。
+        """進捗通知コールバックを生成する。
 
         Args:
             host (str): 対象ホスト名。

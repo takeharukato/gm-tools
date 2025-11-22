@@ -40,9 +40,11 @@ rm -rf %{buildroot}
 %files
 %license LICENSE
 # Documents
-%doc %{_docdir}/gm-tools/common-spec.md
-%doc %{_docdir}/gm-tools/gm-gather-spec.md
-%doc %{_docdir}/gm-tools/gm-scatter-spec.md
+%doc %{_docdir}/gm-tools/common-specJP.md
+%doc %{_docdir}/gm-tools/gm-gather-specJP.md
+%doc %{_docdir}/gm-tools/gm-scatter-specJP.md
+%doc %{_docdir}/gm-tools/Readme-command-completion.md
+%doc %{_docdir}/gm-tools/ReadmeJP-command-completion.md
 %doc %{_docdir}/gm-tools/config/hostfile.sample
 
 # scripts to invoke
@@ -60,8 +62,8 @@ rm -rf %{buildroot}
 # shell completions
 %{_datadir}/bash-completion/completions/gm-gather.bash
 %{_datadir}/bash-completion/completions/gm-scatter.bash
-%{_datadir}/zsh/site-functions/_gm-gather.zsh
-%{_datadir}/zsh/site-functions/_gm-scatter.zsh
+%{_datadir}/zsh/site-functions/_gm-gather
+%{_datadir}/zsh/site-functions/_gm-scatter
 
 # man pages
 %{_mandir}/man1/gm-gather.1*

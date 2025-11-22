@@ -15,7 +15,7 @@
 SELinux の検出, テスト用ディレクトリ構築, 属性スナップショット取得を行うユーティリティ。
 
 Notes:
-- リモートでの SSH / sudo 実行によりファイルシステムを変更する副作用があります。
+    - リモートでの SSH / sudo 実行によりファイルシステムを変更する副作用があります。
 """
 from __future__ import annotations
 from typing import Dict
@@ -27,11 +27,11 @@ def is_selinux_supported(cfg: Config, host: str) -> bool:
     指定ホストで SELinux 関連コマンドが利用可能か判定します。
 
     Args:
-    - cfg (Config): 実行時構成。
-    - host (str): 対象ホスト。
+        cfg (Config): 実行時構成。
+        host (str): 対象ホスト。
 
     Returns:
-    - bool: サポートされていれば True。
+        bool: サポートされていれば True。
     """
     r = run_remote(cfg, host, ["command", "-v", "getenforce"])
     return r.rc == 0
@@ -41,11 +41,11 @@ def get_selinux_mode(cfg: Config, host: str) -> str:
     対象ホストの SELinux モードを返します。
 
     Args:
-    - cfg (Config): 実行時構成。
-    - host (str): 対象ホスト。
+        cfg (Config): 実行時構成。
+        host (str): 対象ホスト。
 
     Returns:
-    - str: "Enforcing" / "Permissive" / "Disabled" / "Unknown" のいずれか。
+        str: "Enforcing" / "Permissive" / "Disabled" / "Unknown" のいずれか。
     """
     if not is_selinux_supported(cfg, host):
         return "Disabled"
@@ -59,13 +59,13 @@ def ensure_dirs_for_case(cfg: Config, host: str, base: str, owner_user: str) -> 
     ケース用のベースディレクトリを再作成し, 所有者を設定します。
 
     Args:
-    - cfg (Config): 実行時構成。
-    - host (str): 対象ホスト。
-    - base (str): ベースディレクトリの絶対パス。
-    - owner_user (str): 所有者ユーザ。
+        cfg (Config): 実行時構成。
+        host (str): 対象ホスト。
+        base (str): ベースディレクトリの絶対パス。
+        owner_user (str): 所有者ユーザ。
 
     Returns:
-    - None
+        None
     """
     run_sudo(cfg, host, ["rm", "-rf", "--", base])
     run_sudo(cfg, host, ["mkdir", "-p", "--", base])
@@ -76,13 +76,13 @@ def make_sample_tree(cfg: Config, host: str, base: str, user: str) -> None:
     サンプルのディレクトリ/ファイル/リンク/xattr/ACL を作成します。
 
     Args:
-    - cfg (Config): 実行時構成。
-    - host (str): 対象ホスト。
-    - base (str): ベースディレクトリの絶対パス。
-    - user (str): 所有者ユーザ。
+        cfg (Config): 実行時構成。
+        host (str): 対象ホスト。
+        base (str): ベースディレクトリの絶対パス。
+        user (str): 所有者ユーザ。
 
     Returns:
-    - None
+        None
     """
     # Create files, symlink, chmod, xattr, ACL
     run_sudo(cfg, host, ["mkdir", "-p", "--", f"{base}/dir/sub"])
@@ -103,12 +103,11 @@ def snap_attrs(cfg: Config, host: str, path: str) -> Dict[str,str]:
     所有者/モード/xattr/ACL/SELinux をまとめて採取します。
 
     Args:
-    - cfg (Config): 実行時構成。
-    - host (str): 対象ホスト。
-    - path (str): 対象パス。
-
+        cfg (Config): 実行時構成。
+        host (str): 対象ホスト。
+        path (str): 対象パス。
     Returns:
-    - Dict[str, str]: 取得した属性のマップ。
+        Dict[str, str]: 取得した属性のマップ。
     """
     out: Dict[str,str] = {}
     r1 = run_remote(cfg, host, ["stat", "-c", "%U:%G", "--", path]); out["owner"]=r1.stdout.strip()

@@ -11,14 +11,14 @@
 # Author has modified some parts.
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
-"""Paramiko 互換の SSH 接続・SFTP クライアント・チャネルのライフサイクルを扱います。
+"""Paramiko 互換の SSH 接続・SFTP クライアント・チャネルのライフサイクルを扱う。
 
 ここでいうライフサイクルとは, 接続確立 ( open ) から利用中の再利用管理, 確実なクローズ
-( close ) に至るまでの一連の工程を指します。ホスト単位で ``paramiko.SSHClient`` 互換オブ
+( close ) に至るまでの一連の工程を指す。ホスト単位で ``paramiko.SSHClient`` 互換オブ
 ジェクト ( SSH 接続 ) , ``paramiko.SFTPClient`` 互換オブジェクト ( SFTP クライアント ) , お
 よび ``Channel`` 相当オブジェクト ( コマンド実行・転送チャネル ) の参照を登録し, 明示的な
-close 呼び出しを忘れても安全に解放できるよう管理します。また長時間処理中の協調的な停
-止用チェックポイントも提供します。特定ライブラリへの強い依存を避けるため構造的型付け
+close 呼び出しを忘れても安全に解放できるよう管理する。また長時間処理中の協調的な停
+止用チェックポイントも提供する。特定ライブラリへの強い依存を避けるため構造的型付け
 (PythonのProtocolを使用)を採用しており, モジュール import 時には副作用がありません。
 """
 
@@ -35,14 +35,14 @@ DEFAULT_TIMEOUT: float = 30.0
 
 @runtime_checkable
 class Closeable(Protocol):
-    """close メソッドを備えるリソースの最小インターフェースです。"""
+    """close メソッドを備えるリソースの最小インターフェース。"""
 
     def close(self) -> None: ...
 
 
 @runtime_checkable
 class ChannelLike(Closeable, Protocol):
-    """待ちループで必要となるチャネル操作の部分集合です。"""
+    """待ちループで必要となるチャネル操作の部分集合。"""
 
     def exit_status_ready(self) -> bool: ...
 
@@ -57,13 +57,13 @@ class ChannelLike(Closeable, Protocol):
 # Paramiko の SFTPFile / SFTPClient に相当するプロトコル
 @runtime_checkable
 class SFTPAttributesLike(Protocol):
-    """paramiko.SFTPAttributes で参照する最小限の属性定義です。"""
+    """paramiko.SFTPAttributes で参照する最小限の属性定義。"""
 
     st_mode: int
 
 @runtime_checkable
 class SFTPFileLike(Protocol):
-    """SFTP ファイルハンドルとして必要な操作の部分集合です。"""
+    """SFTP ファイルハンドルとして必要な操作の部分集合。"""
 
     def write(self, data: bytes) -> int: ...
 
@@ -77,7 +77,7 @@ class SFTPFileLike(Protocol):
 
 @runtime_checkable
 class SFTPClientLike(Protocol):
-    """paramiko.SFTPClient と互換な最小限の操作集合です。"""
+    """paramiko.SFTPClient と互換な最小限の操作集合。"""
 
     def open(self, path: str, mode: str = ...) -> SFTPFileLike: ...
 
@@ -95,7 +95,7 @@ class SFTPClientLike(Protocol):
 
 @runtime_checkable
 class SSHClientLike(Protocol):
-    """Paramiko の SSHClient と同様の操作を提供するための構造的型(Protocol)です。"""
+    """Paramiko の SSHClient と同様の操作を提供するための構造的型(Protocol)。"""
 
     def exec_command(self, command: str, timeout: Optional[float] = ...) -> Tuple[Any, Any, Any]: ...
 
@@ -106,7 +106,7 @@ class SSHClientLike(Protocol):
 # ---- リソースレジストリ ---------------------------------------------------
 
 class _PerHost:
-    """ホストごとの SSH 接続・SFTP クライアント・チャネル参照を保持する内部コンテナです。"""
+    """ホストごとの SSH 接続・SFTP クライアント・チャネル参照を保持する内部コンテナ。"""
 
     __slots__ = ("conns", "sftps", "chans")
 
@@ -122,10 +122,10 @@ _registry: Dict[str, _PerHost] = {}  # host -> SSH/SFTP/チャネルの格納バ
 
 
 def _get_bucket(host: str) -> _PerHost:
-    """指定ホストの接続関連オブジェクトを蓄えるバケットを取得します。
+    """指定ホストの接続関連オブジェクトを蓄えるバケットを取得する。
 
     Args:
-        host (str): ホスト名。リソース登録時のキーになります。
+        host (str): ホスト名。リソース登録時のキーになる。
 
     Returns:
         _PerHost: SSH クライアント・SFTP クライアント・チャネルの参照を格納するバケット。
@@ -144,7 +144,7 @@ def _get_bucket(host: str) -> _PerHost:
 
 
 def register_connection(host: str, conn: SSHClientLike) -> None:
-    """SSH 接続オブジェクトを登録し, 後で冪等に close できるようにします。
+    """SSH 接続オブジェクトを登録し, 後で冪等に close できるようにする。
 
     Args:
         host (str): 接続を紐づけるホスト名。
@@ -164,7 +164,7 @@ def register_connection(host: str, conn: SSHClientLike) -> None:
 
 
 def register_sftp(host: str, sftp: SFTPClientLike) -> None:
-    """SFTP クライアントオブジェクトを登録し, 後で冪等に close できるようにします。
+    """SFTP クライアントオブジェクトを登録し, 後で冪等に close できるようにする。
 
     Args:
         host (str): 接続を紐づけるホスト名。
@@ -184,7 +184,7 @@ def register_sftp(host: str, sftp: SFTPClientLike) -> None:
 
 
 def register_channel(host: str, chan: ChannelLike) -> None:
-    """コマンド実行・転送チャネルを登録し, 後で冪等に close できるようにします。
+    """コマンド実行・転送チャネルを登録し, 後で冪等に close できるようにする。
 
     Args:
         host (str): 接続を紐づけるホスト名。
@@ -204,7 +204,7 @@ def register_channel(host: str, chan: ChannelLike) -> None:
 
 
 def _safe_close(obj: Closeable) -> None:
-    """クローズ時の例外を握りつぶしつつ SSH/ SFTP/チャネルオブジェクトを解放します。
+    """クローズ時の例外を握りつぶしつつ SSH/ SFTP/チャネルオブジェクトを解放する。
 
     Args:
         obj (Closeable): ``SSHClientLike``/``SFTPClientLike``/``ChannelLike`` など close を実装するオブジェクト。
@@ -228,7 +228,7 @@ def _safe_close(obj: Closeable) -> None:
 
 
 def close_connections(host: str) -> None:
-    """指定ホストのチャネル・SFTP クライアント・SSH 接続を順番にクローズします。
+    """指定ホストのチャネル・SFTP クライアント・SSH 接続を順番にクローズする。
 
     Args:
         host (str): クローズ対象のホスト名 ( Paramiko 接続と紐づくキー ) 。
@@ -261,7 +261,7 @@ def close_connections(host: str) -> None:
 
 
 def close_all() -> None:
-    """登録済みすべてのホストの SSH 接続・SFTP クライアント・チャネルを冪等にクローズします。
+    """登録済みすべてのホストの SSH 接続・SFTP クライアント・チャネルを冪等にクローズする。
 
     Examples:
         >>> class Dummy:
@@ -279,17 +279,17 @@ def close_all() -> None:
 # ---- 中断チェックポイント -------------------------------------------------
 
 class CancelledError(RuntimeError):
-    """停止要求が行われた際に SSH/SFTP 操作を中断することを示す例外です。"""
+    """停止要求が行われた際に SSH/SFTP 操作を中断することを示す例外。"""
 
 
 def abort_point(abort_event: threading.Event) -> None:
-    """協調的な停止のためのチェックポイント処理を行います。
+    """協調的な停止のためのチェックポイント処理を行う。
 
     Args:
         abort_event (threading.Event): 停止要求の有無を示すフラグ。
 
     Raises:
-        CancelledError: 停止フラグが立っている場合に送出します。
+        CancelledError: 停止フラグが立っている場合に送出する。
 
     Examples:
         >>> abort = threading.Event()
@@ -307,7 +307,7 @@ def abort_point(abort_event: threading.Event) -> None:
 
 @dataclass
 class SSHConfig:
-    """SSH 接続を確立するための設定値を保持します。
+    """SSH 接続を確立するための設定値を保持する。
 
     Attributes:
         host (str): 接続先ホスト名。
@@ -329,7 +329,7 @@ class SSHConfig:
 
 
 def ssh_open(cfg: SSHConfig, *, debug_print: bool = False) -> SSHClientLike:
-    """Paramiko 互換クライアントを用いて SSH 接続を確立します。
+    """Paramiko 互換クライアントを用いて SSH 接続を確立する。
 
     Args:
         cfg (SSHConfig): 接続に使用する構成情報。
@@ -339,10 +339,10 @@ def ssh_open(cfg: SSHConfig, *, debug_print: bool = False) -> SSHClientLike:
         SSHClientLike: 接続済みクライアントオブジェクト。
 
     Raises:
-        RuntimeError: Paramiko が import できない場合に送出します。
+        RuntimeError: Paramiko が import できない場合に送出する。
 
     Examples:
-        Paramiko をダミー実装に差し替えて疑似的に接続します。
+        Paramiko をダミー実装に差し替えて疑似的に接続する。
 
         >>> from unittest.mock import Mock, patch
         >>> import sys
@@ -383,7 +383,7 @@ def ssh_open(cfg: SSHConfig, *, debug_print: bool = False) -> SSHClientLike:
 
 
 def finalize_sockets() -> None:
-    """SSH/SFTP/チャネルをまとめて閉じます。
+    """SSH/SFTP/チャネルをまとめて閉じる。
 
     Examples:
         >>> finalize_sockets()

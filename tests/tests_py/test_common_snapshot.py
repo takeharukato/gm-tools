@@ -15,16 +15,12 @@
 リモート/ローカルのツリー状態を取得するスナップショットユーティリティ。
 
 Notes:
-- SSH 経由でコマンド実行を行うため副作用があります ( リモート環境負荷 ) 。
+    - SSH 経由でコマンド実行を行うため副作用があります ( リモート環境負荷 ) 。
 """
 import shlex
 import subprocess
 from typing import Dict, List, Optional, Union
 from .test_common_ssh import ssh_run_raw as _ssh_run_raw
-
-
-# raw ssh 実行は共有ヘルパに委譲する ( Config 非依存のためスナップショット用途に最適 )
-
 
 def remote_find_tree_script(
     ssh_user: str,
@@ -39,15 +35,15 @@ def remote_find_tree_script(
     リモートの絶対パス `base` に対し, pwd/ls/find/tree の出力をまとめて取得します。
 
     Args:
-    - ssh_user (str): SSH ユーザ。
-    - host (str): 対象ホスト。
-    - port (int): SSH ポート。
-    - strict (Union[bool, str]): StrictHostKeyChecking 設定。
-    - base (str): 観測対象の絶対パス。
-    - maxdepth (int): find/tree の深さ。
+        ssh_user (str): SSH ユーザ。
+        host (str): 対象ホスト。
+        port (int): SSH ポート。
+        strict (Union[bool, str]): StrictHostKeyChecking 設定。
+        base (str): 観測対象の絶対パス。
+        maxdepth (int): find/tree の深さ。
 
     Returns:
-    - Dict[str, str]: `rc`/`stdout`/`stderr` を含む結果。
+        Dict[str, str]: `rc`/`stdout`/`stderr` を含む結果。
     """
     q: str = shlex.quote(base)
     md: int = max(1, int(maxdepth))
@@ -77,16 +73,16 @@ def snapshot_scatter_dest_verbose(
     宛先ディレクトリのメタ情報/実体/レイアウト/期待パスチェックをまとめて採取します。
 
     Args:
-    - ssh_user (str): SSH ユーザ。
-    - host (str): 対象ホスト。
-    - port (int): SSH ポート。
-    - strict (Union[bool, str]): StrictHostKeyChecking 設定。
-    - dest_abs (str): 宛先の絶対パス。
-    - expected_paths (Optional[List[str]]): 存在チェックするパス群。
-    - maxdepth (int): ツリー観測の深さ。
+        ssh_user (str): SSH ユーザ。
+        host (str): 対象ホスト。
+        port (int): SSH ポート。
+        strict (Union[bool, str]): StrictHostKeyChecking 設定。
+        dest_abs (str): 宛先の絶対パス。
+        expected_paths (Optional[List[str]]): 存在チェックするパス群。
+        maxdepth (int): ツリー観測の深さ。
 
     Returns:
-    - Dict[str, str]: セクションごとの出力文字列。
+        Dict[str, str]: セクションごとの出力文字列。
     """
     parts: List[str] = []
 
@@ -148,11 +144,11 @@ def local_find_tree(path_dir: str, maxdepth: Optional[int] = None) -> Dict[str, 
     ローカルディレクトリの find/tree 結果を採取します。
 
     Args:
-    - path_dir (str): 観測対象のディレクトリ。
-    - maxdepth (Optional[int]): find の深さ ( None で無制限 ) 。
+        path_dir (str): 観測対象のディレクトリ。
+        maxdepth (Optional[int]): find の深さ ( None で無制限 ) 。
 
     Returns:
-    - Dict[str, str]: `find`/`tree` の出力。
+        Dict[str, str]: `find`/`tree` の出力。
     """
     out: Dict[str, str] = {"find": "", "tree": ""}
 
@@ -191,9 +187,3 @@ def local_find_tree(path_dir: str, maxdepth: Optional[int] = None) -> Dict[str, 
         out["tree"] = "(tree not available or failed)\n"
 
     return out
-
-
-# リモート絶対パス base の実体を『base固定で』観測するスナップショット。
-# - pwd / ls -la -- <base>
-# - find <base> -maxdepth N -printf "%y %p -> %l\n"
-# - tree -a <base> ( 無ければ代替出力 )

@@ -12,10 +12,10 @@
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
 
-"""gm-scatter CLI の制御フローと補助処理をまとめたモジュールです。
+"""gm-scatter CLI の制御フローと補助処理をまとめたモジュールである。
 
 ローカルファイルを複数ホストへ展開するための引数解析, 計画生成,
-SFTP/pack 経路の転送ファクトリ, GracefulStop を用いた協調停止などを提供します。
+SFTP/pack 経路の転送ファクトリ, GracefulStop を用いた協調停止などを提供する。
 
 Examples:
     >>> from gm_tools import scatter_cli  # doctest: +SKIP
@@ -94,7 +94,7 @@ from .core_signal_handling import (
 _NULL_REPORT: Final[NullTransferReport] = NullTransferReport()
 
 def build_parser() -> argparse.ArgumentParser:
-    """gm-scatter 用の引数パーサを構築します。
+    """gm-scatter 用の引数パーサを構築する。
 
     Returns:
         argparse.ArgumentParser: コマンドライン引数を解析する ``ArgumentParser``。
@@ -183,14 +183,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional[str]]:
-    """DEST トークンを scatter 仕様に沿って絶対パスへ解決します。
+    """DEST トークンを scatter 仕様に沿って絶対パスへ解決する。
 
-    - ``/`` で始まる場合はそのまま絶対パスとして扱います。
-    - Windows 形式 ``X:/`` または ``X:\\`` で始まる場合も絶対パスとして返します。
-    - ``~/`` で始まる場合は ``remote_home`` へ連結します。
-    - 素の ``~`` はサポート外としてエラーメッセージを返します。
-    - ``~user`` 形式もサポート外としてエラーメッセージを返します。
-    - 上記に該当しない場合は ``remote_home`` からの相対パスとして扱います。
+    - ``/`` で始まる場合はそのまま絶対パスとして扱う。
+    - Windows 形式 ``X:/`` または ``X:\\`` で始まる場合も絶対パスとして返す。
+    - ``~/`` で始まる場合は ``remote_home`` へ連結する。
+    - 素の ``~`` はサポート外としてエラーメッセージを返す。
+    - ``~user`` 形式もサポート外としてエラーメッセージを返す。
+    - 上記に該当しない場合は ``remote_home`` からの相対パスとして扱う。
 
     Args:
         dest_raw (str): CLI で受け取った DEST 文字列。
@@ -226,16 +226,16 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
     return f"{remote_home}/{d}", None
 
 def _rel_base_from_abs_for_dest(base_abs: str) -> str:
-    """正規表現 SRC からリモート相対基点を導出します。
+    """正規表現 SRC からリモート相対基点を導出する。
 
     解決済みの絶対パス ``base_abs`` から先頭の区切りと区切り文字種を統一し,
     Windows のドライブレターは保持したまま, リモート配置規則 ``DEST/<rel>/...`` に適合する
-    相対パス ``<rel>`` を返します。
-    主な変換例は次のとおりです。
+    相対パス ``<rel>`` を返す。
+    主な変換例は次のとおり:
 
-    - ``/foo/bar`` は ``"foo/bar"`` へ変換します。
-    - ``\\foo\\bar`` は ``"foo/bar"`` へ変換します。
-    - ``C:\\foo\\bar`` は ``"C:/foo/bar"`` へ変換します。
+    - ``/foo/bar`` は ``"foo/bar"`` へ変換する。
+    - ``\\foo\\bar`` は ``"foo/bar"`` へ変換する。
+    - ``C:\\foo\\bar`` は ``"C:/foo/bar"`` へ変換する。
 
     Args:
         base_abs (str): 正規表現展開後の絶対パス。
@@ -275,7 +275,7 @@ def _build_plan_for_host(
     selinux_mode: SelinuxMode,
     verbose: bool,
 ) -> Tuple[Plan, Dict[str, object]]:
-    """単一ホスト向けの転送計画(``Plan``)とメタ情報を構築します。
+    """単一ホスト向けの転送計画(``Plan``)とメタ情報を構築する。
 
     Args:
         host (str): 対象ホスト名。
@@ -455,7 +455,7 @@ def _make_push_one_sftp(
     host: str,
     remote_rel_map: Dict[str, str],
 ) -> PushOne:
-    """SFTP 経由で単一ファイルを逐次アップロードするクロージャを生成します。
+    """SFTP 経由で単一ファイルを逐次アップロードするクロージャを生成する。
 
     Args:
         ssh (SSHClientLike): リモート側で ``mkdir`` や ``chown`` を実行する SSH クライアント。
@@ -484,7 +484,7 @@ def _make_push_one_sftp(
         True  # doctest: +SKIP
     """
     def _push_one(_sftp: SFTPClientLike, local_path: Path, _remote_root: str, is_dir: bool) -> None:
-        """ローカルファイル 1 件をリモートホストへアップロードします。
+        """ローカルファイル 1 件をリモートホストへアップロードする。
 
         Args:
             _sftp (SFTPClientLike): SFTP PUT を発行するクライアント。
@@ -535,13 +535,13 @@ def _make_push_one_pack(
     host: str,
     remote_rel_map: Dict[str, str],
 ) -> PushOne:
-    """``--pack`` 経路で利用する ホストごとに1 度だけ実行されるアップロード用のクロージャを生成します。
-        生成したクロージャは以下の処理を行います。
+    """``--pack`` 経路で利用する ホストごとに1 度だけ実行されるアップロード用のクロージャを生成する。
+        生成したクロージャは以下の処理を行う。
 
-        1. ローカルホストでアーカイブを作成します。
-        2. SFTP 経由でリモートホストにアーカイブをアップロードします。
-        3. リモートホストでアーカイブを解凍し, アーカイブ解凍の成否に依らず, リモートに残ったアーカイブファイルを削除します。
-        4. アップロードに利用したローカルの一時アーカイブと一時ディレクトリを削除します。
+        1. ローカルホストでアーカイブを作成する。
+        2. SFTP 経由でリモートホストにアーカイブをアップロードする。
+        3. リモートホストでアーカイブを解凍し, アーカイブ解凍の成否に依らず, リモートに残ったアーカイブファイルを削除する。
+        4. アップロードに利用したローカルの一時アーカイブと一時ディレクトリを削除する。
 
     Args:
         ssh (SSHClientLike): リモートで展開処理を実行する SSH クライアント。
@@ -580,7 +580,7 @@ def _make_push_one_pack(
     state: Dict[str, bool] = {"ran": False}
 
     def _push_one(_sftp: SFTPClientLike, _local_path: Path, _remote_root: str, _is_dir: bool) -> None:
-        """pack 経路で 1 度だけアーカイブ転送と解凍を実行します。
+        """pack 経路で 1 度だけアーカイブ転送と解凍を実行する。
 
         Args:
             _sftp (SFTPClientLike): アーカイブファイルを送信するクライアント。
@@ -652,31 +652,31 @@ def _make_push_one_pack(
 
 
 def main() -> None:
-    """gm-scatter CLI のエントリーポイントを実装します。
+    """gm-scatter CLI のエントリーポイントを実装する。
 
     Returns:
-        None: 正常終了時は ``EXIT_OK`` コードでプロセスを終了します。
+        None: 正常終了時は ``EXIT_OK`` コードでプロセスを終了する。
 
     Raises:
-        SystemExit: 引数検証エラーやホスト未検出時に適切な終了コードで終了します。
+        SystemExit: 引数検証エラーやホスト未検出時に適切な終了コードで終了する。
 
     Examples:
         >>> import sys  # doctest: +SKIP
         >>> if '--help' in sys.argv:  # doctest: +SKIP
-        ...     pass  # CLI 実行では ``main()`` を呼び出します
+        ...     pass  # CLI 実行では ``main()`` を呼び出す。
     """
 
     def _normalize_pack_srcs(srcs: Sequence[str]) -> List[str]:
-        """pack 用 SRC を安全な表記へ揃えます。
+        """pack 用 SRC を安全な表記へ揃える。
 
-        安全な表記は次の手順で決定します。
+        安全な表記は次の手順で決定する。
 
-        1. 正規表現入力であると判定した場合は一切変更せず (末尾スラッシュも付与せず)そのまま返します。
-        2. 末尾がすでに区切り文字 (  ``/`` または ``os.sep``  ) で終わる入力もそのまま返します。
-        3. リテラル入力で実体を確認できる場合のみ, 実体がディレクトリであれば末尾に ``/`` を付与します。
-           例外や権限エラーなどで確認できない場合は安全側として付与しません。
+        1. 正規表現入力であると判定した場合は一切変更せず (末尾スラッシュも付与せず)そのまま返す。
+        2. 末尾がすでに区切り文字 (  ``/`` または ``os.sep``  ) で終わる入力もそのまま返す。
+        3. リテラル入力で実体を確認できる場合のみ, 実体がディレクトリであれば末尾に ``/`` を付与する。
+           例外や権限エラーなどで確認できない場合は安全側として付与しない。
 
-        これにより正規表現を壊さず, リテラルディレクトリのみを明示的に指定できる安全な SRC 表記を保ちます。
+        これにより正規表現を壊さず, リテラルディレクトリのみを明示的に指定できる安全な SRC 表記を保つ。
 
         Args:
             srcs (Sequence[str]): CLI から受け取った元の SRC トークン列。
@@ -790,7 +790,7 @@ def main() -> None:
 
     # 事前確立済み接続の DI 工場
     def _open_ssh(host: str) -> SSHClientLike:
-        """ホスト名に対応する SSH 接続を返します。
+        """ホスト名に対応する SSH 接続を返す。
 
         Args:
             host (str): 接続済みホスト名。
@@ -801,7 +801,7 @@ def main() -> None:
         return meta_per_host[host]["ssh"]  # type: ignore[return-value]
 
     def _open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
-        """SSH クライアントに紐付く SFTP 接続を返します。
+        """SSH クライアントに紐付く SFTP 接続を返す。
 
         Args:
             ssh (SSHClientLike): 取得元となる SSH クライアント。

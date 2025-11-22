@@ -23,12 +23,12 @@ def assert_rc(name: str, rc: int, expect_zero: bool = True) -> None:
     終了コードが期待条件に一致することを検証します。
 
     Args:
-    - name (str): 対象名 ( エラーメッセージ用 ) 。
-    - rc (int): 実際の終了コード。
-    - expect_zero (bool): True の場合 0 を期待, False の場合は非 0 を期待。
+        name (str): 対象名 ( エラーメッセージ用 ) 。
+        rc (int): 実際の終了コード。
+        expect_zero (bool): True の場合 0 を期待, False の場合は非 0 を期待。
 
     Raises:
-    - AssertionError: 期待と異なる場合。
+        AssertionError: 期待と異なる場合。
     """
     if expect_zero and rc != 0:
         raise AssertionError(f"{name}: expected rc=0 but got {rc}")
@@ -40,10 +40,10 @@ def _norm_mode(m: Any) -> str:
     モード値を 3 桁の 8 進文字列 ( 例: '640' ) へ正規化します。
 
     Args:
-    - m (Any): モード表現。
+        m (Any): モード表現。
 
     Returns:
-    - str: 正規化された 3 桁 8 進文字列 ( 失敗時は入力の文字列表現 ) 。
+        str: 正規化された 3 桁 8 進文字列 ( 失敗時は入力の文字列表現 ) 。
     """
     if m is None:
         return ""
@@ -80,10 +80,10 @@ def _norm_owner(o: Any) -> str:
     所有者表現を 'user:group' 形式へ正規化します。
 
     Args:
-    - o (Any): 所有者表現。
+        o (Any): 所有者表現。
 
     Returns:
-    - str: 正規化後の所有者。
+        str: 正規化後の所有者。
     """
     if o is None:
         return ""
@@ -102,12 +102,12 @@ def compare_attr_maps(src: Dict[str, Any],
     2 つの属性マップを比較し, 差異があれば詳細を含めて失敗させます。
 
     Args:
-    - src (Dict[str, Any]): 期待側の属性マップ。
-    - dst (Dict[str, Any]): 実測側の属性マップ。
-    - keys (Iterable[str]): 比較対象キー ( 既定は 'mode' と 'owner' ) 。
+        src (Dict[str, Any]): 期待側の属性マップ。
+        dst (Dict[str, Any]): 実測側の属性マップ。
+        keys (Iterable[str]): 比較対象キー ( 既定は 'mode' と 'owner' ) 。
 
     Raises:
-    - AssertionError: 差分が検出された場合 ( 詳細メッセージ付き ) 。
+        AssertionError: 差分が検出された場合 ( 詳細メッセージ付き ) 。
     """
     diffs: List[str] = []
     for k in keys:

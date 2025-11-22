@@ -11,10 +11,10 @@
 # Author has modified some parts.
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
-"""Scatter 処理に必要な tar/SFTP 操作と補助ロジックをまとめたモジュールです。
+"""Scatter 処理に必要な tar/SFTP 操作と補助ロジックをまとめたモジュールである。
 
 ローカル側での一時アーカイブ生成やメンバーリスト作成, リモート側での抽出・属性復元,
-SELinux の復元処理までを一貫して扱い, `TransferReport` に進捗を記録します。
+SELinux の復元処理までを一貫して扱い, `TransferReport` に進捗を記録する。
 """
 
 # 環境変数:
@@ -90,7 +90,7 @@ _DEBUG: bool = str(os.environ.get("GM_SCATTER_DEBUG", "")).lower() in ("1", "tru
 _LOG: logging.Logger = logging.getLogger(__name__)
 
 def _dbg_log(msg: str) -> None:
-    """内部デバッグフラグが有効なときにログへ書き出します。
+    """内部デバッグフラグが有効なときにログへ書き出す。
 
     Args:
         msg (str): 出力したい診断メッセージ。
@@ -110,18 +110,18 @@ def _dbg_log(msg: str) -> None:
 # リモートパス正規化
 # ------------------------
 def _normalize_remote_rel_file(rel: Optional[str]) -> str:
-    """``gm-scatter`` が形成する DEST 配下を前提に安全な相対ファイルパスへ正規化します。
+    """``gm-scatter`` が形成する DEST 配下を前提に安全な相対ファイルパスへ正規化する。
 
-    以下の手順で安全化を行います。
+    以下の手順で安全化を行う。
 
-    - ``None`` や空文字であれば空文字を返し, 呼び出し元で ``basename`` フォールバックを許可します。
-    - ``\\`` を ``/`` に統一し, 先頭 ``/`` を除去して絶対パス化を防ぎます。
-    - ``./`` および ``//`` を折り畳み, 冗長な区切りを排除します。
-    - スタック方式で ``..`` を評価し, ベースより上位へ脱出しようとした場合は拒否します。
-    - 正常終了時は ``..`` を解消した正規化済み相対パスを返却します。
+    - ``None`` や空文字であれば空文字を返し, 呼び出し元で ``basename`` フォールバックを許可する。
+    - ``\\`` を ``/`` に統一し, 先頭 ``/`` を除去して絶対パス化を防ぐ。
+    - ``./`` および ``//`` を折り畳み, 冗長な区切りを排除する。
+    - スタック方式で ``..`` を評価し, ベースより上位へ脱出しようとした場合は拒否する。
+    - 正常終了時は ``..`` を解消した正規化済み相対パスを返却する。
 
     Args:
-        rel (Optional[str]): 呼び出し元が指定した相対パス文字列。``None`` や空文字は許可します。
+        rel (Optional[str]): 呼び出し元が指定した相対パス文字列。``None`` や空文字は許可する。
 
     Returns:
         str: ``DEST`` 配下に安全に展開できる正規化済みの相対パス。
@@ -162,10 +162,10 @@ def _normalize_remote_rel_file(rel: Optional[str]) -> str:
 
 
 def _posix_join(*parts: str) -> str:
-    """POSIX 形式でパス要素を連結します。
+    """POSIX 形式でパス要素を連結する。
 
     Args:
-        *parts (str): 連結したいパス要素。空文字列は無視せずにそのまま評価します。
+        *parts (str): 連結したいパス要素。空文字列は無視せずにそのまま評価する。
 
     Returns:
         str: POSIX 形式で ``/`` 区切りに整えたパス文字列。
@@ -184,7 +184,7 @@ def _posix_join(*parts: str) -> str:
 
 @dataclass
 class ScatterOpts:
-    """scatter 実行で使用するオプション値をまとめたデータクラスです。
+    """scatter 実行で使用するオプション値をまとめたデータクラス。
 
     Attributes:
         dest_abs_root (str): 配置先 ``DEST`` の絶対パス。
@@ -216,13 +216,13 @@ class ScatterOpts:
 
 # --- パス補助関数 ( 末尾スラッシュ正規化 )  ------------------------------------
 def _norm_noslash(path: str) -> str:
-    """末尾のスラッシュを取り除きつつ先頭の ``/`` 自体 ( ルートディレクトリ ) は保持します。
+    """末尾のスラッシュを取り除きつつ先頭の ``/`` 自体 ( ルートディレクトリ ) は保持する。
 
     Args:
         path (str): 正規化したいパス文字列。
 
     Returns:
-        str: 末尾 ``/`` を除いたパス。ルート ``/`` のみはそのまま返します。
+        str: 末尾 ``/`` を除いたパス。ルート ``/`` のみはそのまま返す。
 
     Examples:
         >>> _norm_noslash('/srv/data///')
@@ -239,22 +239,22 @@ def local_pack_paths_to_tmp(
     follow_symlinks: bool,
     arcnames: Optional[List[str]] = None,
 ) -> Tuple[str, List[str]]:
-    """入力パスを安全に正規化したうえで tar.gz にまとめます。
+    """入力パスを安全に正規化したうえで tar.gz にまとめる。
 
         ``DEST`` は ``gm-scatter`` がホストごとに形成する展開先ディレクトリ ( 例: ``ScatterOpts.dest_abs_root`` ) を指し,
-        アーカイブ内部のパスはこの ``DEST`` からの相対パスに揃えます。安全に正規化する手順は以下のとおりです。
+        アーカイブ内部のパスはこの ``DEST`` からの相対パスに揃える。安全に正規化する手順は以下のとおり:
 
-            - ``\\`` を ``/`` へ統一し, プラットフォーム差異による区切り混在を解消します。
-            - 先頭の ``/`` を除去して絶対パス化を防ぎます。
-            - ``./`` や ``//`` といった冗長区切りを折り畳みます。
-            - ``..`` をスタック評価し, ``DEST`` より上位へ脱出しようとした場合は ``ValueError`` を送出します。
-            - 正規化後の相対パスが空になったときのみ ``basename`` にフォールバックします。
+            - ``\\`` を ``/`` へ統一し, プラットフォーム差異による区切り混在を解消する。
+            - 先頭の ``/`` を除去して絶対パス化を防ぐ。
+            - ``./`` や ``//`` といった冗長区切りを折り畳む。
+            - ``..`` をスタック評価し, ``DEST`` より上位へ脱出しようとした場合は ``ValueError`` を送出する。
+            - 正規化後の相対パスが空になったときのみ ``basename`` にフォールバックする。
 
-        相対パスの決定は以下の方針で行います。
+        相対パスの決定は以下の方針で行う。
 
-            - ``arcnames`` を指定した場合は各要素を ``DEST`` からの相対ファイルパスとして ``_normalize_remote_rel_file`` で正規化します。
-                - ``arcnames`` が ``None`` の場合は ``dest_rel_from_abs`` で絶対パスを ``DEST`` 相対に変換し, 同様に正規化します。結果が空になった場合のみ ``basename`` をフォールバックとして使用します。
-                - 正規化後に重複したアーカイブ名が見つかった場合は, 先着を優先して後続の同名エントリを排除し, 対応する ``paths``/``arcnames`` の入力要素も一緒に間引きます ( 重複した実体を tar へ含めないため ) 。
+            - ``arcnames`` を指定した場合は各要素を ``DEST`` からの相対ファイルパスとして ``_normalize_remote_rel_file`` で正規化する。
+                - ``arcnames`` が ``None`` の場合は ``dest_rel_from_abs`` で絶対パスを ``DEST`` 相対に変換し, 同様に正規化する。結果が空になった場合のみ ``basename`` をフォールバックとして使用する。
+                - 正規化後に重複したアーカイブ名が見つかった場合は, 先着を優先して後続の同名エントリを排除し, 対応する ``paths``/``arcnames`` の入力要素も一緒に間引く ( 重複した実体を tar へ含めないため )。
 
     Args:
         paths (Iterable[str]): アーカイブへ含めたいローカルパスの列挙。
@@ -422,21 +422,21 @@ def write_members_file(
     normalize_paths: bool = True,
     preserve_order: bool = False,   # 追加: True で入力順を保持 ( ソートしない )
 ) -> None:
-    """``tar -T`` が参照するメンバーリストファイルを生成して送信します。
+    """``tar -T`` が参照するメンバーリストファイルを生成して送信する。
 
-        以下のポリシーで内容を整えます。
+        以下のポリシーで内容を整える。
 
-            - 重複を除去し, 既定では ASCII 順に並べます。
-            - すべての行をアーカイブ内部の相対パス ( ``./`` や ``/`` は除去 ) に正規化します。
-            - バックスラッシュは POSIX 形式に揃えるため ``/`` に置換します。
-            - 各行は LF (``\\n``) 区切りで, 末尾にも LF を付与します。
+            - 重複を除去し, 既定では ASCII 順に並べる。
+            - すべての行をアーカイブ内部の相対パス ( ``./`` や ``/`` は除去 ) に正規化する。
+            - バックスラッシュは POSIX 形式に揃えるため ``/`` に置換する。
+            - 各行は LF (``\\n``) 区切りで, 末尾にも LF を付与する。
 
     Args:
         sftp (SFTPClientLike): 書き込み先にアクセスするための SFTP クライアント。
         remote_path (str): リモート側に生成するメンバーリストファイルの絶対パス。
         members (Iterable[str]): アーカイブメンバー名として扱いたい文字列群。
-        normalize_paths (bool): ``True`` の場合に POSIX 形式へ正規化します。
-        preserve_order (bool): ``True`` を指定すると入力順を保持し, 既定のソートを抑止します。
+        normalize_paths (bool): ``True`` の場合に POSIX 形式へ正規化する。
+        preserve_order (bool): ``True`` を指定すると入力順を保持し, 既定のソートを抑止する。
 
     Raises:
         OSError: リモートファイルへの書き込みに失敗した場合。
@@ -510,10 +510,10 @@ def upload_pack_and_extract(
     target_user: Optional[str] = None,
     selinux_mode: SelinuxMode = "auto",
 ) -> None:
-    """tar.gz をアップロードして ``DEST`` 直下へ展開します。
+    """tar.gz をアップロードして ``DEST`` 直下へ展開する。
 
     ここでの ``DEST`` は ``gm-scatter`` が展開先ルートとして使用するディレクトリ
-     ( 通常は ``ScatterOpts.dest_abs_root`` で指定されるパス ) を指します。
+     ( 通常は ``ScatterOpts.dest_abs_root`` で指定されるパス ) を指す。
 
     Args:
         ssh (SSHClientLike): リモートホストでコマンドを実行するための SSH クライアント。
@@ -523,7 +523,7 @@ def upload_pack_and_extract(
         sudo_extract (bool): 抽出・上書きを sudo 経由で実行する必要がある場合は ``True``。
         host (str): レポート記録に使用するホスト名。
         report (TransferReport): 進捗と結果を蓄積するレポートオブジェクト。
-        dry_run (bool): ``True`` の場合はアップロードせず計画登録のみ行います。
+        dry_run (bool): ``True`` の場合はアップロードせず計画登録のみ行う。
         target_user (Optional[str]): sudo 経路で chown する際の対象ユーザー。
         selinux_mode (SelinuxMode): SELinux 再ラベル処理の動作モード。
 
@@ -876,24 +876,24 @@ def sftp_put_one(
     # 配置レイアウトの上書き (相対 SRC 用)。例: "projA/file.txt"
     remote_rel: Optional[str] = None,
 ) -> None:
-    """SFTP 経由で単一ツリーを ``DEST`` 配下へ配置します。
+    """SFTP 経由で単一ツリーを ``DEST`` 配下へ配置する。
 
-    シンボリックリンクは転送対象から除外し, 必要に応じてメタデータを復元します。
+    シンボリックリンクは転送対象から除外し, 必要に応じてメタデータを復元する。
 
     ここでの ``DEST`` は ``gm-scatter`` が配下へ配置する先頭ルート
-     ( 例: ``ScatterOpts.dest_abs_root`` ) を指し, 個々のファイル・ディレクトリはこの相対配置に基づきます。
+     ( 例: ``ScatterOpts.dest_abs_root`` ) を指し, 個々のファイル・ディレクトリはこの相対配置に基づく。
 
     Args:
         ssh (SSHClientLike): リモート作業に使用する SSH クライアント。
         sftp (SFTPClientLike): ファイルを転送するための SFTP クライアント。
-        local_abs (str): 転送したいローカルパス。相対指定も受け付けます。
+        local_abs (str): 転送したいローカルパス。相対指定も受け付ける。
         dest_abs_root (str): ``DEST`` の絶対パス。
         host (str): レポート記録に利用するホスト名。
         report (TransferReport): 進捗を記録するレポートオブジェクト。
-        dry_run (bool): ``True`` の場合はレポート登録のみ行います。
+        dry_run (bool): ``True`` の場合はレポート登録のみ行う。
         sudo_mkdir (bool): 親ディレクトリ作成やメタ復元に sudo が必要な場合は ``True``。
         enable_restore_meta (bool): 既存ファイル上書き時に ACL や xattr を復元する場合は ``True``。
-        remote_rel (Optional[str]): 配置先 ``DEST`` 相対パスを明示する場合に指定します。
+        remote_rel (Optional[str]): 配置先 ``DEST`` 相対パスを明示する場合に指定する。
 
     Examples:
         >>> sftp_put_one(  # doctest: +SKIP
@@ -1121,11 +1121,11 @@ def _sftp_put_with_exist_restore(
     xattr_ok: bool,
     rtmp_meta: Optional[str],
 ) -> None:
-    """単一ファイルを SFTP 転送し, 必要に応じてメタデータを復元します。
+    """単一ファイルを SFTP 転送し, 必要に応じてメタデータを復元する。
 
     既存ファイルを上書きする場合は, sudo 経路で所有者・グループ・モード・ACL・xattr を事前に採取し,
-    上書き後に元の状態へ復元します。新規作成 ( リモートに存在しないパス ) の場合はメタデータ取得を行わず,
-    SFTP 転送のみを実施します。
+    上書き後に元の状態へ復元する。新規作成 ( リモートに存在しないパス ) の場合はメタデータ取得を行わず,
+    SFTP 転送のみを実施する。
 
     Args:
         ssh (SSHClientLike): メタデータ取得や復元に用いる SSH クライアント。

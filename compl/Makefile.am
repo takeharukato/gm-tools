@@ -18,6 +18,11 @@
 bashcompletiondir = @BASH_COMPLETION_DIR@
 zshcompletiondir  = @ZSH_COMPLETION_DIR@
 
+## ドキュメント (補完スクリプトの説明) のインストール先
+doc_DATA = \
+	Readme-command-completion.md \
+	ReadmeJP-command-completion.md
+
 ## インストールする補完スクリプト
 bashcompletion_DATA = \
 	gm-gather.bash \
@@ -29,5 +34,15 @@ zshcompletion_DATA = \
 
 ## 配布アーカイブに含めるファイル
 EXTRA_DIST = \
+	$(doc_DATA) \
 	$(bashcompletion_DATA) \
 	$(zshcompletion_DATA)
+
+install-data-hook: rename-zsh-completions
+
+rename-zsh-completions:
+	@if test -d "$(DESTDIR)$(zshcompletiondir)"; then \
+		cd "$(DESTDIR)$(zshcompletiondir)"; \
+		if test -f _gm-gather.zsh; then mv -f _gm-gather.zsh _gm-gather; fi; \
+		if test -f _gm-scatter.zsh; then mv -f _gm-scatter.zsh _gm-scatter; fi; \
+	fi

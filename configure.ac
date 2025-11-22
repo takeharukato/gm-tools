@@ -89,6 +89,7 @@ AC_CONFIG_FILES([
   docs/Makefile
   docs/sphinx/Makefile
   tests/Makefile
+  tests/mt/Makefile
   debug-patches/Makefile
   scripts/Makefile
   po/Makefile.in

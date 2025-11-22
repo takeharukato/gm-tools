@@ -14,7 +14,7 @@
 # 著者が修正している部分があります。
 #
 # run-test-module-test.sh - 単体試験スクリプト
-# 使い方:
+# 使い方: srcディレクトリで以下を実行
 #   1) tests_env.sh.sample を tests_env.sh にコピーして編集
 #   2) chmod +x run-test-module-test.sh
 #   3) ./run-test-module-test.sh

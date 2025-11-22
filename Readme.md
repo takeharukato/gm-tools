@@ -4,8 +4,6 @@
 
 gm-tools is a toolset providing `gm-gather` and `gm-scatter` to assist with file collection and distribution across multiple hosts. It features bulk transfer of multiple files via SSH or compressed archives, and automatically restores metadata for distributed files.
 
-For detailed usage instructions, refer to the [gm-gather specification](docs/gm-gather-spec.md) and the [gm-scatter specification](docs/gm-scatter-spec.md).
-
 ## Prerequisite Packages
 
 - Python 3.9 or later

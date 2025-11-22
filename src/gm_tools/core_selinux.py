@@ -11,10 +11,10 @@
 # Author has modified some parts.
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
-"""SELinux 機能検出とラベル復元を扱うリモート実行ヘルパーモジュールです。
+"""SELinux 機能検出とラベル復元を扱うリモート実行ヘルパーモジュールである。
 
 gm-scatter CLI の ``--selinux`` オプションで利用され, リモートホストが SELinux 対応かどうかの
-判定と ``restorecon`` コマンドの実行を統一的に提供します。
+判定と ``restorecon`` コマンドの実行を統一的に提供する。
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ SelinuxMode = Literal["auto", "policy", "ignore"]
 # --- 定数 (秒・サイズ) ---
 _SELINUX_DETECT_TIMEOUT: float = 5.0
 _RESTORECON_TIMEOUT: float = 180.0
-# "Argument list too long" を避けるため保守的な値を指定します。
+# "Argument list too long" を避けるため保守的な値を指定する。
 _RESTORECON_BATCH_SIZE: int = 64
 
 # --- コマンド文字列とフラグ  ---
@@ -40,10 +40,10 @@ _RESTORECON_CHECK_CMD: str = "command -v restorecon >/dev/null 2>&1"
 _RESTORECON_FLAGS: str = "-RF"
 
 def detect_selinux_capable(ssh: SSHClientLike) -> bool:
-    """リモートホストが SELinux ラベル復元に対応しているかを検査します。
+    """リモートホストが SELinux ラベル復元に対応しているかを検査する。
 
     gm-scatter CLI で ``restorecon`` を呼び出す前段階として利用し, 最小限のリモートコマンド
-    実行でホストの機能可否を判定します。以下の条件をすべて満たした場合に対応しているとみなします。
+    実行でホストの機能可否を判定する。以下の条件をすべて満たした場合に対応しているとみなす。
 
     - ``/sys/fs/selinux`` ディレクトリが存在する, または ``mount`` 出力に ``selinuxfs`` が含まれる
     - ``restorecon`` コマンドが PATH 上で検出できる
@@ -102,16 +102,16 @@ def restorecon_recursive_if_needed(
     selinux_capable: bool,
     use_sudo: bool,
 ) -> None:
-    """必要に応じて ``restorecon -RF`` をバッチ実行し SELinux ラベルを復元します。
+    """必要に応じて ``restorecon -RF`` をバッチ実行し SELinux ラベルを復元する。
 
-    gm-scatter の配置処理が ``mode`` に応じてラベリングを要求する場合に呼び出され, 以下の挙動を取ります。
+    gm-scatter の配置処理が ``mode`` に応じてラベリングを要求する場合に呼び出され, 以下の挙動を取る。
 
-    - ``mode == "ignore"``: 何も実施せず即座に処理を終了します。
-    - ``mode == "auto"``: ``selinux_capable`` が ``True`` のときのみ ``restorecon`` を実行します。
-    - ``mode == "policy"``: ``selinux_capable`` が ``False`` の場合は ``RuntimeError`` を送出します。
+    - ``mode == "ignore"``: 何も実施せず即座に処理を終了する。
+    - ``mode == "auto"``: ``selinux_capable`` が ``True`` のときのみ ``restorecon`` を実行する。
+    - ``mode == "policy"``: ``selinux_capable`` が ``False`` の場合は ``RuntimeError`` を送出する。
 
     対象パスは新規または上書き対象に限定されている想定であり, 空文字や重複を除外したうえで,
-    引数数が多くなり過ぎないようバッチ分割して ``restorecon`` を実行します。
+    引数数が多くなり過ぎないようバッチ分割して ``restorecon`` を実行する。
 
     Args:
         ssh (SSHClientLike): ``restorecon`` を実行するリモートホストへのクライアント。
@@ -122,7 +122,7 @@ def restorecon_recursive_if_needed(
 
     Raises:
         RuntimeError: ``mode == "policy"`` かつ ``selinux_capable`` が ``False`` の場合,
-            または ``restorecon`` 実行が失敗した場合に送出します。
+            または ``restorecon`` 実行が失敗した場合に送出する。
 
     Examples:
         >>> from unittest.mock import patch

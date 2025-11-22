@@ -16,9 +16,9 @@
 
 ## ドキュメント本体は docdir 直下に配置
 doc_DATA = \
-	gm-gather-spec.md \
-	gm-scatter-spec.md \
-	common-spec.md
+	gm-gather-specJP.md \
+	gm-scatter-specJP.md \
+	common-specJP.md
 
 dist_man1_MANS = \
 	man/gm-gather.1 \

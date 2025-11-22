@@ -11,10 +11,10 @@
 # Author has modified some parts.
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
-"""gm-tools における協調的な停止処理とシグナルハンドリングを提供します。
+"""gm-tools における協調的な停止処理とシグナルハンドリングを提供する。
 
 CLI レイヤーが起動時に初期化し, SIGINT/SIGTERM を受けた際に停止フラグとクリーンアップ処理を
-統合的に扱うユーティリティを定義します。モジュールインポート時に副作用は発生しません。
+統合的に扱うユーティリティを定義する。モジュールインポート時に副作用は発生しない。
 """
 
 from __future__ import annotations
@@ -25,14 +25,14 @@ from typing import Callable, List, Optional
 
 
 class GracefulStop:
-    """協調的な停止と後処理をまとめて管理するコーディネータです。
+    """協調的な停止と後処理をまとめて管理するコーディネータである。
 
     ``abort_event`` が立った時点で停止要求を検知し, 登録済みクリーンアップを LIFO で一度だけ
-    実行します。スレッドセーフな API を提供します。
+    実行する。スレッドセーフな API を提供する。
     """
 
     def __init__(self) -> None:
-        """初期状態の停止フラグとクリーンアップ管理構造を生成します。"""
+        """初期状態の停止フラグとクリーンアップ管理構造を生成する。"""
         self.abort_event: threading.Event = threading.Event()
         self._cleanups: List[Callable[[], None]] = []
         self._lock: threading.Lock = threading.Lock()
@@ -41,10 +41,10 @@ class GracefulStop:
     # ---- registration ----
 
     def register_cleanup(self, fn: Callable[[], None]) -> None:
-        """停止時に実行するクリーンアップ関数を登録します。
+        """停止時に実行するクリーンアップ関数を登録する。
 
         Args:
-            fn (Callable[[], None]): 停止時に呼び出すコールバック。副作用は冪等である必要があります。
+            fn (Callable[[], None]): 停止時に呼び出すコールバック。副作用は冪等である必要がある。
 
         Examples:
             >>> gs = GracefulStop()
@@ -63,7 +63,7 @@ class GracefulStop:
     # ---- stop request & cleanup ----
 
     def request_stop(self) -> None:
-        """停止要求フラグを立て, 必要なクリーンアップを走らせます。
+        """停止要求フラグを立て, 必要なクリーンアップを走らせる。
 
         Examples:
             >>> gs = GracefulStop()
@@ -77,7 +77,7 @@ class GracefulStop:
         self.run_cleanups()
 
     def run_cleanups(self) -> None:
-        """登録済みクリーンアップを一度だけ LIFO で実行します。
+        """登録済みクリーンアップを一度だけ LIFO で実行する。
 
         Examples:
             >>> gs = GracefulStop()
@@ -107,7 +107,7 @@ def register_signal_handlers(
     *,
     on_summary: Optional[Callable[[], None]] = None,
 ) -> None:
-    """SIGINT/SIGTERM に応じて協調的停止を実現するハンドラを登録します。
+    """SIGINT/SIGTERM に応じて協調的停止を実現するハンドラを登録する。
 
     Args:
         gs (GracefulStop): 停止フラグとクリーンアップを管理するコーディネータ。
@@ -126,7 +126,7 @@ def register_signal_handlers(
     """
 
     def _handler(signum: int, frame: object) -> None:
-        """受信したシグナルを契機に停止処理と要約出力を実行します。
+        """受信したシグナルを契機に停止処理と要約出力を実行する。
 
         Args:
             signum (int): 受信したシグナル番号。
