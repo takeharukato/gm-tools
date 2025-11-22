@@ -4,7 +4,7 @@
 
 gm-tools は複数ホスト間でのファイル収集・配布を支援する `gm-gather` と `gm-scatter` を提供するツールセットです。SSH 経由での転送や圧縮アーカイブを転送することによる複数ファイルの一括転送や配布ファイルのメタ情報を自動復元する機能などを備えています。
 
-使用方法の詳細は, [gm-gather 仕様](docs/gm-gather-spec.md), および, [gm-scatter 仕様](docs/gm-scatter-spec.md)を参照ください。
+使用方法の詳細は, [gm-gather 仕様](docs/gm-gather-specJP.md), および, [gm-scatter 仕様](docs/gm-scatter-specJP.md)を参照ください。
 
 ## 前提パッケージ
 
