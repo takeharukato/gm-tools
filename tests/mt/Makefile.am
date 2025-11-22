@@ -15,7 +15,7 @@
 ## 配布に含めたいファイル群
 ## 必要に応じて追加してください。
 EXTRA_DIST = \
-    run_test-module-test.sh \
+    run-test-module-test.sh \
     test_core_signal_handling.py \
     test_path_handling.py \
     test_scatter_pack_cleanup.py \
