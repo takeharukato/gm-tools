@@ -62,8 +62,8 @@ rm -rf %{buildroot}
 # shell completions
 %{_datadir}/bash-completion/completions/gm-gather.bash
 %{_datadir}/bash-completion/completions/gm-scatter.bash
-%{_datadir}/zsh/site-functions/_gm-gather.zsh
-%{_datadir}/zsh/site-functions/_gm-scatter.zsh
+%{_datadir}/zsh/site-functions/_gm-gather
+%{_datadir}/zsh/site-functions/_gm-scatter
 
 # man pages
 %{_mandir}/man1/gm-gather.1*

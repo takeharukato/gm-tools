@@ -37,3 +37,12 @@ EXTRA_DIST = \
 	$(doc_DATA) \
 	$(bashcompletion_DATA) \
 	$(zshcompletion_DATA)
+
+install-data-hook: rename-zsh-completions
+
+rename-zsh-completions:
+	@if test -d "$(DESTDIR)$(zshcompletiondir)"; then \
+		cd "$(DESTDIR)$(zshcompletiondir)"; \
+		if test -f _gm-gather.zsh; then mv -f _gm-gather.zsh _gm-gather; fi; \
+		if test -f _gm-scatter.zsh; then mv -f _gm-scatter.zsh _gm-scatter; fi; \
+	fi
