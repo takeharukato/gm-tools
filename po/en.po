@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gm-tools 0.1.0\n"
 "Report-Msgid-Bugs-To: tkato1219@gmail.com\n"
-"POT-Creation-Date: 2025-11-22 22:04+0900\n"
+"POT-Creation-Date: 2025-11-23 04:01+0900\n"
 "PO-Revision-Date: 2025-11-14 22:58+0900\n"
 "Last-Translator: Takeharu KATO <tkato1219@gmail.com>\n"
 "Language-Team: English\n"
@@ -67,32 +67,32 @@ msgstr "[pack] downloaded %s -> extracted %d file(s) to %s"
 msgid "[overwrite error] host=%(host)s dst=%(dst)s rc=%(rc)s err=%(err)s"
 msgstr "[overwrite error] host=%(host)s dst=%(dst)s rc=%(rc)s err=%(err)s"
 
-#: src/gm_tools/core_select.py:513 src/gm_tools/core_select.py:655
+#: src/gm_tools/core_select.py:513 src/gm_tools/core_select.py:706
 #, python-format
 msgid "reject SRC outside HOME (relative not confined): %s (%s)"
 msgstr "reject SRC outside HOME (relative not confined): %s (%s)"
 
-#: src/gm_tools/core_select.py:518 src/gm_tools/core_select.py:659
+#: src/gm_tools/core_select.py:518 src/gm_tools/core_select.py:710
 #, python-format
 msgid "skip non-absolute SRC after normalization (unexpected): %s"
 msgstr "skip non-absolute SRC after normalization (unexpected): %s"
 
-#: src/gm_tools/core_select.py:544
+#: src/gm_tools/core_select.py:555
 #, python-format
 msgid "directory-SRC detection failed for %s (%s)"
 msgstr "directory-SRC detection failed for %s (%s)"
 
-#: src/gm_tools/core_select.py:550 src/gm_tools/core_select.py:729
+#: src/gm_tools/core_select.py:561 src/gm_tools/core_select.py:780
 #, python-format
 msgid "bad SRC pattern %s: %s"
 msgstr "bad SRC pattern %s: %s"
 
-#: src/gm_tools/core_select.py:561
+#: src/gm_tools/core_select.py:572
 #, python-format
 msgid "bad regex for %s: %s"
 msgstr "bad regex for %s: %s"
 
-#: src/gm_tools/core_select.py:712
+#: src/gm_tools/core_select.py:763
 #, python-format
 msgid "directory-SRC sudo-walk failed at root=%s"
 msgstr "directory-SRC sudo-walk failed at root=%s"
