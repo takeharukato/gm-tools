@@ -540,6 +540,17 @@ def _enumerate_via_sftp_walk(
                             candidates.add(ap)
                     # この SRC については通常の正規表現ロジックには進まない
                     continue
+                if sftp_isfile(sftp_client, abs_norm):
+                    # 浅い listdir 最適化では「リテラルな通常ファイル」は正規表現側に流さず
+                    # ここで確定させることが前提。normalize_src_abs の末尾スラッシュ保持を
+                    # 誤ると regex 処理に進み, listdir 分岐が効かず取りこぼしが発生する。
+                    _LOG.debug(
+                        "File-SRC literal detected via abs path: src=%s abs_norm=%s",
+                        src,
+                        abs_norm,
+                    )
+                    candidates.add(abs_norm)
+                    continue
             except Exception as e:
                 _LOG.warning(_("directory-SRC detection failed for %s (%s)") % (src, e))
 
@@ -560,6 +571,46 @@ def _enumerate_via_sftp_walk(
         except re.error as e:
             _LOG.warning(_("bad regex for %s: %s") % (src, e))
             continue
+
+        # tail にサブディレクトリを含まない単純パターンなら, root の listdir だけで完結する
+        # 浅い最適化を試みる。listdir に失敗した場合は従来の再帰処理へフォールバックする。
+        simple_tail = tail_re if tail_re else ""
+        if simple_tail and "/" not in simple_tail:
+            try:
+                names = sftp_client.listdir(root)
+            except Exception:
+                names = None
+            if names is not None:
+                base_prefix = root if root == "/" else root.rstrip("/")
+                for name in names:
+                    # listdir で取得したリモート側の root 直下に存在する
+                    # エントリ（ファイル名やサブディレクトリ名など）内の
+                    # 各エントリを順番に調べる。
+                    # rel へ代入するのはこの後の正規表現判定で参照名を明示するための補助。
+                    rel = name
+                    # tail_reが空文字列でない場合は, 正規表現にマッチするかを判定する。
+                    # tail_re または '.*' の正規表現にマッチしない場合はこのエントリをスキップし,
+                    # 次の名前へ進む。tail_re が空文字列の場合は '.*' 扱いなので常にマッチする。
+                    if not rx.search(rel):
+                        continue
+                    # listdir で得たエントリ ( rel ) から正規表現にマッチするものだけを
+                    # root と結合し, ルートが '/' の場合とそれ以外でスラッシュ付与の扱いを変える。
+                    ap = ("/" if base_prefix == "/" else base_prefix + "/") + name
+                    try:
+
+                        if sftp_isfile(sftp_client, ap):
+                            # 通常ファイルをcandidates へ追加する。
+                            candidates.add(ap)
+                            continue
+                        if include_symlinks and sftp_islink(sftp_client, ap):
+                            # シンボリックリンクを含める指示があった場合は,
+                            # シンボリックリンクも candidates へ追加する。
+                            candidates.add(ap)
+                            continue
+                    except Exception:
+                        continue
+                # 単純列挙で処理したので次の SRC へ。
+                continue
 
         for ap in remote_walk_files(sftp_client, root, include_symlinks=include_symlinks):
             # root からの相対

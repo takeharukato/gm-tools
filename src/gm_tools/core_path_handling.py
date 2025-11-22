@@ -360,6 +360,16 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
 
     # パス部の正規化 : './' 折り畳み, '//' 1 本化, '\'
     head_rel = head_rel_raw.replace('\\', '/')
+    # パス末尾の '.' 連なりだけを一時退避して tail 側に戻す。'.' は正規表現の区切り記号に含めて
+    # いないため (CORE_PATH_HANDLING_REGEX_META_COMPILED 参照) この段階ではパス部分として残る。
+    # 直前のセパレータ有無も保持し, のちの再結合で元の "dir/.*" や "dir/.../pattern" などが
+    # 壊れないようにする。'?' や '*' 等の他メタ文字は既に tail 側に分離されるため影響しない。
+    idx_sep_scan = len(head_rel)
+    while idx_sep_scan > 0 and head_rel[idx_sep_scan - 1] == '.':
+        idx_sep_scan -= 1
+    dot_suffix = head_rel[idx_sep_scan:]
+    had_sep_before_tail = idx_sep_scan > 0 and head_rel[idx_sep_scan - 1] == '/'
+    head_rel = head_rel[:idx_sep_scan]
     head_rel = RE_REL_LEADING_DOT.sub("", head_rel)
     head_rel = RE_MULTI_SLASH.sub("/", head_rel).lstrip("/")
 
@@ -371,11 +381,28 @@ def normalize_src_abs(src: str, *, home_abs_for_tilde: str) -> str:
     head_clean = "/".join(parts)
 
     # 連結 ( head が空なら HOME 直下に tail をぶら下げる )
+    # 一時退避していた '.' 連なり ( dot_suffix ) を正規表現 tail の先頭へ戻し,
+    # home_abs 基準で構築した prefix と再結合する。prefix 末尾の区切りは
+    # 元の相対指定がスラッシュで終わっていたか (had_sep_before_tail) と
+    # head_clean の有無で決め, listdir 最適化で必要な "dir/.*" 形を壊さない。
+    tail_rel_raw = dot_suffix + tail_rel_raw
+
     base = (home_abs_for_tilde.rstrip('/') or '/')
+    prefix = base
     if head_clean:
-        return base + '/' + head_clean + tail_rel_raw
-    else:
-        return base + tail_rel_raw
+        if not prefix.endswith('/'):
+            prefix += '/'
+        prefix += head_clean
+    if not tail_rel_raw:
+        return prefix
+
+    # prefix は HOME 基準に head_clean をぶら下げた時点の基礎パス。
+    # need_sep は退避前に末尾セパレータが存在したか, もしくは head が空 (= '~/*.log') の
+    # 場合に真となり, tail を連結する前に区切り '/' を補うべきかを示す。
+    need_sep = had_sep_before_tail or not head_clean
+    if need_sep and not prefix.endswith('/'):
+        prefix += '/'
+    return prefix + tail_rel_raw
 
 def split_src_to_root_and_tail_regex(abs_path: str) -> tuple[str, str]:
     """絶対パスパターンを列挙用の root と tail に分割する。

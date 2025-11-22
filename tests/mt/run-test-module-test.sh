@@ -19,10 +19,12 @@
 #   2) chmod +x run-test-module-test.sh
 #   3) ./run-test-module-test.sh
 set -Eeuo pipefail
-PYTHONPATH=. python3 -m pytest -q ../tests/test_core_signal_handling.py
-PYTHONPATH=. python3 -m pytest -q ../tests/test_path_handling.py
-PYTHONPATH=. python3 -m pytest -q ../tests/test_scatter_pack_cleanup.py
-PYTHONPATH=. python3 -m pytest -q ../tests/test_test_common_cleanup.py
-PYTHONPATH=. python3 -m pytest -q ../tests/test_test_common_config.py
-PYTHONPATH=. python3 -m pytest -q ../tests/test_test_common_ssh.py
+PYTHONPATH=. python3 -m pytest -q ../tests/mt/test_core_signal_handling.py
+PYTHONPATH=. python3 -m pytest -q ../tests/mt/test_path_handling.py
+PYTHONPATH=. python3 -m pytest -q ../tests/mt/test_scatter_pack_cleanup.py
+PYTHONPATH=. python3 -m pytest -q ../tests/mt/test_test_common_cleanup.py
+PYTHONPATH=. python3 -m pytest -q ../tests/mt/test_test_common_config.py
+PYTHONPATH=. python3 -m pytest -q ../tests/mt/test_test_common_ssh.py
+PYTHONPATH=. python3 -m pytest -q ../tests/mt/test_core_path_handling.py
+PYTHONPATH=. python3 -m pytest -q ../tests/mt/test_core_select.py
 echo "=== All test-framework tests finished ==="
