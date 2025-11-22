@@ -130,8 +130,9 @@ _gm_gather()
         return
     fi
 
-    # 位置引数は自由入力とする
-    COMPREPLY=()
+    # 位置引数はローカルファイル, ローカルディレクトリで補完 (少なくともDESTには有効であるため)
+    compopt -o filenames
+    COMPREPLY=( $(compgen -f -- "$cur") )
 }
 
 # command name aliases
