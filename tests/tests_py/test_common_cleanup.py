@@ -23,7 +23,6 @@ import shutil
 from pathlib import Path
 from .test_common_paths import ensure_under as _ensure_under
 
-
 def safe_rmtree_abs(path: Union[str, Path], *, ensure_under: Optional[Union[str, Path]] = None) -> None:
     """
     絶対パスに対してのみ安全に rmtree を実行します ( 公開関数 ) 。
@@ -33,10 +32,10 @@ def safe_rmtree_abs(path: Union[str, Path], *, ensure_under: Optional[Union[str,
         ensure_under (Optional[Union[str, Path]]): 指定時は, この配下の削除のみ許可します。
 
     Notes:
-        `path` が symlink の場合は削除しません。
-        `path` が存在しない場合は何もしません。
-        `path` が相対の場合は何もしません ( 安全性のため ) 。
-        削除時の例外は握りつぶします ( best-effort ) 。
+        - `path` が symlink の場合は削除しません。
+        - `path` が存在しない場合は何もしません。
+        - `path` が相対の場合は何もしません ( 安全性のため ) 。
+        - 削除時の例外は握りつぶします ( best-effort ) 。
     """
     try:
         # 文字列化して安全確認 ( ensure_under は文字列パスで評価 )
@@ -72,7 +71,7 @@ def cleanup_dir(path: Union[str, Path]) -> None:
     任意パスを安全に削除するラッパーです。
 
     Args:
-        - path (Union[str, Path]): 削除対象のパス。
+        path (Union[str, Path]): 削除対象のパス。
     """
     safe_rmtree_abs(path)
 

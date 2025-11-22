@@ -15,10 +15,9 @@
 パス操作ユーティリティ。絶対パスの正規化と探索ヘルパを提供します。
 
 Notes:
-- 安全性を優先し, 一部の関数は例外発生時に保守的な結果 ( False / None ) を返します。
+    - 安全性を優先し, 一部の関数は例外発生時に保守的な結果 ( False / None ) を返します。
 """
-# tests/tests_py/test_common_paths.py
-# 共有パスユーティリティ
+
 from __future__ import annotations
 
 import os

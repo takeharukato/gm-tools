@@ -16,10 +16,8 @@ JSON summary の統一実装。
 
 Version: 1 (2025-11-16)
 
-Step4/5/6 runner に共通の JSON 形式 (schema version 1) を生成・出力します。
+runner共通の JSON 形式 (schema version 1) を生成・出力します。
 """
-# tests/tests_py/test_common_json.py
-# JSON summary の統一実装
 
 from __future__ import annotations
 

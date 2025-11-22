@@ -22,9 +22,6 @@ import subprocess
 from typing import Dict, List, Optional, Union
 from .test_common_ssh import ssh_run_raw as _ssh_run_raw
 
-
-# raw ssh 実行は共有ヘルパに委譲する ( Config 非依存 )
-
 def remote_find_tree_script(
     ssh_user: str,
     host: str,

@@ -12,9 +12,9 @@
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
 """
-Step7: Common runner framework
+共通 runner framework
 
-    - Step4/Step5/Step6 runner の共通処理
+    - runner の共通処理
     - case_xxx の例外捕捉
     - CaseResult 化
     - cleanup の呼び出し
@@ -88,7 +88,7 @@ def run_cases(
     cases: List[Tuple[str, Callable[[Config], CaseResult]]],
 ) -> SummaryDict:
     """
-    Step4/5/6 runner 共通処理を実行します。各ケースの安全実行, メタ情報付与,
+    runner 共通処理を実行します。各ケースの安全実行, メタ情報付与,
     cleanup, サマリ生成と出力までを行います。
 
     Args:

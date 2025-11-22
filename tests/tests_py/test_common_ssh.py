@@ -141,7 +141,7 @@ def dummy_open_ssh(host: str) -> SSHClientLike:
     Returns:
         SSHClientLike: ダミーオブジェクト。
     """
-    _ = host
+    _dummy = host
     return cast(SSHClientLike, object())
 
 
@@ -155,5 +155,5 @@ def dummy_open_sftp(ssh: SSHClientLike) -> SFTPClientLike:
     Returns:
         SFTPClientLike: ダミーオブジェクト。
     """
-    _ = ssh
+    _dummy = ssh
     return cast(SFTPClientLike, object())

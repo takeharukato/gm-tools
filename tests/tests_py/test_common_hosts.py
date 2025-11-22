@@ -12,10 +12,9 @@
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
 """
-hosts ファイルの一時生成と追跡を行うユーティリティ。
+テスト用hostfileの一時生成と追跡を行うユーティリティ。
 """
-# tests/tests_py/test_common_hosts.py
-# 共通: hostsファイルユーティリティ
+
 from __future__ import annotations
 
 import os

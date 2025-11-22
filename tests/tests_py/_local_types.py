@@ -117,7 +117,7 @@ class CaseResult:
         """JSON 出力用の辞書に変換します。
 
         Returns:
-        - SummaryResultEntry: ケース結果の辞書表現。
+            SummaryResultEntry: ケース結果の辞書表現。
         """
         return {
             "name": self.name,
@@ -129,7 +129,15 @@ class CaseResult:
 
 
 class SummaryResultEntry(TypedDict):
-    """ケース結果の JSON スキーマを表す TypedDict。"""
+    """ケース結果の JSON スキーマを表す TypedDict。
+
+    Attributes:
+        name (str): ケース名。
+        passed (bool): 合格フラグ。
+        skipped (bool): スキップフラグ。
+        reason (str): 失敗/スキップ理由。
+        details (Dict[str, Any]): 付随メタ情報。
+    """
     name: str
     passed: bool
     skipped: bool
@@ -138,7 +146,25 @@ class SummaryResultEntry(TypedDict):
 
 
 class ConfigSnapshot(TypedDict):
-    """`Config` のスナップショット表現。シリアライズ前提の簡易形。"""
+    """`Config` のスナップショット表現。シリアライズ前提の簡易形。
+
+    Attributes:
+        ssh_user (str): SSH 接続ユーザ。
+        target_user (str): 対象操作ユーザ。
+        hosts_both (List[str]): テスト対象ホスト一覧。
+        host_ubuntu (str): 代表 Ubuntu ホスト。
+        host_alma (str): 代表 AlmaLinux ホスト。
+        ssh_port (int): SSH ポート番号。
+        ssh_strict (str): StrictHostKeyChecking の設定文字列。
+        ssh_strict_bool (bool): StrictHostKeyChecking のブール正規化。
+        remote_dest_root (str): リモートの出力ルート。
+        local_work_root (str): ローカルの作業ルート。
+        local_root (str): ローカルの作業ルート ( 互換エイリアス ) 。
+        gm_gather_cmd (List[str]): gather CLI コマンド ( 分割済 ) 。
+        gm_scatter_cmd (List[str]): scatter CLI コマンド ( 分割済 ) 。
+        verbose (bool): 冗長出力フラグ。
+        parallel (int): 並列度。
+    """
     ssh_user: str
     target_user: str
     hosts_both: List[str]
@@ -157,7 +183,15 @@ class ConfigSnapshot(TypedDict):
 
 
 class SummaryDict(TypedDict):
-    """ランナー実行サマリの JSON スキーマ。"""
+    """ランナー実行サマリの JSON スキーマ。
+
+    Attributes:
+        version (int): スキーマバージョン。
+        timestamp (str): 実行日時。
+        step (int): ステップ番号。
+        config (ConfigSnapshot): 収集時の構成スナップショット。
+        results (List[SummaryResultEntry]): テスト結果一覧。
+    """
     version: int
     timestamp: str
     step: int

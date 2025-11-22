@@ -14,7 +14,7 @@
 """
 ローカル一時ディレクトリのクリーンアップと, ローカル実行の薄いラッパを提供します。
 """
-# tests/tests_py/test_common_local.py
+
 from __future__ import annotations
 
 import os
