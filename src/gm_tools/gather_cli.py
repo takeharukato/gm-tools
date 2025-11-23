@@ -29,7 +29,6 @@ import os
 import sys
 import shlex
 import argparse
-import getpass
 
 import logging
 from argparse import BooleanOptionalAction
@@ -45,8 +44,6 @@ from .core_ssh import (
     SSHConfig,
     SSHClientLike,
     SFTPClientLike,
-    DEFAULT_SSH_PORT,
-    DEFAULT_TIMEOUT,
     ssh_open,
     finalize_sockets,
 )
@@ -74,7 +71,6 @@ from .core_cmd_flavor import run_remote_cmd_capture
 from .core_remote_path import detect_remote_home
 from .gather_parallel import execute as run_parallel
 from .core_constants import (
-    DEFAULT_PARALLEL_HOSTS,
     EXIT_OK,
     EXIT_ERR_ARGS,
     EXIT_ERR_NO_HOSTS,
@@ -82,15 +78,15 @@ from .core_constants import (
     RE_SAFE_HOST_PTN
 )
 from .core_cli_support import (
-    validate_cli_positional_args,
+    add_common_cli_options,
     filter_hosts_by_connectivity,
+    validate_cli_positional_args,
 )
 from .core_logging import (
     init_logging,
     shutdown_logging,
     HostLogAggregator,
 )
-from .core_constants import DEFAULT_HOSTS_FILE
 from .core_i18n import setup_gettext
 from .core_signal_handling import (
     GracefulStop,
@@ -135,52 +131,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("dest", help=_("Local destination directory."))
 
-    # SSH
-    parser.add_argument(
-        "-H",
-        "--hosts",
-        default=DEFAULT_HOSTS_FILE,
-        help=_("Hosts file. Default: %(default)s."),
-    )
-    parser.add_argument(
-        "-u", "--user", default=getpass.getuser(), help=_("Target account on remote %(default)s.")
-    )
-    parser.add_argument(
-        "-s", "--ssh-user", default=None, help=_("SSH login user. Default: same as --user.")
-    )
-    parser.add_argument(
-        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: %(default)s.")
-    )
-    parser.add_argument("-K", "--key", default=None, help=_("SSH private key file."))
-    parser.add_argument("-W", "--password", default=None, help=_("SSH password (not recommended)."))
-    parser.add_argument(
-        "-T",
-        "--timeout",
-        type=float,
-        default=DEFAULT_TIMEOUT,
-        help=_("SSH/command timeout seconds. Default: %(default)s."),
-    )
-    parser.add_argument(
-        "-S", "--strict-host-key-checking", action="store_true", help=_("Enable strict host key checking.")
-    )
-
-    # 実行
-    parser.add_argument(
-        "-j",
-        "--parallel",
-        type=int,
-        default=DEFAULT_PARALLEL_HOSTS,
-        help=_("Parallel hosts (not parallel per-host). Default: %(default)s."),
-    )
-    parser.add_argument("-n", "--dry-run", action="store_true", help=_("Show plan only; do not download."))
-    parser.add_argument("-v", "--verbose", action="store_true", help=_("Verbose logs."))
-    parser.add_argument("--pack", action="store_true", help=_("Pack on remote (tar.gz) and download once."))
-    # --follow-symlinksは, ファイルへのシンボリックリンクをたどることを指示する
-    #  ディレクトリへのシンボリックリンクについては未対応
-    parser.add_argument(
-        "--follow-symlinks",
-        action="store_true",
-        help=_("When used with --pack, dereference symlinks on remote."),
+    # 共通オプション群の追加
+    add_common_cli_options(
+        parser,
+        help_overrides={
+            "user": _("Target account on remote %(default)s."),
+            "dry_run": _("Show plan only; do not download."),
+            "pack": _("Pack on remote (tar.gz) and download once."),
+        },
     )
     parser.add_argument(
         "-x",
@@ -568,10 +526,10 @@ def main() -> None:
         >>> main()  # doctest: +SKIP
     """
 
-    # 1. 国際化初期化
+    # 国際化初期化
     setup_gettext()
 
-    # 2. 引数解析
+    # 引数解析
     parser: argparse.ArgumentParser = build_parser()
     args: argparse.Namespace = parser.parse_args()
 

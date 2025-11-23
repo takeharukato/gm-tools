@@ -25,19 +25,21 @@ Examples:
 
 from __future__ import annotations
 
-import sys
+import argparse
+import getpass
 import logging
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gettext import gettext as _
 
-from .core_constants import DEFAULT_PARALLEL_HOSTS, EXIT_ERR_ARGS
+from .core_constants import DEFAULT_HOSTS_FILE, DEFAULT_PARALLEL_HOSTS, EXIT_ERR_ARGS
 from .core_path_handling import is_bare_tilde, tilde_username
-from .core_ssh import SSHConfig, close_connections, ssh_open
+from .core_ssh import DEFAULT_SSH_PORT, DEFAULT_TIMEOUT, SSHConfig, close_connections, ssh_open
 
 # CLI 初期化より前に doctest や単体テストから呼ばれても英語メッセージを返せるよう,
 # _ が未定義な場合は英語を返すフォールバックを用意
@@ -54,6 +56,91 @@ ERROR_CODE_SRC_BARE_TILDE: int = 3
 ERROR_CODE_SRC_TILDE_USERNAME: int = 4
 ERROR_CODE_DEST_BARE_TILDE: int = 5
 ERROR_CODE_DEST_TILDE_USERNAME: int = 6
+
+
+def _dest_for_option(option_strings: Sequence[str], kwargs: Mapping[str, Any]) -> str:
+    """オプション文字列とキーワード引数から ``argparse`` の ``dest`` 名を推定する。
+
+    Args:
+        option_strings (Sequence[str]): ``argparse`` で指定されたオプション名の列。
+        kwargs (Mapping[str, Any]): ``add_argument`` に渡される追加パラメーター。
+
+    Returns:
+        str: 推定された ``dest`` 名。
+
+    Examples:
+        >>> _dest_for_option(["--sample"], {})
+        'sample'
+        >>> _dest_for_option(["-s", "--sample-size"], {})
+        'sample_size'
+        >>> _dest_for_option(["-k"], {"dest": "key_file"})
+        'key_file'
+    """
+
+    explicit = kwargs.get("dest")
+    if explicit:
+        return str(explicit)
+
+    long_forms = [opt for opt in option_strings if opt.startswith("--")]
+    candidate: str
+    if long_forms:
+        candidate = long_forms[0][2:]
+    else:
+        candidate = option_strings[0].lstrip("-")
+    return candidate.replace("-", "_")
+
+
+def add_common_cli_options(
+    parser: argparse.ArgumentParser,
+    *,
+    help_overrides: Optional[Mapping[str, str]] = None,
+) -> argparse.ArgumentParser:
+    """共通の gm-tools CLI オプションを指定されたパーサーへ登録する。
+
+    Args:
+        parser (argparse.ArgumentParser): オプションを追加する ``ArgumentParser`` インスタンス。
+        help_overrides (Optional[Mapping[str, str]]): ``dest`` 名をキーとしたヘルプ文言の上書き辞書。
+
+    Returns:
+        argparse.ArgumentParser: 共通オプションの登録後も引き続き利用できる ``ArgumentParser``。
+
+    Examples:
+        >>> import argparse
+        >>> parser = argparse.ArgumentParser(prog="gm-tool", add_help=False)
+        >>> result = add_common_cli_options(parser)
+        >>> result is parser
+        True
+        >>> parser.parse_args(["--hosts", "hosts.list"]).hosts
+        'hosts.list'
+    """
+
+    overrides: Dict[str, str] = dict(help_overrides or {})
+
+    current_user: str = getpass.getuser()
+    option_defs: Tuple[Tuple[Tuple[str, ...], Dict[str, Any]], ...] = (
+        (("-H", "--hosts"), {"default": DEFAULT_HOSTS_FILE, "help": _("Hosts file. Default: %(default)s.")}),
+        (("-u", "--user"), {"default": current_user, "help": _("Target account for remote operations. Default: %(default)s.")}),
+        (("-s", "--ssh-user"), {"default": None, "help": _("SSH login user. Default: same as --user.")}),
+        (("-P", "--port"), {"type": int, "default": DEFAULT_SSH_PORT, "help": _("SSH port. Default: %(default)s.")}),
+        (("-K", "--key"), {"default": None, "help": _("SSH private key file.")}),
+        (("-W", "--password"), {"default": None, "help": _("SSH password (not recommended).")}),
+        (("-T", "--timeout"), {"type": float, "default": DEFAULT_TIMEOUT, "help": _("SSH/command timeout seconds. Default: %(default)s.")}),
+        (("-S", "--strict-host-key-checking"), {"action": "store_true", "help": _("Enable strict host key checking.")}),
+        (("-j", "--parallel"), {"type": int, "default": DEFAULT_PARALLEL_HOSTS, "help": _("Parallel hosts (not parallel per-host). Default: %(default)s.")}),
+        (("-n", "--dry-run"), {"action": "store_true", "help": _("Show plan only; no transfer is performed.")}),
+        (("-v", "--verbose"), {"action": "store_true", "help": _("Verbose logs.")}),
+        (("--pack",), {"action": "store_true", "help": _("Pack transfer as tar.gz once per host.")}),
+        (("--follow-symlinks",), {"action": "store_true", "help": _("When used with --pack, dereference symlinks on remote.")}),
+    )
+
+    for option_strings, base_kwargs in option_defs:
+        kwargs: Dict[str, Any] = dict(base_kwargs)
+        dest_name: str = _dest_for_option(option_strings, kwargs)
+        if dest_name in overrides:
+            kwargs["help"] = overrides[dest_name]
+        parser.add_argument(*option_strings, **kwargs)
+
+    return parser
 
 
 @dataclass

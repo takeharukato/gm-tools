@@ -26,7 +26,6 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import getpass
 import os
 import sys
 import logging
@@ -43,13 +42,12 @@ if TYPE_CHECKING:
 from .core_common import get_host_list_from_hostfile
 from .core_report import NullTransferReport
 from .core_constants import (
-    DEFAULT_HOSTS_FILE,
-    DEFAULT_PARALLEL_HOSTS,
     EXIT_ERR_ARGS,
     EXIT_ERR_NO_HOSTS,
     EXIT_OK,
 )
 from .core_cli_support import (
+    add_common_cli_options,
     validate_cli_positional_args,
     filter_hosts_by_connectivity,
 )
@@ -76,7 +74,6 @@ from .core_scatter import (
 from .core_select import Plan, PlanEntry, enumerate_candidates_local
 from .core_selinux import SelinuxMode
 from .core_ssh import (
-    DEFAULT_SSH_PORT,
     DEFAULT_TIMEOUT,
     SFTPClientLike,
     SSHClientLike,
@@ -124,48 +121,20 @@ def build_parser() -> argparse.ArgumentParser:
         "  - for relative SRC: the original relative path"),
         formatter_class=argparse.RawTextHelpFormatter,
     )
+
     # 位置引数: SRC ... DEST
     parser.add_argument("src", nargs="+", help=_("Local SRC paths (abs or rel)"))
     parser.add_argument("dest", help=_("Remote DEST ( supports /abs, ~/, and relative-from-remote-home )"))
 
-    # SSH
-    parser.add_argument(
-        "-H", "--hosts", default=DEFAULT_HOSTS_FILE, help=_("Hosts file. Default: %(default)s.")
+    # 共通オプション群の追加
+    add_common_cli_options(
+        parser,
+        help_overrides={
+            "user": _("Target account on remote."),
+            "dry_run": _("Show plan only; do not upload."),
+            "pack": _("Pack locally (tar.gz) then extract remotely."),
+        },
     )
-    parser.add_argument(
-        "-u", "--user", default=getpass.getuser(), help=_("Target account semantics on remote.")
-    )
-    parser.add_argument(
-        "-s", "--ssh-user", default=None, help=_("SSH login user. Default: same as --user.")
-    )
-    parser.add_argument(
-        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: %(default)s.")
-    )
-    parser.add_argument("-K", "--key", default=None, help=_("SSH private key file."))
-    parser.add_argument("-W", "--password", default=None, help=_("SSH password (not recommended)."))
-    parser.add_argument(
-        "-T",
-        "--timeout",
-        type=float,
-        default=DEFAULT_TIMEOUT,
-        help=_("SSH/command timeout seconds. Default: %(default)s."),
-    )
-    parser.add_argument(
-        "-S", "--strict-host-key-checking", action="store_true", help=_("Enable strict host key checking.")
-    )
-
-    # 実行
-    parser.add_argument(
-        "-j",
-        "--parallel",
-        type=int,
-        default=DEFAULT_PARALLEL_HOSTS,
-        help=_("Parallel hosts (not parallel per-host). Default: %(default)s."),
-    )
-    parser.add_argument("-n", "--dry-run", action="store_true", help=_("Show plan only; do not upload."))
-    parser.add_argument("-v", "--verbose", action="store_true", help=_("Verbose logs."))
-    parser.add_argument("--pack", action="store_true", help=_("Pack locally (tar.gz) then extract remotely."))
-    parser.add_argument("--follow-symlinks", action="store_true", help=_("When packing, dereference symlinks."))
 
     # tri-state: True (--sudo-extract), False (--no-sudo-extract), None (auto)
     parser.add_argument(
@@ -175,7 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=_("Force sudo for remote mkdir/extract when packing (use --no-sudo-extract to force off). Omitted = auto."),
     )
-    # SELinux は pack 経路のみで使用
+    # SELinux は --pack 指定時のみ使用可能
     parser.add_argument(
         "--selinux",
         choices=["auto", "policy", "ignore"],
@@ -710,10 +679,10 @@ def main() -> None:
             out.append(v)
         return out
 
-    # 1. 国際化初期化
+    # 国際化初期化
     setup_gettext()
 
-    # 2. 引数解析
+    # 引数解析
     parser: argparse.ArgumentParser = build_parser()
     args: Namespace = parser.parse_args()
 
