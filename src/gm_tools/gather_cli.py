@@ -574,26 +574,17 @@ def main() -> None:
     parser: argparse.ArgumentParser = build_parser()
     args: argparse.Namespace = parser.parse_args()
 
-    # --- デバッグ常時表示のため, 最初にロギング初期化 ( 既存handlerが無ければ )  ---
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        # 既存の core_logging のフォーマットを使いたい場合は init_logging を使う
-        #  ( run_parallel 側でも初期化されるが, 重複追加しない実装なら問題なし )
-        init_logging(verbose=True)
-    else:
-        # 既に何かしらの初期化が済んでいる環境でも INFO を出す
-        root_logger.setLevel(logging.INFO)
-
-    # 位置引数の検証
+    # 位置引数の検証 ( scatter と同様の方針 )
     if len(args.src) < 1 or not args.dest:
         print(_("At least one SRC and a DEST are required."), file=sys.stderr)
         sys.exit(EXIT_ERR_ARGS)
 
-
+    # DEST の妥当性検証
     _dest_raw: str = str(args.dest)
     if is_bare_tilde(_dest_raw):
         print(_("bare tilde is not allowed"), file=sys.stderr)
         sys.exit(EXIT_ERR_ARGS)
+
     # DEST: '~user' は非対応なので明示エラー
     _dest_tilde_user: Optional[str] = tilde_username(_dest_raw)
     if _dest_tilde_user is not None:
@@ -608,8 +599,10 @@ def main() -> None:
     if not is_local_abs(dest_local):
         dest_local = os.path.abspath(dest_local)
 
+    #
+    # SRC の妥当性検証
+    #
     srcs: List[str] = list(args.src)
-
     # SRC に '~user' が含まれていればエラー ( 共通仕様 )
     for s in srcs:
         u: Optional[str] = tilde_username(s)
@@ -621,9 +614,22 @@ def main() -> None:
             print(_("bare tilde is not allowed"), file=sys.stderr)
             sys.exit(EXIT_ERR_ARGS)
 
-    hosts: List[str] = parse_hosts_file(str(args.hosts))
+    # ホストファイル解析
+    try:
+        hosts: List[str] = parse_hosts_file(str(args.hosts))
+
+    except FileNotFoundError as exc:
+        print(_("No hostfile found: hostfile='{fname}' {err}").format(fname=str(args.hosts), err=str(exc)), file=sys.stderr)
+        sys.exit(EXIT_ERR_ARGS)
+
+    except OSError as exc:
+        print(_("Can not read hostfile: hostfile='{fname}' {err}").format(fname=str(args.hosts), err=str(exc)), file=sys.stderr)
+        sys.exit(EXIT_ERR_ARGS)
+    finally:
+        pass
+
     if len(hosts) == 0:
-        print(_("No hosts found in hosts file."), file=sys.stderr)
+        print(_("No hosts found in hostfile: hostfile='{fname}'").format(fname=str(args.hosts)), file=sys.stderr)
         sys.exit(EXIT_ERR_NO_HOSTS)
 
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)

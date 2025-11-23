@@ -731,13 +731,28 @@ def main() -> None:
     args: Namespace = parser.parse_args()
 
     # 位置引数検証 ( gather と同様の方針 )
+    # Note: 単体の~や~user 指定に関するエラーハンドリングは,
+    # _build_plan_for_host 側で, _resolve_remote_destを用いて実施する。
     if len(args.src) < 1 or not args.dest:
         print(_("At least one SRC and a DEST are required."), file=sys.stderr)
         sys.exit(EXIT_ERR_ARGS)
 
-    hosts: List[str] = parse_hosts_file(str(args.hosts))
+    # ホストファイル解析
+    try:
+        hosts: List[str] = parse_hosts_file(str(args.hosts))
+
+    except FileNotFoundError as exc:
+        print(_("No hostfile found: hostfile='{fname}' {err}").format(fname=str(args.hosts), err=str(exc)), file=sys.stderr)
+        sys.exit(EXIT_ERR_ARGS)
+
+    except OSError as exc:
+        print(_("Can not read hostfile: hostfile='{fname}' {err}").format(fname=str(args.hosts), err=str(exc)), file=sys.stderr)
+        sys.exit(EXIT_ERR_ARGS)
+    finally:
+        pass
+
     if len(hosts) == 0:
-        print(_("No hosts found in hosts file."), file=sys.stderr)
+        print(_("No hosts found in hostfile: hostfile='{fname}'").format(fname=str(args.hosts)), file=sys.stderr)
         sys.exit(EXIT_ERR_NO_HOSTS)
 
     # per-host の Plan/Meta 構築 ( 接続確立もここで実施し DI で渡す )
