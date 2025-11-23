@@ -12,7 +12,7 @@
 # OpenAIのChatGPTがこのコードの一部を生成しました。
 # 著者が修正している部分があります。
 
-"""CLI向け位置引数検証の共通ヘルパーを提供するモジュール。
+"""CLI向け引数検証の共通ヘルパーを提供するモジュール。
 
 Examples:
     >>> from gm_tools.core_cli_support import validate_cli_positional_args
@@ -25,15 +25,17 @@ Examples:
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gettext import gettext as _
 
-from .core_constants import EXIT_ERR_ARGS
+from .core_constants import DEFAULT_PARALLEL_HOSTS, EXIT_ERR_ARGS
 from .core_path_handling import is_bare_tilde, tilde_username
+from .core_ssh import SSHConfig, close_connections, ssh_open
 
 # CLI 初期化より前に doctest や単体テストから呼ばれても英語メッセージを返せるよう,
 # _ が未定義な場合は英語を返すフォールバックを用意
@@ -54,14 +56,14 @@ ERROR_CODE_DEST_TILDE_USERNAME: int = 6
 
 @dataclass
 class CliPositionalValidationResult:
-    """CLI位置引数検証の結果を格納するデータクラス。
+    """CLI位置引数検証の結果を保持するデータクラス。
 
     Attributes:
-        normalized_srcs (List[str]): 検証済みSRCトークンのリスト。
-        normalized_dest (str): 検証済みDESTトークン。
+        normalized_srcs (List[str]): 検証済み SRC トークンのリスト。
+        normalized_dest (str): 検証済み DEST トークン。
         error_code (int): エラー要因を表す数値コード。
         exit_code (int): 推奨される終了コード。
-        error_message (Optional[str]): メッセージ。平常時は ``None``。
+        error_message (Optional[str]): エラーメッセージ。平常時は ``None``。
 
     Examples:
         >>> CliPositionalValidationResult(['a'], 'b', ERROR_CODE_OK, EXIT_ERR_ARGS).has_error()
@@ -75,10 +77,10 @@ class CliPositionalValidationResult:
     error_message: Optional[str] = None
 
     def has_error(self) -> bool:
-        """結果がエラーかどうかを返す。
+        """検証結果にエラーが存在するかを判定する。
 
         Returns:
-            bool: ``True`` の場合はエラー, ``False`` の場合は正常。
+            bool: エラーがある場合は ``True``、正常なら ``False``。
 
         Examples:
             >>> CliPositionalValidationResult(['a'], 'dest', ERROR_CODE_OK, EXIT_ERR_ARGS).has_error()
@@ -88,6 +90,40 @@ class CliPositionalValidationResult:
         """
 
         return self.error_code != ERROR_CODE_OK
+
+
+@dataclass
+class HostConnectivityValidationResult:
+    """ホストごとの SSH/SFTP 接続検証結果を保持するデータクラス。
+
+    Attributes:
+        reachable_hosts (List[str]): 接続と SFTP オープンに成功したホスト一覧。
+        unreachable_hosts (List[str]): 接続または SFTP オープンに失敗したホスト一覧。
+        errors (Dict[str, str]): 失敗ホストに紐づくエラーメッセージ。
+
+    Examples:
+        >>> HostConnectivityValidationResult(['ok'], ['ng'], {'ng': 'error'}).has_failures()
+        True
+    """
+
+    reachable_hosts: List[str]
+    unreachable_hosts: List[str]
+    errors: Dict[str, str]
+
+    def has_failures(self) -> bool:
+        """一つでも接続失敗を含むかを判定する。
+
+        Returns:
+            bool: 失敗を含む場合は ``True``、全ホスト成功時は ``False``。
+
+        Examples:
+            >>> HostConnectivityValidationResult(['ok'], [], {}).has_failures()
+            False
+            >>> HostConnectivityValidationResult([], ['ng'], {'ng': 'err'}).has_failures()
+            True
+        """
+
+        return bool(self.unreachable_hosts)
 
 
 def validate_cli_positional_args(
@@ -202,4 +238,133 @@ def validate_cli_positional_args(
         error_code=ERROR_CODE_OK,
         exit_code=exit_code_default,
         error_message=None,
+    )
+
+
+def validate_hosts_connectivity(
+    hosts: Sequence[str],
+    *,
+    ssh_user: Optional[str],
+    port: int,
+    key_filename: Optional[str],
+    password: Optional[str],
+    timeout: float,
+    strict_host_key_checking: bool,
+    debug_print: bool = False,
+    max_workers: Optional[int] = None,
+) -> HostConnectivityValidationResult:
+    """SSH および SFTP 接続可否を確認する。
+
+    Args:
+        hosts (Sequence[str]): 検証対象となるホスト名またはアドレスの列。
+        ssh_user (Optional[str]): SSH 接続に使用するユーザー名。
+        port (int): SSH ポート番号。
+        key_filename (Optional[str]): 秘密鍵ファイルのパス。
+        password (Optional[str]): パスワード認証に使用する文字列。
+        timeout (float): 接続・SFTP オープンのタイムアウト秒数。
+        strict_host_key_checking (bool): Known Hosts の厳格検証を行う場合は ``True``。
+        debug_print (bool): ``ssh_open`` のデバッグ出力可否。
+        max_workers (Optional[int]): 並行実行するスレッド数の上限。 ``None`` の場合は
+            ``min(len(hosts), DEFAULT_PARALLEL_HOSTS)`` を用いる。
+
+    Returns:
+        HostConnectivityValidationResult: 接続可否の判定結果。
+
+    Examples:
+        >>> validate_hosts_connectivity(['example'], ssh_user=None, port=22,  # doctest: +SKIP
+        ...     key_filename=None, password=None, timeout=5.0,
+        ...     strict_host_key_checking=False)  # doctest: +SKIP
+        HostConnectivityValidationResult(...)
+    """
+
+    host_items: List[str] = [str(h) for h in hosts]
+    if not host_items:
+        return HostConnectivityValidationResult(
+            reachable_hosts=[],
+            unreachable_hosts=[],
+            errors={},
+        )
+
+    worker_count: int
+    if max_workers is None:
+        worker_count = min(len(host_items), DEFAULT_PARALLEL_HOSTS)
+    else:
+        worker_count = int(max_workers)
+    if worker_count <= 0:
+        worker_count = 1
+
+    def _probe_host(host_value: str) -> Tuple[str, bool, Optional[str]]:
+        """単一ホストに対する SSH/SFTP 接続可否を試行する。
+
+        Args:
+            host_value (str): 接続検証対象のホスト文字列。
+
+        Returns:
+            Tuple[str, bool, Optional[str]]: ``(ホスト名, 成功フラグ, エラーメッセージ)``。
+
+        Examples:
+            >>> _probe_host('example')  # doctest: +SKIP
+            ('example', True, None)
+        """
+        host_str: str = str(host_value).strip()
+        if not host_str:
+            return "", False, _("host value is empty")
+
+        cfg: SSHConfig = SSHConfig(
+            host=host_str,
+            port=int(port),
+            ssh_user=ssh_user,
+            key_filename=key_filename,
+            password=password,
+            timeout=float(timeout),
+            strict_host_key_checking=bool(strict_host_key_checking),
+        )
+
+        ssh = None
+        sftp = None
+        try:
+            try:
+                ssh = ssh_open(cfg, debug_print=debug_print)
+            except Exception as exc:
+                message = _("Failed to establish SSH connection: {error}").format(error=str(exc))
+                return host_str, False, message
+
+            try:
+                sftp = ssh.open_sftp()
+            except Exception as exc:
+                message = _("Failed to open SFTP session: {error}").format(error=str(exc))
+                return host_str, False, message
+
+            return host_str, True, None
+        finally:
+            if sftp is not None:
+                try:
+                    sftp.close()
+                except Exception:
+                    pass
+            if ssh is not None:
+                try:
+                    ssh.close()
+                except Exception:
+                    pass
+            if host_str:
+                close_connections(host_str)
+
+    reachable: List[str] = []
+    unreachable: List[str] = []
+    errors: Dict[str, str] = {}
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        for host_str, success, message in executor.map(_probe_host, host_items):
+            if success:
+                reachable.append(host_str)
+            else:
+                unreachable.append(host_str)
+                if message:
+                    errors[host_str] = message
+
+    return HostConnectivityValidationResult(
+        reachable_hosts=reachable,
+        unreachable_hosts=unreachable,
+        errors=errors,
     )
