@@ -26,6 +26,7 @@ python_PYTHON = \
     gm_tools/core_signal_handling.py \
     gm_tools/core_ssh.py \
     gm_tools/core_xattr.py \
+    gm_tools/core_cli_support.py \
     gm_tools/gather_cli.py \
     gm_tools/gather_parallel.py \
     gm_tools/scatter_cli.py \
