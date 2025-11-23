@@ -29,7 +29,6 @@ import os
 import sys
 import shlex
 import argparse
-import getpass
 
 import logging
 from argparse import BooleanOptionalAction
@@ -45,8 +44,6 @@ from .core_ssh import (
     SSHConfig,
     SSHClientLike,
     SFTPClientLike,
-    DEFAULT_SSH_PORT,
-    DEFAULT_TIMEOUT,
     ssh_open,
     finalize_sockets,
 )
@@ -63,8 +60,6 @@ from .core_remote_fs import (
 from .core_path_handling import (
     local_path_for_download,
     is_local_abs,
-    tilde_username,
-    is_bare_tilde,
 )
 from .core_common import get_host_list_from_hostfile
 from .core_select import (
@@ -76,19 +71,22 @@ from .core_cmd_flavor import run_remote_cmd_capture
 from .core_remote_path import detect_remote_home
 from .gather_parallel import execute as run_parallel
 from .core_constants import (
-    DEFAULT_PARALLEL_HOSTS,
     EXIT_OK,
     EXIT_ERR_ARGS,
     EXIT_ERR_NO_HOSTS,
     EXIT_ERR_TILDE_USER,
     RE_SAFE_HOST_PTN
 )
+from .core_cli_support import (
+    add_common_cli_options,
+    filter_hosts_by_connectivity,
+    validate_cli_positional_args,
+)
 from .core_logging import (
     init_logging,
     shutdown_logging,
     HostLogAggregator,
 )
-from .core_constants import DEFAULT_HOSTS_FILE
 from .core_i18n import setup_gettext
 from .core_signal_handling import (
     GracefulStop,
@@ -133,52 +131,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("dest", help=_("Local destination directory."))
 
-    # SSH
-    parser.add_argument(
-        "-H",
-        "--hosts",
-        default=DEFAULT_HOSTS_FILE,
-        help=_("Hosts file. Default: %(default)s."),
-    )
-    parser.add_argument(
-        "-u", "--user", default=getpass.getuser(), help=_("Target account on remote %(default)s.")
-    )
-    parser.add_argument(
-        "-s", "--ssh-user", default=None, help=_("SSH login user. Default: same as --user.")
-    )
-    parser.add_argument(
-        "-P", "--port", type=int, default=DEFAULT_SSH_PORT, help=_("SSH port. Default: %(default)s.")
-    )
-    parser.add_argument("-K", "--key", default=None, help=_("SSH private key file."))
-    parser.add_argument("-W", "--password", default=None, help=_("SSH password (not recommended)."))
-    parser.add_argument(
-        "-T",
-        "--timeout",
-        type=float,
-        default=DEFAULT_TIMEOUT,
-        help=_("SSH/command timeout seconds. Default: %(default)s."),
-    )
-    parser.add_argument(
-        "-S", "--strict-host-key-checking", action="store_true", help=_("Enable strict host key checking.")
-    )
-
-    # 実行
-    parser.add_argument(
-        "-j",
-        "--parallel",
-        type=int,
-        default=DEFAULT_PARALLEL_HOSTS,
-        help=_("Parallel hosts (not parallel per-host). Default: %(default)s."),
-    )
-    parser.add_argument("-n", "--dry-run", action="store_true", help=_("Show plan only; do not download."))
-    parser.add_argument("-v", "--verbose", action="store_true", help=_("Verbose logs."))
-    parser.add_argument("--pack", action="store_true", help=_("Pack on remote (tar.gz) and download once."))
-    # --follow-symlinksは, ファイルへのシンボリックリンクをたどることを指示する
-    #  ディレクトリへのシンボリックリンクについては未対応
-    parser.add_argument(
-        "--follow-symlinks",
-        action="store_true",
-        help=_("When used with --pack, dereference symlinks on remote."),
+    # 共通オプション群の追加
+    add_common_cli_options(
+        parser,
+        help_overrides={
+            "user": _("Target account on remote %(default)s."),
+            "dry_run": _("Show plan only; do not download."),
+            "pack": _("Pack on remote (tar.gz) and download once."),
+        },
     )
     parser.add_argument(
         "-x",
@@ -566,56 +526,48 @@ def main() -> None:
         >>> main()  # doctest: +SKIP
     """
 
-    # 1. 国際化初期化
+    # 国際化初期化
     setup_gettext()
 
-    # 2. 引数解析
+    # 引数解析
     parser: argparse.ArgumentParser = build_parser()
     args: argparse.Namespace = parser.parse_args()
 
-    # 位置引数の検証 ( scatter と同様の方針 )
-    if len(args.src) < 1 or not args.dest:
-        print(_("At least one SRC and a DEST are required."), file=sys.stderr)
-        sys.exit(EXIT_ERR_ARGS)
+    # 位置引数検証
+    validation = validate_cli_positional_args(
+        src_tokens=args.src,
+        dest_token=args.dest,
+        allow_src_bare_tilde=False,
+        allow_src_tilde_username=False,
+        allow_dest_bare_tilde=False,
+        allow_dest_tilde_username=False,
+        exit_code_default=EXIT_ERR_ARGS,
+        exit_code_src_tilde_username=EXIT_ERR_TILDE_USER,
+        exit_code_dest_tilde_username=EXIT_ERR_TILDE_USER,
+    )
 
-    # DEST の妥当性検証
-    _dest_raw: str = str(args.dest)
-    if is_bare_tilde(_dest_raw):
-        print(_("bare tilde is not allowed"), file=sys.stderr)
-        sys.exit(EXIT_ERR_ARGS)
+    if validation.has_error():
+        if validation.error_message:
+            print(validation.error_message, file=sys.stderr)
+        sys.exit(validation.exit_code)
 
-    # DEST: '~user' は非対応なので明示エラー
-    _dest_tilde_user: Optional[str] = tilde_username(_dest_raw)
-    if _dest_tilde_user is not None:
-        print(
-            _("tilde with username is not supported"),
-            file=sys.stderr,
-        )
-        sys.exit(EXIT_ERR_TILDE_USER)
+    # NOTE: argparse.Namespace は副作用を避け更新しない, 正規化済み値は別変数で扱う
+    normalized_srcs: List[str] = validation.normalized_srcs
+    normalized_dest: str = validation.normalized_dest
 
     # DEST: '~' をローカル実行ユーザの HOME で展開。相対ならカレント起点で絶対化。
-    dest_local: str = os.path.expanduser(_dest_raw)
+    dest_local: str = os.path.expanduser(str(normalized_dest))
     if not is_local_abs(dest_local):
         dest_local = os.path.abspath(dest_local)
 
     #
     # SRC の妥当性検証
     #
-    srcs: List[str] = list(args.src)
-    # SRC に '~user' が含まれていればエラー ( 共通仕様 )
-    for s in srcs:
-        u: Optional[str] = tilde_username(s)
-        if u is not None:
-            print(_("tilde with username is not supported"), file=sys.stderr)
-            sys.exit(EXIT_ERR_TILDE_USER)
-        # 素の '~' はエラー ( scatter の DEST と同一方針 )
-        if is_bare_tilde(s):
-            print(_("bare tilde is not allowed"), file=sys.stderr)
-            sys.exit(EXIT_ERR_ARGS)
+    srcs: List[str] = list(normalized_srcs)
 
     # ホストファイル解析
     try:
-        hosts: List[str] = get_host_list_from_hostfile(str(args.hosts))
+        hosts_in_file: List[str] = get_host_list_from_hostfile(str(args.hosts))
 
     except FileNotFoundError:
         # ホストファイルが存在しない場合
@@ -632,6 +584,24 @@ def main() -> None:
 
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)
     args_user: str = str(args.user)
+
+    connectivity = filter_hosts_by_connectivity(
+        hosts_in_file,
+        ssh_user=ssh_user,
+        port=int(args.port),
+        key_filename=str(args.key) if args.key is not None else None,
+        password=str(args.password) if args.password is not None else None,
+        timeout=float(args.timeout),
+        strict_host_key_checking=bool(args.strict_host_key_checking),
+        debug_print=bool(args.verbose),
+        max_workers=max(1, int(args.parallel)) if hasattr(args, "parallel") else None,
+        logger=_LOG,
+    )
+
+    hosts = connectivity.reachable_hosts
+
+    if not hosts:
+        sys.exit(EXIT_ERR_NO_HOSTS)
 
     # per-host Plan 構築 ( regex 展開・~ 展開・drive対応 )
     plan_per_host: Dict[str, Plan] = {}

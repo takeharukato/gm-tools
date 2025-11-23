@@ -239,6 +239,21 @@ web02.example.com    # 任意の注記 ( 例: 設置場所 )
 - 利用者向けのヘルプや警告・エラーメッセージはローカライズ対象である。
 - 構造化ログのキーおよび `msg` の語句 ( `host start`, `processing`, `host done`, `summary` など ) はローカライズしない。キーの並び順も固定である。
 
+### 翻訳更新手順
+
+翻訳更新時は次の手順を踏むこと:
+
+  1. トップディレクトリで, `make -C po update-po`を実行し, poファイルを更新する。
+  2. `po/gm-tools.pot` と `po/*.po` の差分を確認して反映する
+  3. `msgfmt --check poファイル名`を実行してフォーマットエラーがないことを確認する (例: `msgfmt --check po/ja.po`)
+  4. `msgfmt --statistics poファイル名`を実行して, 各poファイル内の未翻訳 (`untranslated`)の件数, ファジー訳(`fuzzy`)の件数が`0`であることを確認する (例: `msgfmt --statistics po/ja.po`)
+
+## CLI オプション共通化ガイドライン
+
+- 新しいオプションを追加する場合は, 共通ヘルパーへ定義を集約しつつ, 既存 CLI の文言が変わらないようにする。
+- コマンド間で共通したオプションは `gm_tools.core_cli_support.add_common_cli_options()` を利用して追加する。
+- ショートオプションとロングオプションの名称の双方が一致し, かつ, コマンド毎に動作, 挙動が異なるオプションについては, `gm_tools.core_cli_support.add_common_cli_options()`の`help_overrides` 引数(`dest` 名をキーとしたヘルプ文言の上書き辞書。)のキー `dest` 名 ( 例: `dry_run` ) を指定し, ヘルプの文言を上書きする。
+
 ## 依存パッケージ
 
 ### ローカルホスト ( 実行環境 )

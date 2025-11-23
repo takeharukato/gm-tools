@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gm-tools 0.1.0\n"
 "Report-Msgid-Bugs-To: tkato1219@gmail.com\n"
-"POT-Creation-Date: 2025-11-23 19:19+0900\n"
+"POT-Creation-Date: 2025-11-24 00:52+0900\n"
 "PO-Revision-Date: 2025-11-18 23:15+0900\n"
 "Last-Translator: Takeharu KATO <tkato1219@gmail.com>\n"
 "Language-Team: Japanese <translation-team-ja@lists.sourceforge.net>\n"
@@ -103,7 +103,7 @@ msgstr ""
 "ディレクトリ取得元(SRC)の管理者権限(sudo)での走査に失敗しました: root=%s"
 
 #: src/gm_tools/core_common.py:108
-#,python-brace-format
+#, python-brace-format
 msgid "No hostfile found: hostfile='{fname}' {err}"
 msgstr "ホストファイルが見つかりません: hostfile='{fname}' {err}"
 
@@ -117,7 +117,108 @@ msgstr "ホストファイルを読み取ることができません: hostfile='
 msgid "No hosts found in hostfile: hostfile='{fname}'"
 msgstr "ホストファイルにホストが記載されていません: hostfile='{fname}'"
 
-#: src/gm_tools/gather_cli.py:114
+#: src/gm_tools/core_cli_support.py:121
+#, python-format
+msgid "Hosts file. Default: %(default)s."
+msgstr "ホストファイルです。既定値: %(default)s。"
+
+#: src/gm_tools/core_cli_support.py:122
+#, python-format
+msgid "Target account for remote operations. Default: %(default)s."
+msgstr "リモートホスト上の対象アカウントです ( 既定: %(default)s ) 。"
+
+#: src/gm_tools/core_cli_support.py:123
+msgid "SSH login user. Default: same as --user."
+msgstr ""
+"SSH ログインユーザーです。既定値: `--user` で指定したユーザと同じになります。"
+
+#: src/gm_tools/core_cli_support.py:124
+#, python-format
+msgid "SSH port. Default: %(default)s."
+msgstr "SSH ポートです。既定値: %(default)s。"
+
+#: src/gm_tools/core_cli_support.py:125
+msgid "SSH private key file."
+msgstr "SSH 秘密鍵ファイルです。"
+
+#: src/gm_tools/core_cli_support.py:126
+msgid "SSH password (not recommended)."
+msgstr "SSH パスワードです ( 非推奨 ) 。"
+
+#: src/gm_tools/core_cli_support.py:127
+#, python-format
+msgid "SSH/command timeout seconds. Default: %(default)s."
+msgstr "SSH/コマンドのタイムアウト秒です。既定値: %(default)s。"
+
+#: src/gm_tools/core_cli_support.py:128
+msgid "Enable strict host key checking."
+msgstr "厳格なホスト鍵検証を有効にします。"
+
+#: src/gm_tools/core_cli_support.py:129
+#, python-format
+msgid "Parallel hosts (not parallel per-host). Default: %(default)s."
+msgstr ""
+"ホスト単位の並列数です ( ホスト内の並列ではありません ) 。既定値: "
+"%(default)s。"
+
+#: src/gm_tools/core_cli_support.py:130
+msgid "Show plan only; no transfer is performed."
+msgstr "計画のみ表示し, アップロードしません。"
+
+#: src/gm_tools/core_cli_support.py:131
+msgid "Verbose logs."
+msgstr "詳細ログを出力します。"
+
+#: src/gm_tools/core_cli_support.py:132
+msgid "Pack transfer as tar.gz once per host."
+msgstr "各ホストごとにtar.gz形式のアーカイブを作成し, 一括転送する。"
+
+#: src/gm_tools/core_cli_support.py:133
+msgid "When used with --pack, dereference symlinks on remote."
+msgstr ""
+"`--pack` を指定した場合, リモートホスト上でシンボリックリンクを参照解決"
+"(dereference)します。"
+
+#: src/gm_tools/core_cli_support.py:261 src/gm_tools/core_cli_support.py:271
+msgid "At least one SRC and a DEST are required."
+msgstr "少なくとも 1 つの取得元(SRC)と格納先(DEST)が必要です。"
+
+#: src/gm_tools/core_cli_support.py:281 src/gm_tools/core_cli_support.py:304
+msgid "bare tilde is not allowed"
+msgstr "単独のチルダは許可されていません。"
+
+#: src/gm_tools/core_cli_support.py:293 src/gm_tools/core_cli_support.py:314
+msgid "tilde with username is not supported"
+msgstr "ユーザー名付きチルダはサポートされていません。"
+
+#: src/gm_tools/core_cli_support.py:400
+msgid "host value is empty"
+msgstr "ホスト名が記載されていません。"
+
+#: src/gm_tools/core_cli_support.py:418
+#, python-brace-format
+msgid "Failed to establish SSH connection: {error}"
+msgstr "SSH接続に失敗しました: {error}"
+
+#: src/gm_tools/core_cli_support.py:424
+#, python-brace-format
+msgid "Failed to open SFTP session: {error}"
+msgstr "SFTPセッションの開設に失敗しました: {error}"
+
+#: src/gm_tools/core_cli_support.py:509
+msgid "Unknown error"
+msgstr "リモートホストに接続できませんでした(原因不明)。"
+
+#: src/gm_tools/core_cli_support.py:511
+#, python-format
+msgid "Host '%(host)s' excluded from processing: %(reason)s"
+msgstr "ホスト名 '%(host)s' を処理対象から除外しました: %(reason)s"
+
+#: src/gm_tools/core_cli_support.py:519
+msgid "No hosts passed connectivity validation."
+msgstr "接続性検証を通過したホストはありませんでした。"
+
+#: src/gm_tools/gather_cli.py:112
 msgid ""
 "gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
 "Usage: gm-gather [SRC ...] DEST\n"
@@ -151,81 +252,32 @@ msgstr ""
 "  - 格納先(DEST): ファイルはローカルホスト上のディレクトリに DEST/<HOST>/... "
 "として保存されます"
 
-#: src/gm_tools/gather_cli.py:132
+#: src/gm_tools/gather_cli.py:130
 msgid ""
 "One or more SRC path patterns. Absolute ('/','X:/','~/') or HOME-relative."
 msgstr ""
 "1 つ以上の取得元(SRC)パスパターンです。'/'・'X:/'・'~/' の絶対パスまたは ホー"
 "ムディレクトリ ( `HOME` )からの相対パスを指定します。"
 
-#: src/gm_tools/gather_cli.py:134
+#: src/gm_tools/gather_cli.py:132
 msgid "Local destination directory."
 msgstr "ローカルホスト上の格納先ディレクトリです。"
 
-#: src/gm_tools/gather_cli.py:141 src/gm_tools/scatter_cli.py:130
-#, python-format
-msgid "Hosts file. Default: %(default)s."
-msgstr "ホストファイルです。既定値: %(default)s。"
-
-#: src/gm_tools/gather_cli.py:144
+#: src/gm_tools/gather_cli.py:137
 #, python-format
 msgid "Target account on remote %(default)s."
 msgstr "リモートホスト上の対象アカウントです ( 既定: %(default)s ) 。"
 
-#: src/gm_tools/gather_cli.py:147 src/gm_tools/scatter_cli.py:136
-msgid "SSH login user. Default: same as --user."
-msgstr ""
-"SSH ログインユーザーです。既定値: `--user` で指定したユーザと同じになります。"
-
-#: src/gm_tools/gather_cli.py:150 src/gm_tools/scatter_cli.py:139
-#, python-format
-msgid "SSH port. Default: %(default)s."
-msgstr "SSH ポートです。既定値: %(default)s。"
-
-#: src/gm_tools/gather_cli.py:152 src/gm_tools/scatter_cli.py:141
-msgid "SSH private key file."
-msgstr "SSH 秘密鍵ファイルです。"
-
-#: src/gm_tools/gather_cli.py:153 src/gm_tools/scatter_cli.py:142
-msgid "SSH password (not recommended)."
-msgstr "SSH パスワードです ( 非推奨 ) 。"
-
-#: src/gm_tools/gather_cli.py:159 src/gm_tools/scatter_cli.py:148
-#, python-format
-msgid "SSH/command timeout seconds. Default: %(default)s."
-msgstr "SSH/コマンドのタイムアウト秒です。既定値: %(default)s。"
-
-#: src/gm_tools/gather_cli.py:162 src/gm_tools/scatter_cli.py:151
-msgid "Enable strict host key checking."
-msgstr "厳格なホスト鍵検証を有効にします。"
-
-#: src/gm_tools/gather_cli.py:171 src/gm_tools/scatter_cli.py:160
-#, python-format
-msgid "Parallel hosts (not parallel per-host). Default: %(default)s."
-msgstr ""
-"ホスト単位の並列数です ( ホスト内の並列ではありません ) 。既定値: "
-"%(default)s。"
-
-#: src/gm_tools/gather_cli.py:173
+#: src/gm_tools/gather_cli.py:138
 msgid "Show plan only; do not download."
 msgstr "計画のみ表示し, ダウンロードしません。"
 
-#: src/gm_tools/gather_cli.py:174 src/gm_tools/scatter_cli.py:163
-msgid "Verbose logs."
-msgstr "詳細ログを出力します。"
-
-#: src/gm_tools/gather_cli.py:175
+#: src/gm_tools/gather_cli.py:139
 msgid "Pack on remote (tar.gz) and download once."
 msgstr ""
 "リモートホスト上で tar.gz アーカイブを作成し, 一度でダウンロードします。"
 
-#: src/gm_tools/gather_cli.py:181
-msgid "When used with --pack, dereference symlinks on remote."
-msgstr ""
-"`--pack` を指定した場合, リモートホスト上でシンボリックリンクを参照解決"
-"(dereference)します。"
-
-#: src/gm_tools/gather_cli.py:188
+#: src/gm_tools/gather_cli.py:147
 msgid ""
 "Use sudo for remote packing/collection (pack path only). Omitted = auto "
 "(enabled when ssh-user != --user)."
@@ -234,21 +286,7 @@ msgstr ""
 "す(`--pack`指定時のみ)。省略時は自動 ( ssh-user と `--user`で指定したユーザが"
 "異なる場合に有効化 ) 。"
 
-#: src/gm_tools/gather_cli.py:578 src/gm_tools/scatter_cli.py:737
-msgid "At least one SRC and a DEST are required."
-msgstr "少なくとも 1 つの取得元(SRC)と格納先(DEST)が必要です。"
-
-#: src/gm_tools/gather_cli.py:584 src/gm_tools/gather_cli.py:613
-#: src/gm_tools/scatter_cli.py:221 src/gm_tools/scatter_cli.py:350
-msgid "bare tilde is not allowed"
-msgstr "単独のチルダは許可されていません。"
-
-#: src/gm_tools/gather_cli.py:591 src/gm_tools/gather_cli.py:609
-#: src/gm_tools/scatter_cli.py:218 src/gm_tools/scatter_cli.py:356
-msgid "tilde with username is not supported"
-msgstr "ユーザー名付きチルダはサポートされていません。"
-
-#: src/gm_tools/gather_cli.py:732
+#: src/gm_tools/gather_cli.py:701
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some hosts may have "
 "partial results)."
@@ -302,25 +340,20 @@ msgstr ""
 "リモートホスト上の格納先(DEST) ( `/` 絶対, `~/`, リモートホストの ホームディ"
 "レクトリ ( `HOME` ) からの相対パスをサポート ) "
 
-#: src/gm_tools/scatter_cli.py:133
-msgid "Target account semantics on remote."
-msgstr "リモートホスト上の対象アカウントの扱いです。"
+#: src/gm_tools/scatter_cli.py:131
+msgid "Target account on remote."
+msgstr "リモートホスト上の対象アカウントです。"
 
-#: src/gm_tools/scatter_cli.py:162
+#: src/gm_tools/scatter_cli.py:132
 msgid "Show plan only; do not upload."
 msgstr "計画のみ表示し, アップロードしません。"
 
-#: src/gm_tools/scatter_cli.py:164
+#: src/gm_tools/scatter_cli.py:133
 msgid "Pack locally (tar.gz) then extract remotely."
 msgstr ""
 "ローカルホスト上で tar.gz アーカイブを作成し, リモートホスト上で展開します。"
 
-#: src/gm_tools/scatter_cli.py:165
-msgid "When packing, dereference symlinks."
-msgstr ""
-"`--pack` オプション指定時にシンボリックリンクを参照解決(dereference)します。"
-
-#: src/gm_tools/scatter_cli.py:173
+#: src/gm_tools/scatter_cli.py:143
 msgid ""
 "Force sudo for remote mkdir/extract when packing (use --no-sudo-extract to "
 "force off). Omitted = auto."
@@ -329,29 +362,17 @@ msgstr ""
 "(sudo)を強制します ( 無効化は `--no-sudo-extract` ) 。省略時は自動判定しま"
 "す。"
 
-#: src/gm_tools/scatter_cli.py:180
+#: src/gm_tools/scatter_cli.py:150
 #, python-format
 msgid "SELinux label restore policy (pack path only). Default: %(default)s."
 msgstr ""
 "SELinux ラベル復元ポリシー ( `--pack` オプション指定時のみ ) 。既定値: "
 "%(default)s。"
 
-#: src/gm_tools/scatter_cli.py:924
+#: src/gm_tools/scatter_cli.py:908
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some remote hosts may "
 "see partial files or directories)."
 msgstr ""
 "割り込み要求を受信しました。残りの転送をキャンセルします ( 一部のリモートホス"
 "トで一部のファイル, ディレクトリが残る可能性があります ) 。"
-
-#, python-format
-#~ msgid "Error: tilde with username is not supported in DEST: ~%(user)s"
-#~ msgstr ""
-#~ "エラー: 格納先(DEST)でユーザー名付きチルダはサポートされていません: "
-#~ "~%(user)s"
-
-#, python-format
-#~ msgid "Error: tilde with username is not supported in SRC: ~%(user)s"
-#~ msgstr ""
-#~ "エラー: 取得元(SRC)でユーザー名付きチルダはサポートされていません: "
-#~ "~%(user)s"
