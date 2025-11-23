@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gm-tools 0.1.0\n"
 "Report-Msgid-Bugs-To: tkato1219@gmail.com\n"
-"POT-Creation-Date: 2025-11-23 21:17+0900\n"
+"POT-Creation-Date: 2025-11-23 21:34+0900\n"
 "PO-Revision-Date: 2025-11-14 22:58+0900\n"
 "Last-Translator: Takeharu KATO <tkato1219@gmail.com>\n"
 "Language-Team: English\n"
@@ -229,7 +229,7 @@ msgstr ""
 "Use sudo for remote packing/collection (pack path only). Omitted = auto "
 "(enabled when ssh-user != --user)."
 
-#: src/gm_tools/gather_cli.py:721
+#: src/gm_tools/gather_cli.py:723
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some hosts may have "
 "partial results)."
@@ -306,7 +306,7 @@ msgstr ""
 msgid "SELinux label restore policy (pack path only). Default: %(default)s."
 msgstr "SELinux label restore policy (pack path only). Default: %(default)s."
 
-#: src/gm_tools/scatter_cli.py:926
+#: src/gm_tools/scatter_cli.py:928
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some remote hosts may "
 "see partial files or directories)."

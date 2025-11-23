@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gm-tools 0.1.0\n"
 "Report-Msgid-Bugs-To: tkato1219@gmail.com\n"
-"POT-Creation-Date: 2025-11-23 21:17+0900\n"
+"POT-Creation-Date: 2025-11-23 21:34+0900\n"
 "PO-Revision-Date: 2025-11-18 23:15+0900\n"
 "Last-Translator: Takeharu KATO <tkato1219@gmail.com>\n"
 "Language-Team: Japanese <translation-team-ja@lists.sourceforge.net>\n"
@@ -248,7 +248,7 @@ msgstr ""
 "す(`--pack`指定時のみ)。省略時は自動 ( ssh-user と `--user`で指定したユーザが"
 "異なる場合に有効化 ) 。"
 
-#: src/gm_tools/gather_cli.py:721
+#: src/gm_tools/gather_cli.py:723
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some hosts may have "
 "partial results)."
@@ -336,7 +336,7 @@ msgstr ""
 "SELinux ラベル復元ポリシー ( `--pack` オプション指定時のみ ) 。既定値: "
 "%(default)s。"
 
-#: src/gm_tools/scatter_cli.py:926
+#: src/gm_tools/scatter_cli.py:928
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some remote hosts may "
 "see partial files or directories)."

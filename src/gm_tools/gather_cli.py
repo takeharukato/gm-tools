@@ -572,6 +572,7 @@ def main() -> None:
     parser: argparse.ArgumentParser = build_parser()
     args: argparse.Namespace = parser.parse_args()
 
+    # 位置引数検証
     validation = validate_cli_positional_args(
         src_tokens=args.src,
         dest_token=args.dest,
@@ -589,18 +590,19 @@ def main() -> None:
             print(validation.error_message, file=sys.stderr)
         sys.exit(validation.exit_code)
 
-    args.src = validation.normalized_srcs
-    args.dest = validation.normalized_dest
+    # NOTE: argparse.Namespace は副作用を避け更新しない, 正規化済み値は別変数で扱う
+    normalized_srcs: List[str] = validation.normalized_srcs
+    normalized_dest: str = validation.normalized_dest
 
     # DEST: '~' をローカル実行ユーザの HOME で展開。相対ならカレント起点で絶対化。
-    dest_local: str = os.path.expanduser(str(args.dest))
+    dest_local: str = os.path.expanduser(str(normalized_dest))
     if not is_local_abs(dest_local):
         dest_local = os.path.abspath(dest_local)
 
     #
     # SRC の妥当性検証
     #
-    srcs: List[str] = list(args.src)
+    srcs: List[str] = list(normalized_srcs)
 
     # ホストファイル解析
     try:

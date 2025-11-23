@@ -722,6 +722,7 @@ def main() -> None:
     parser: argparse.ArgumentParser = build_parser()
     args: Namespace = parser.parse_args()
 
+    # 位置引数検証
     validation = validate_cli_positional_args(
         src_tokens=args.src,
         dest_token=args.dest,
@@ -736,8 +737,9 @@ def main() -> None:
             print(validation.error_message, file=sys.stderr)
         sys.exit(validation.exit_code)
 
-    args.src = validation.normalized_srcs
-    args.dest = validation.normalized_dest
+    # NOTE: argparse.Namespace は副作用を避け更新しない, 正規化済み値は別変数で扱う
+    normalized_srcs: List[str] = validation.normalized_srcs
+    normalized_dest: str = validation.normalized_dest
 
     # ホストファイル解析
     try:
@@ -761,7 +763,7 @@ def main() -> None:
     target_user: str = str(args.user)
     selinux_mode: SelinuxMode = str(args.selinux) if hasattr(args, "selinux") else "auto"  # type: ignore[assignment]
 
-    srcs_input: List[str] = list(args.src)
+    srcs_input: List[str] = list(normalized_srcs)
     if bool(args.pack):
         srcs_input = _normalize_pack_srcs(srcs_input)
 
@@ -773,7 +775,7 @@ def main() -> None:
         meta: Dict[str, object]
         plan, meta = _build_plan_for_host(
             host=host,
-            dest_remote_raw=str(args.dest),
+            dest_remote_raw=str(normalized_dest),
             srcs_raw=srcs_input,
             ssh_user=ssh_user,
             target_user=target_user,
@@ -804,7 +806,7 @@ def main() -> None:
         shutdown_logging()
         sys.exit(EXIT_OK)
 
-    # 事前確立済み接続の DI 工場
+    # 事前確立済み接続の DI ファクトリ
     def _open_ssh(host: str) -> SSHClientLike:
         """ホスト名に対応する SSH 接続を返す。
 
@@ -900,7 +902,7 @@ def main() -> None:
     exit_code: int = run_parallel(
         hosts=hosts,
         plan_per_host=plan_per_host,
-        remote_root=str(args.dest), # 実質未使用: push_one_map がすべての転送先のルートを保持する
+        remote_root=str(normalized_dest), # 実質未使用: push_one_map がすべての転送先のルートを保持する
         src_root=Path("."),  # 未使用 ( PlanEntry.path を直接参照 )
         parallel=max(1, int(args.parallel)),
         verbose=bool(args.verbose),
