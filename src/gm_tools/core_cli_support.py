@@ -36,18 +36,19 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gettext import gettext as _
+else:
+    import builtins
+
+    def _(message: str) -> str:
+        """組み込み _ があれば翻訳し、なければ原文を返す。"""
+        gettext_callable = getattr(builtins, "_", None)
+        if callable(gettext_callable):
+            return gettext_callable(message)
+        return message
 
 from .core_constants import DEFAULT_HOSTS_FILE, DEFAULT_PARALLEL_HOSTS, EXIT_ERR_ARGS
 from .core_path_handling import is_bare_tilde, tilde_username
 from .core_ssh import DEFAULT_SSH_PORT, DEFAULT_TIMEOUT, SSHConfig, close_connections, ssh_open
-
-# CLI 初期化より前に doctest や単体テストから呼ばれても英語メッセージを返せるよう,
-# _ が未定義な場合は英語を返すフォールバックを用意
-try:
-    _  # type: ignore[name-defined]
-except NameError:  # pragma: no cover - fallback for doctest / early imports
-    def _(message: str) -> str:  # type: ignore[override]
-        return message
 
 # -------------------------------------------
 # CLI 位置引数検証のエラーコード定義
