@@ -32,10 +32,15 @@ Examples:
 from __future__ import annotations
 
 import re
+import sys
 from typing import List
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    # 型チェッカー向けのダミー定義 ( 実行時には評価されない )
+    from gettext import gettext as _
 
-def parse_hosts_file(path: str) -> List[str]:
+def _parse_hosts_file(path: str) -> List[str]:
     """hosts ファイルを読み込みコメントを除外したホスト一覧を返す。
 
     Args:
@@ -51,11 +56,11 @@ def parse_hosts_file(path: str) -> List[str]:
     Examples:
         >>> from pathlib import Path
         >>> import tempfile
-        >>> content = '# heading\\nweb01.example.com\\nweb02.example.com  # memo\\n'
+        >>> content = '# heading\\nweb01.example.com\\n\\nweb02.example.com  # memo\\n'
         >>> with tempfile.TemporaryDirectory() as tmp:
-        ...     hostfile = Path(tmp) / "hosts"
+        ...     hostfile = Path(tmp) / "hostfile-test"
         ...     _ = hostfile.write_text(content, encoding="utf-8")
-        ...     parse_hosts_file(str(hostfile))
+        ...     _parse_hosts_file(str(hostfile))
         ['web01.example.com', 'web02.example.com']
     """
     hosts: List[str] = []
@@ -67,4 +72,50 @@ def parse_hosts_file(path: str) -> List[str]:
             s = re.split(r"\s+#", s, 1)[0].strip()
             if s:
                 hosts.append(s)
+    return hosts
+
+def get_host_list_from_hostfile(hostfile_path: str) -> List[str]:
+    """ホストファイルを解析し, ホスト名一覧を取得する。
+       CLI処理フローを共通化するためのラッパー関数。
+
+    Args:
+        hostfile_path (str): ホストファイルのパス。
+
+    Returns:
+        List[str]: ホストリストに含まれるホスト名一覧。
+
+    Raises:
+        FileNotFoundError: ホストリストファイルが存在しない場合。
+        OSError: ホストリストファイルが読み取り不可能な場合。
+        ValueError: ホストリストが空の場合。
+
+    Examples:
+        >>> from pathlib import Path
+        >>> import tempfile
+        >>> content = '# heading\\nweb01.example.com\\n\\nweb02.example.com  # memo\\n'
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     hostfile = Path(tmp) / "hostfile-test"
+        ...     _ = hostfile.write_text(content, encoding="utf-8")
+        ...     get_host_list_from_hostfile(str(hostfile))
+        ['web01.example.com', 'web02.example.com']
+    """
+
+    # ホストファイル解析
+    try:
+        hosts: List[str] = _parse_hosts_file(hostfile_path)
+
+    except FileNotFoundError as exc:
+        print(_("No hostfile found: hostfile='{fname}' {err}").format(fname=str(hostfile_path), err=str(exc)), file=sys.stderr)
+        raise FileNotFoundError from exc
+
+    except OSError as exc:
+        print(_("Can not read hostfile: hostfile='{fname}' {err}").format(fname=str(hostfile_path), err=str(exc)), file=sys.stderr)
+        raise OSError from exc
+    finally:
+        pass
+
+    if len(hosts) == 0:
+        print(_("No hosts found in hostfile: hostfile='{fname}'").format(fname=str(hostfile_path)), file=sys.stderr)
+        raise ValueError("No hosts found in hostfile")
+
     return hosts

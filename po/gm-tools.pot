@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gm-tools 0.1.0\n"
 "Report-Msgid-Bugs-To: tkato1219@gmail.com\n"
-"POT-Creation-Date: 2025-11-23 04:01+0900\n"
+"POT-Creation-Date: 2025-11-23 19:19+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -92,6 +92,21 @@ msgstr ""
 #: src/gm_tools/core_select.py:763
 #, python-format
 msgid "directory-SRC sudo-walk failed at root=%s"
+msgstr ""
+
+#: src/gm_tools/core_common.py:108
+#, python-brace-format
+msgid "No hostfile found: hostfile='{fname}' {err}"
+msgstr ""
+
+#: src/gm_tools/core_common.py:112
+#, python-brace-format
+msgid "Can not read hostfile: hostfile='{fname}' {err}"
+msgstr ""
+
+#: src/gm_tools/core_common.py:118
+#, python-brace-format
+msgid "No hosts found in hostfile: hostfile='{fname}'"
 msgstr ""
 
 #: src/gm_tools/gather_cli.py:114
@@ -182,25 +197,21 @@ msgid ""
 "(enabled when ssh-user != --user)."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:589 src/gm_tools/scatter_cli.py:735
+#: src/gm_tools/gather_cli.py:578 src/gm_tools/scatter_cli.py:737
 msgid "At least one SRC and a DEST are required."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:595 src/gm_tools/gather_cli.py:621
+#: src/gm_tools/gather_cli.py:584 src/gm_tools/gather_cli.py:613
 #: src/gm_tools/scatter_cli.py:221 src/gm_tools/scatter_cli.py:350
 msgid "bare tilde is not allowed"
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:601 src/gm_tools/gather_cli.py:617
+#: src/gm_tools/gather_cli.py:591 src/gm_tools/gather_cli.py:609
 #: src/gm_tools/scatter_cli.py:218 src/gm_tools/scatter_cli.py:356
 msgid "tilde with username is not supported"
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:626 src/gm_tools/scatter_cli.py:740
-msgid "No hosts found in hosts file."
-msgstr ""
-
-#: src/gm_tools/gather_cli.py:728
+#: src/gm_tools/gather_cli.py:732
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some hosts may have "
 "partial results)."
@@ -259,7 +270,7 @@ msgstr ""
 msgid "SELinux label restore policy (pack path only). Default: %(default)s."
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:910
+#: src/gm_tools/scatter_cli.py:924
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some remote hosts may "
 "see partial files or directories)."
