@@ -49,14 +49,23 @@ except NameError:  # pragma: no cover - fallback for doctest / early imports
     def _(message: str) -> str:  # type: ignore[override]
         return message
 
+# -------------------------------------------
+# CLI 位置引数検証のエラーコード定義
+# -------------------------------------------
 ERROR_CODE_OK: int = 0
+"""正常終了を表すエラーコード。"""
 ERROR_CODE_NO_SRC: int = 1
+"""SRC 未指定エラーを表すエラーコード。"""
 ERROR_CODE_NO_DEST: int = 2
+"""DEST 未指定エラーを表すエラーコード。"""
 ERROR_CODE_SRC_BARE_TILDE: int = 3
+"""SRC に, パス区切り文字のない素のチルダ('~')が含まれるエラーを表すエラーコード。"""
 ERROR_CODE_SRC_TILDE_USERNAME: int = 4
+"""SRC に, チルダ付きユーザー名('~user')が含まれるエラーを表すエラーコード。"""
 ERROR_CODE_DEST_BARE_TILDE: int = 5
+"""DEST に, パス区切り文字のない素のチルダ('~')が含まれるエラーを表すエラーコード。"""
 ERROR_CODE_DEST_TILDE_USERNAME: int = 6
-
+"""DEST に, チルダ付きユーザー名('~user')が含まれるエラーを表すエラーコード。"""
 
 def _dest_for_option(option_strings: Sequence[str], kwargs: Mapping[str, Any]) -> str:
     """オプション文字列とキーワード引数から ``argparse`` の ``dest`` 名を推定する。
