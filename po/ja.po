@@ -72,7 +72,7 @@ msgstr "[上書きエラー] host=%(host)s dst=%(dst)s rc=%(rc)s err=%(err)s"
 #, python-format
 msgid "reject SRC outside HOME (relative not confined): %s (%s)"
 msgstr ""
-"HOME 外の取得元(SRC)のため拒否します ( 相対パスが HOME 内に制限されていませ"
+"ホームディレクトリ ( `HOME` )外の取得元(SRC)のため拒否します ( 指定されたパスが ホームディレクトリ ( `HOME` ) 内に制限されていませ"
 "ん ) : %s (%s)"
 
 #: src/gm_tools/core_select.py:518 src/gm_tools/core_select.py:710
@@ -118,18 +118,18 @@ msgid ""
 "  - DEST: local directory where files are stored as DEST/<HOST>/..."
 msgstr ""
 "gm-gather: リモートホスト上のファイルを SFTP ( またはリモートでの tar ) で"
-"ローカルの格納先(DEST)へダウンロードします。\n"
+"ローカルホスト上の格納先(DEST)へダウンロードします。\n"
 "Usage: gm-gather [SRC ...] DEST\n"
 "  - 取得元(SRC):\n"
 "      * '/...': リモートホスト上の絶対パス ( UNIX )\n"
 "      * 'X:/...': リモートホスト上の絶対パス ( Windows )\n"
-"      * '~/...': `-u` ユーザーの HOME に展開されます ( リモート )\n"
-"      * RELATIVE: `-u` ユーザーの HOME 相対として扱われ,\n"
-"                  '..' による HOME からの脱出は拒否されます。\n"
-"    ルートディレクトリより後ろの部分は正規表現パスとして扱います。\n"
+"      * '~/...': `-u` ( リモートホスト上の )ユーザーの ホームディレクトリ ( `HOME` ) に展開されます\n"
+"      * RELATIVE: `-u` ( リモートホスト上の )ユーザーの ホームディレクトリ ( `HOME` ) からの相対として扱われ,\n"
+"                  '..' による ホームディレクトリ ( `HOME` ) からの脱出は拒否されます。\n"
+"    ルートディレクトリより後ろの部分に('.'を除く)正規表現メタ文字が含まれる場合は, 正規表現にマッチしたパスを扱います。\n"
 "    例: '/etc/hosts' ( リテラル ) , '/var/log/.*\\.log' ( 正規表現 ) , '~/"
 "foo/.*', 'var/log/.*'\n"
-"  - 格納先(DEST): ファイルはローカルディレクトリに DEST/<HOST>/... として保存"
+"  - 格納先(DEST): ファイルはローカルホスト上のディレクトリに DEST/<HOST>/... として保存"
 "されます"
 
 #: src/gm_tools/gather_cli.py:132
@@ -137,11 +137,11 @@ msgid ""
 "One or more SRC path patterns. Absolute ('/','X:/','~/') or HOME-relative."
 msgstr ""
 "1 つ以上の取得元(SRC)パスパターンです。'/'・'X:/'・'~/' の絶対パスまたは "
-"HOME 相対を指定します。"
+"ホームディレクトリ ( `HOME` )からの相対パスを指定します。"
 
 #: src/gm_tools/gather_cli.py:134
 msgid "Local destination directory."
-msgstr "ローカルの格納先ディレクトリです。"
+msgstr "ローカルホスト上の格納先ディレクトリです。"
 
 #: src/gm_tools/gather_cli.py:141 src/gm_tools/scatter_cli.py:130
 #, python-format
@@ -155,7 +155,7 @@ msgstr "リモートホスト上の対象アカウントです ( 既定: %(defau
 
 #: src/gm_tools/gather_cli.py:147 src/gm_tools/scatter_cli.py:136
 msgid "SSH login user. Default: same as --user."
-msgstr "SSH ログインユーザーです。既定値: `--user` と同じです。"
+msgstr "SSH ログインユーザーです。既定値: `--user` で指定したユーザと同じになります。"
 
 #: src/gm_tools/gather_cli.py:150 src/gm_tools/scatter_cli.py:139
 #, python-format
@@ -196,12 +196,12 @@ msgstr "詳細ログを出力します。"
 
 #: src/gm_tools/gather_cli.py:175
 msgid "Pack on remote (tar.gz) and download once."
-msgstr "リモートホスト上で tar.gz にパックして一度でダウンロードします。"
+msgstr "リモートホスト上で tar.gz アーカイブを作成し, 一度でダウンロードします。"
 
 #: src/gm_tools/gather_cli.py:181
 msgid "When used with --pack, dereference symlinks on remote."
 msgstr ""
-"`--pack` を使用する場合, リモートホスト上でシンボリックリンクを参照解決"
+"`--pack` を指定した場合, リモートホスト上でシンボリックリンクを参照解決"
 "(dereference)します。"
 
 #: src/gm_tools/gather_cli.py:188
@@ -209,8 +209,8 @@ msgid ""
 "Use sudo for remote packing/collection (pack path only). Omitted = auto "
 "(enabled when ssh-user != --user)."
 msgstr ""
-"リモートホスト上でのパック/収集 ( pack 対象パスのみ ) に管理者権限(sudo)を使"
-"用します。省略時は自動 ( ssh-user != --user の場合に有効化 ) 。"
+"リモートホスト上でのアーカイブ作成, および, 収集に管理者権限(sudo)を使"
+"用します(`--pack`指定時のみ)。省略時は自動 ( ssh-user と `--user`で指定したユーザが異なる場合に有効化 ) 。"
 
 #: src/gm_tools/gather_cli.py:589 src/gm_tools/scatter_cli.py:735
 msgid "At least one SRC and a DEST are required."
@@ -261,9 +261,9 @@ msgstr ""
 "  - 取得元(SRC):\n"
 "      * '/...': ローカルホスト上の絶対パス ( UNIX )\n"
 "      * 'X:/...': ローカルホスト上の絶対パス ( Windows )\n"
-"      * '~/...': ローカルホスト上でカレントユーザーの HOME に展開されます\n"
+"      * '~/...': ローカルホスト上でカレントユーザーの ホームディレクトリ ( `HOME` ) に展開されます\n"
 "      * RELATIVE: 現在のディレクトリからの相対パス\n"
-"    ルートディレクトリより後ろの部分は正規表現パスとして扱います。\n"
+"    ルートディレクトリより後ろの部分に('.'を除く)正規表現メタ文字が含まれる場合は, 正規表現にマッチしたパスを扱います。\n"
 "    例: '/etc/hosts' ( リテラル ) , '/var/log/.*\\.log' ( 正規表現 ) , '~/"
 "foo/.*', 'var/log/.*'\n"
 "  - 格納先(DEST): ファイルはリモートディレクトリに DEST/... として保存されま"
@@ -279,7 +279,7 @@ msgstr "ローカルホスト上の取得元(SRC)パス ( 絶対または相対 
 #: src/gm_tools/scatter_cli.py:126
 msgid "Remote DEST ( supports /abs, ~/, and relative-from-remote-home )"
 msgstr ""
-"リモートホスト上の格納先(DEST) ( `/` 絶対, `~/`, リモートホストの HOME 相対を"
+"リモートホスト上の格納先(DEST) ( `/` 絶対, `~/`, リモートホストの ホームディレクトリ ( `HOME` ) からの相対パスを"
 "サポート ) "
 
 #: src/gm_tools/scatter_cli.py:133
@@ -292,7 +292,7 @@ msgstr "計画のみ表示し, アップロードしません。"
 
 #: src/gm_tools/scatter_cli.py:164
 msgid "Pack locally (tar.gz) then extract remotely."
-msgstr "ローカルホスト上で tar.gz にパックし, リモートホスト上で展開します。"
+msgstr "ローカルホスト上で tar.gz アーカイブを作成し, リモートホスト上で展開します。"
 
 #: src/gm_tools/scatter_cli.py:165
 msgid "When packing, dereference symlinks."
@@ -305,7 +305,7 @@ msgid ""
 "force off). Omitted = auto."
 msgstr ""
 "`--pack` オプション指定時のリモートホスト上での `mkdir`/展開に管理者権限"
-"(sudo)を強制します ( 無効化は `--no-sudo-extract` ) 。省略時は自動です。"
+"(sudo)を強制します ( 無効化は `--no-sudo-extract` ) 。省略時は自動判定します。"
 
 #: src/gm_tools/scatter_cli.py:180
 #, python-format
