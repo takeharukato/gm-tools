@@ -8,10 +8,10 @@
 
 テスト内容:
     - `test_enumerate_shallow_regex_prefers_listing`
-        `remote_walk_files` をモックして呼び出されないことを確認しつつ、`listdir` の結果から
+        `remote_walk_files` をモックして呼び出されないことを確認しつつ, `listdir` の結果から
         通常ファイルのみ抽出できるかを検証する。
     - `test_enumerate_shallow_regex_includes_symlinks`
-        シンボリックリンクを含めるモードで、`listdir` 結果からリンクも返却対象に含めることを確かめる。
+        シンボリックリンクを含めるモードで, `listdir` 結果からリンクも返却対象に含めることを確かめる。
 """
 
 from __future__ import annotations

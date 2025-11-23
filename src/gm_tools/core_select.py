@@ -584,7 +584,7 @@ def _enumerate_via_sftp_walk(
                 base_prefix = root if root == "/" else root.rstrip("/")
                 for name in names:
                     # listdir で取得したリモート側の root 直下に存在する
-                    # エントリ（ファイル名やサブディレクトリ名など）内の
+                    # エントリ ( ファイル名やサブディレクトリ名など )内の
                     # 各エントリを順番に調べる。
                     # rel へ代入するのはこの後の正規表現判定で参照名を明示するための補助。
                     rel = name
