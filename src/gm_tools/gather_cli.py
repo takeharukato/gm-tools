@@ -81,7 +81,10 @@ from .core_constants import (
     EXIT_ERR_TILDE_USER,
     RE_SAFE_HOST_PTN
 )
-from .core_cli_support import validate_cli_positional_args
+from .core_cli_support import (
+    validate_cli_positional_args,
+    filter_hosts_by_connectivity,
+)
 from .core_logging import (
     init_logging,
     shutdown_logging,
@@ -606,7 +609,7 @@ def main() -> None:
 
     # ホストファイル解析
     try:
-        hosts: List[str] = get_host_list_from_hostfile(str(args.hosts))
+        hosts_infile: List[str] = get_host_list_from_hostfile(str(args.hosts))
 
     except FileNotFoundError:
         # ホストファイルが存在しない場合
@@ -623,6 +626,24 @@ def main() -> None:
 
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)
     args_user: str = str(args.user)
+
+    connectivity = filter_hosts_by_connectivity(
+        hosts_infile,
+        ssh_user=ssh_user,
+        port=int(args.port),
+        key_filename=str(args.key) if args.key is not None else None,
+        password=str(args.password) if args.password is not None else None,
+        timeout=float(args.timeout),
+        strict_host_key_checking=bool(args.strict_host_key_checking),
+        debug_print=bool(args.verbose),
+        max_workers=max(1, int(args.parallel)) if hasattr(args, "parallel") else None,
+        logger=_LOG,
+    )
+
+    hosts = connectivity.reachable_hosts
+
+    if not hosts:
+        sys.exit(EXIT_ERR_NO_HOSTS)
 
     # per-host Plan 構築 ( regex 展開・~ 展開・drive対応 )
     plan_per_host: Dict[str, Plan] = {}

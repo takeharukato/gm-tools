@@ -49,13 +49,14 @@ from .core_constants import (
     EXIT_ERR_NO_HOSTS,
     EXIT_OK,
 )
-from .core_cli_support import validate_cli_positional_args
+from .core_cli_support import (
+    validate_cli_positional_args,
+    filter_hosts_by_connectivity,
+)
 from .core_logging import HostLogAggregator, init_logging, shutdown_logging
 from .core_path_handling import (
     is_local_abs,  # type: ignore[unused-ignore] 使わないが将来の整合のため保持
     is_windows_abs,
-    is_bare_tilde,
-    tilde_username,
     # 相対/絶対 SRC の正規化とレイアウト算出に利用
     ScatterSrcToken,
     ScatterResolvedToken,
@@ -93,6 +94,7 @@ from .core_signal_handling import (
 # Null Object: 読み捨て用のレポートシンク
 # None は使わず常に TransferReport を渡す
 _NULL_REPORT: Final[NullTransferReport] = NullTransferReport()
+_LOG = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
     """gm-scatter 用の引数パーサを構築する。
@@ -213,13 +215,6 @@ def _resolve_remote_dest(dest_raw: str, remote_home: str) -> Tuple[str, Optional
         return d, None
     if is_windows_abs(d):
         return d, None
-    u: Optional[str] = tilde_username(d)
-    if u is not None:
-        # "~user/..." は非対応
-        return "", _("tilde with username is not supported")
-    if is_bare_tilde(d):
-        # 素の "~" は非対応
-        return "", _("bare tilde is not allowed")
     if d.startswith("~/"):
         tail: str = d[1:].lstrip("/\\")
         return (remote_home if not tail else f"{remote_home}/{tail}"), None
@@ -743,7 +738,7 @@ def main() -> None:
 
     # ホストファイル解析
     try:
-        hosts: List[str] = get_host_list_from_hostfile(str(args.hosts))
+        hosts_infile: List[str] = get_host_list_from_hostfile(str(args.hosts))
 
     except FileNotFoundError:
         # ホストファイルが存在しない場合
@@ -762,6 +757,24 @@ def main() -> None:
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)
     target_user: str = str(args.user)
     selinux_mode: SelinuxMode = str(args.selinux) if hasattr(args, "selinux") else "auto"  # type: ignore[assignment]
+
+    connectivity = filter_hosts_by_connectivity(
+        hosts_infile,
+        ssh_user=ssh_user,
+        port=int(args.port),
+        key_filename=str(args.key) if args.key is not None else None,
+        password=str(args.password) if args.password is not None else None,
+        timeout=float(args.timeout),
+        strict_host_key_checking=bool(args.strict_host_key_checking),
+        debug_print=bool(args.verbose),
+        max_workers=max(1, int(args.parallel)) if hasattr(args, "parallel") else None,
+        logger=_LOG,
+    )
+
+    hosts: List[str] = connectivity.reachable_hosts
+
+    if not hosts:
+        sys.exit(EXIT_ERR_NO_HOSTS)
 
     srcs_input: List[str] = list(normalized_srcs)
     if bool(args.pack):

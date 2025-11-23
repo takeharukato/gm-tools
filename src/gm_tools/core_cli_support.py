@@ -25,6 +25,8 @@ Examples:
 
 from __future__ import annotations
 
+import sys
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -80,7 +82,7 @@ class CliPositionalValidationResult:
         """検証結果にエラーが存在するかを判定する。
 
         Returns:
-            bool: エラーがある場合は ``True``、正常なら ``False``。
+            bool: エラーがある場合は ``True``, 正常なら ``False``。
 
         Examples:
             >>> CliPositionalValidationResult(['a'], 'dest', ERROR_CODE_OK, EXIT_ERR_ARGS).has_error()
@@ -114,7 +116,7 @@ class HostConnectivityValidationResult:
         """一つでも接続失敗を含むかを判定する。
 
         Returns:
-            bool: 失敗を含む場合は ``True``、全ホスト成功時は ``False``。
+            bool: 失敗を含む場合は ``True``, 全ホスト成功時は ``False``。
 
         Examples:
             >>> HostConnectivityValidationResult(['ok'], [], {}).has_failures()
@@ -368,3 +370,65 @@ def validate_hosts_connectivity(
         unreachable_hosts=unreachable,
         errors=errors,
     )
+
+
+def filter_hosts_by_connectivity(
+    hosts: Sequence[str],
+    *,
+    ssh_user: Optional[str],
+    port: int,
+    key_filename: Optional[str],
+    password: Optional[str],
+    timeout: float,
+    strict_host_key_checking: bool,
+    debug_print: bool = False,
+    max_workers: Optional[int] = None,
+    logger: Optional[logging.Logger] = None,
+) -> HostConnectivityValidationResult:
+    """接続検証を行い, 利用可能なホストのみ抽出して警告を記録する。
+
+    Args:
+        hosts (Sequence[str]): 接続検証対象のホスト名またはアドレスの列。
+        ssh_user (Optional[str]): SSH 接続に使用するユーザー名。
+        port (int): SSH ポート番号。
+        key_filename (Optional[str]): 秘密鍵ファイルのパス。
+        password (Optional[str]): パスワード認証に使用する文字列。
+        timeout (float): 接続および SFTP セッション確立のタイムアウト秒数。
+        strict_host_key_checking (bool): Known Hosts の厳格検証を行う場合は ``True``。
+        debug_print (bool): ``ssh_open`` のデバッグ出力可否。
+        max_workers (Optional[int]): 並列実行するスレッド数の上限。
+        logger (Optional[logging.Logger]): 警告メッセージを出力するロガー。
+
+    Returns:
+        HostConnectivityValidationResult: 接続検証の結果。 ``reachable_hosts`` に
+        実行対象ホストが格納される。
+    """
+
+    probe_result = validate_hosts_connectivity(
+        hosts,
+        ssh_user=ssh_user,
+        port=port,
+        key_filename=key_filename,
+        password=password,
+        timeout=timeout,
+        strict_host_key_checking=strict_host_key_checking,
+        debug_print=debug_print,
+        max_workers=max_workers,
+    )
+
+    log_obj: logging.Logger = logger or logging.getLogger(__name__)
+    if probe_result.unreachable_hosts:
+        for host_name in probe_result.unreachable_hosts:
+            reason: str = probe_result.errors.get(host_name, _("Unknown error"))
+            message = _(
+                "Host '%(host)s' excluded from processing: %(reason)s"
+            ) % {
+                "host": host_name or "<empty>",
+                "reason": reason,
+            }
+            log_obj.warning(message)
+
+    if not probe_result.reachable_hosts:
+        print(_("No hosts passed connectivity validation."), file=sys.stderr)
+
+    return probe_result
