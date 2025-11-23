@@ -63,8 +63,6 @@ from .core_remote_fs import (
 from .core_path_handling import (
     local_path_for_download,
     is_local_abs,
-    tilde_username,
-    is_bare_tilde,
 )
 from .core_common import get_host_list_from_hostfile
 from .core_select import (
@@ -83,6 +81,7 @@ from .core_constants import (
     EXIT_ERR_TILDE_USER,
     RE_SAFE_HOST_PTN
 )
+from .core_cli_support import validate_cli_positional_args
 from .core_logging import (
     init_logging,
     shutdown_logging,
@@ -573,28 +572,28 @@ def main() -> None:
     parser: argparse.ArgumentParser = build_parser()
     args: argparse.Namespace = parser.parse_args()
 
-    # 位置引数の検証 ( scatter と同様の方針 )
-    if len(args.src) < 1 or not args.dest:
-        print(_("At least one SRC and a DEST are required."), file=sys.stderr)
-        sys.exit(EXIT_ERR_ARGS)
+    validation = validate_cli_positional_args(
+        src_tokens=args.src,
+        dest_token=args.dest,
+        allow_src_bare_tilde=False,
+        allow_src_tilde_username=False,
+        allow_dest_bare_tilde=False,
+        allow_dest_tilde_username=False,
+        exit_code_default=EXIT_ERR_ARGS,
+        exit_code_src_tilde_username=EXIT_ERR_TILDE_USER,
+        exit_code_dest_tilde_username=EXIT_ERR_TILDE_USER,
+    )
 
-    # DEST の妥当性検証
-    _dest_raw: str = str(args.dest)
-    if is_bare_tilde(_dest_raw):
-        print(_("bare tilde is not allowed"), file=sys.stderr)
-        sys.exit(EXIT_ERR_ARGS)
+    if validation.has_error():
+        if validation.error_message:
+            print(validation.error_message, file=sys.stderr)
+        sys.exit(validation.exit_code)
 
-    # DEST: '~user' は非対応なので明示エラー
-    _dest_tilde_user: Optional[str] = tilde_username(_dest_raw)
-    if _dest_tilde_user is not None:
-        print(
-            _("tilde with username is not supported"),
-            file=sys.stderr,
-        )
-        sys.exit(EXIT_ERR_TILDE_USER)
+    args.src = validation.normalized_srcs
+    args.dest = validation.normalized_dest
 
     # DEST: '~' をローカル実行ユーザの HOME で展開。相対ならカレント起点で絶対化。
-    dest_local: str = os.path.expanduser(_dest_raw)
+    dest_local: str = os.path.expanduser(str(args.dest))
     if not is_local_abs(dest_local):
         dest_local = os.path.abspath(dest_local)
 
@@ -602,16 +601,6 @@ def main() -> None:
     # SRC の妥当性検証
     #
     srcs: List[str] = list(args.src)
-    # SRC に '~user' が含まれていればエラー ( 共通仕様 )
-    for s in srcs:
-        u: Optional[str] = tilde_username(s)
-        if u is not None:
-            print(_("tilde with username is not supported"), file=sys.stderr)
-            sys.exit(EXIT_ERR_TILDE_USER)
-        # 素の '~' はエラー ( scatter の DEST と同一方針 )
-        if is_bare_tilde(s):
-            print(_("bare tilde is not allowed"), file=sys.stderr)
-            sys.exit(EXIT_ERR_ARGS)
 
     # ホストファイル解析
     try:

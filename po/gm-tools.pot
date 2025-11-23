@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gm-tools 0.1.0\n"
 "Report-Msgid-Bugs-To: tkato1219@gmail.com\n"
-"POT-Creation-Date: 2025-11-23 19:19+0900\n"
+"POT-Creation-Date: 2025-11-23 21:17+0900\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -109,7 +109,21 @@ msgstr ""
 msgid "No hosts found in hostfile: hostfile='{fname}'"
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:114
+#: src/gm_tools/core_cli_support.py:136 src/gm_tools/core_cli_support.py:146
+msgid "At least one SRC and a DEST are required."
+msgstr ""
+
+#: src/gm_tools/core_cli_support.py:156 src/gm_tools/core_cli_support.py:179
+#: src/gm_tools/scatter_cli.py:222
+msgid "bare tilde is not allowed"
+msgstr ""
+
+#: src/gm_tools/core_cli_support.py:168 src/gm_tools/core_cli_support.py:189
+#: src/gm_tools/scatter_cli.py:219
+msgid "tilde with username is not supported"
+msgstr ""
+
+#: src/gm_tools/gather_cli.py:113
 msgid ""
 "gm-gather: download remote files via SFTP (or remote tar) to a local DEST.\n"
 "Usage: gm-gather [SRC ...] DEST\n"
@@ -125,99 +139,85 @@ msgid ""
 "  - DEST: local directory where files are stored as DEST/<HOST>/..."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:132
+#: src/gm_tools/gather_cli.py:131
 msgid ""
 "One or more SRC path patterns. Absolute ('/','X:/','~/') or HOME-relative."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:134
+#: src/gm_tools/gather_cli.py:133
 msgid "Local destination directory."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:141 src/gm_tools/scatter_cli.py:130
+#: src/gm_tools/gather_cli.py:140 src/gm_tools/scatter_cli.py:131
 #, python-format
 msgid "Hosts file. Default: %(default)s."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:144
+#: src/gm_tools/gather_cli.py:143
 #, python-format
 msgid "Target account on remote %(default)s."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:147 src/gm_tools/scatter_cli.py:136
+#: src/gm_tools/gather_cli.py:146 src/gm_tools/scatter_cli.py:137
 msgid "SSH login user. Default: same as --user."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:150 src/gm_tools/scatter_cli.py:139
+#: src/gm_tools/gather_cli.py:149 src/gm_tools/scatter_cli.py:140
 #, python-format
 msgid "SSH port. Default: %(default)s."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:152 src/gm_tools/scatter_cli.py:141
+#: src/gm_tools/gather_cli.py:151 src/gm_tools/scatter_cli.py:142
 msgid "SSH private key file."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:153 src/gm_tools/scatter_cli.py:142
+#: src/gm_tools/gather_cli.py:152 src/gm_tools/scatter_cli.py:143
 msgid "SSH password (not recommended)."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:159 src/gm_tools/scatter_cli.py:148
+#: src/gm_tools/gather_cli.py:158 src/gm_tools/scatter_cli.py:149
 #, python-format
 msgid "SSH/command timeout seconds. Default: %(default)s."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:162 src/gm_tools/scatter_cli.py:151
+#: src/gm_tools/gather_cli.py:161 src/gm_tools/scatter_cli.py:152
 msgid "Enable strict host key checking."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:171 src/gm_tools/scatter_cli.py:160
+#: src/gm_tools/gather_cli.py:170 src/gm_tools/scatter_cli.py:161
 #, python-format
 msgid "Parallel hosts (not parallel per-host). Default: %(default)s."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:173
+#: src/gm_tools/gather_cli.py:172
 msgid "Show plan only; do not download."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:174 src/gm_tools/scatter_cli.py:163
+#: src/gm_tools/gather_cli.py:173 src/gm_tools/scatter_cli.py:164
 msgid "Verbose logs."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:175
+#: src/gm_tools/gather_cli.py:174
 msgid "Pack on remote (tar.gz) and download once."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:181
+#: src/gm_tools/gather_cli.py:180
 msgid "When used with --pack, dereference symlinks on remote."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:188
+#: src/gm_tools/gather_cli.py:187
 msgid ""
 "Use sudo for remote packing/collection (pack path only). Omitted = auto "
 "(enabled when ssh-user != --user)."
 msgstr ""
 
-#: src/gm_tools/gather_cli.py:578 src/gm_tools/scatter_cli.py:737
-msgid "At least one SRC and a DEST are required."
-msgstr ""
-
-#: src/gm_tools/gather_cli.py:584 src/gm_tools/gather_cli.py:613
-#: src/gm_tools/scatter_cli.py:221 src/gm_tools/scatter_cli.py:350
-msgid "bare tilde is not allowed"
-msgstr ""
-
-#: src/gm_tools/gather_cli.py:591 src/gm_tools/gather_cli.py:609
-#: src/gm_tools/scatter_cli.py:218 src/gm_tools/scatter_cli.py:356
-msgid "tilde with username is not supported"
-msgstr ""
-
-#: src/gm_tools/gather_cli.py:732
+#: src/gm_tools/gather_cli.py:721
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some hosts may have "
 "partial results)."
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:109
+#: src/gm_tools/scatter_cli.py:110
 msgid ""
 "gm-scatter: upload local files to remote DEST.\n"
 "Usage: gm-scatter [SRC ...] DEST\n"
@@ -235,42 +235,42 @@ msgid ""
 "  - for relative SRC: the original relative path"
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:125
+#: src/gm_tools/scatter_cli.py:126
 msgid "Local SRC paths (abs or rel)"
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:126
+#: src/gm_tools/scatter_cli.py:127
 msgid "Remote DEST ( supports /abs, ~/, and relative-from-remote-home )"
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:133
+#: src/gm_tools/scatter_cli.py:134
 msgid "Target account semantics on remote."
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:162
+#: src/gm_tools/scatter_cli.py:163
 msgid "Show plan only; do not upload."
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:164
+#: src/gm_tools/scatter_cli.py:165
 msgid "Pack locally (tar.gz) then extract remotely."
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:165
+#: src/gm_tools/scatter_cli.py:166
 msgid "When packing, dereference symlinks."
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:173
+#: src/gm_tools/scatter_cli.py:174
 msgid ""
 "Force sudo for remote mkdir/extract when packing (use --no-sudo-extract to "
 "force off). Omitted = auto."
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:180
+#: src/gm_tools/scatter_cli.py:181
 #, python-format
 msgid "SELinux label restore policy (pack path only). Default: %(default)s."
 msgstr ""
 
-#: src/gm_tools/scatter_cli.py:924
+#: src/gm_tools/scatter_cli.py:926
 msgid ""
 "Interrupt requested; cancelling remaining transfers (some remote hosts may "
 "see partial files or directories)."

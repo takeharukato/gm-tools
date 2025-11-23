@@ -12,6 +12,14 @@ gm\_tools.core\_archive module
    :undoc-members:
    :show-inheritance:
 
+gm\_tools.core\_cli\_support module
+-----------------------------------
+
+.. automodule:: gm_tools.core_cli_support
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 gm\_tools.core\_cmd\_flavor module
 ----------------------------------
 

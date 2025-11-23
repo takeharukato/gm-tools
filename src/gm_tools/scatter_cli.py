@@ -49,6 +49,7 @@ from .core_constants import (
     EXIT_ERR_NO_HOSTS,
     EXIT_OK,
 )
+from .core_cli_support import validate_cli_positional_args
 from .core_logging import HostLogAggregator, init_logging, shutdown_logging
 from .core_path_handling import (
     is_local_abs,  # type: ignore[unused-ignore] 使わないが将来の整合のため保持
@@ -344,17 +345,8 @@ def _build_plan_for_host(
     auto_sudo: bool = bool(pack) and (ssh_user != target_user)
     sudo_extract: bool = auto_sudo if (sudo_extract_flag is None) else bool(sudo_extract_flag)
 
-    # SRC '~' は不許可
-    bad_srcs: List[str] = [s for s in srcs_raw if is_bare_tilde(s)]
-    if bad_srcs:
-        print(_("bare tilde is not allowed"), file=sys.stderr)
-        raise SystemExit(EXIT_ERR_ARGS)
-    # SRC '~user' は不許可
-    for s in srcs_raw:
-        u: Optional[str] = tilde_username(s)
-        if u is not None:
-            print(_("tilde with username is not supported"), file=sys.stderr)
-            raise SystemExit(EXIT_ERR_ARGS)
+    # NOTE: validate_cli_positional_args() で tilde 系の禁止入力は事前に排除済み。
+    #       ここでは正規化済みの srcs_raw をそのまま利用する。
 
     # SRC を scatter 仕様に基づいて解決 ( ~/ は実行ユーザ HOME 展開, 相対は cwd 起点 )
     # 元トークン (ScatterSrcToken) と解決結果 (ScatterResolvedToken) をペアで保持する
@@ -535,7 +527,7 @@ def _make_push_one_pack(
     host: str,
     remote_rel_map: Dict[str, str],
 ) -> PushOne:
-    """``--pack`` 経路で利用する ホストごとに1 度だけ実行されるアップロード用のクロージャを生成する。
+    """``--pack`` オプション指定時に利用する ホストごとに1 度だけ実行されるアップロード用のクロージャを生成する。
         生成したクロージャは以下の処理を行う。
 
         1. ローカルホストでアーカイブを作成する。
@@ -580,7 +572,7 @@ def _make_push_one_pack(
     state: Dict[str, bool] = {"ran": False}
 
     def _push_one(_sftp: SFTPClientLike, _local_path: Path, _remote_root: str, _is_dir: bool) -> None:
-        """pack 経路で 1 度だけアーカイブ転送と解凍を実行する。
+        """--pack オプション指定時に 1 度だけアーカイブ転送と解凍を実行する。
 
         Args:
             _sftp (SFTPClientLike): アーカイブファイルを送信するクライアント。
@@ -730,12 +722,22 @@ def main() -> None:
     parser: argparse.ArgumentParser = build_parser()
     args: Namespace = parser.parse_args()
 
-    # 位置引数検証 ( gather と同様の方針 )
-    # Note: 単体の~や~user 指定に関するエラーハンドリングは,
-    # _build_plan_for_host 側で, _resolve_remote_destを用いて実施する。
-    if len(args.src) < 1 or not args.dest:
-        print(_("At least one SRC and a DEST are required."), file=sys.stderr)
-        sys.exit(EXIT_ERR_ARGS)
+    validation = validate_cli_positional_args(
+        src_tokens=args.src,
+        dest_token=args.dest,
+        allow_src_bare_tilde=False,
+        allow_src_tilde_username=False,
+        allow_dest_bare_tilde=False,
+        allow_dest_tilde_username=False,
+        exit_code_default=EXIT_ERR_ARGS,
+    )
+    if validation.has_error():
+        if validation.error_message:
+            print(validation.error_message, file=sys.stderr)
+        sys.exit(validation.exit_code)
+
+    args.src = validation.normalized_srcs
+    args.dest = validation.normalized_dest
 
     # ホストファイル解析
     try:
