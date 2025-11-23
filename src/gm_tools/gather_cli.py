@@ -609,7 +609,7 @@ def main() -> None:
 
     # ホストファイル解析
     try:
-        hosts_infile: List[str] = get_host_list_from_hostfile(str(args.hosts))
+        hosts_in_file: List[str] = get_host_list_from_hostfile(str(args.hosts))
 
     except FileNotFoundError:
         # ホストファイルが存在しない場合
@@ -628,7 +628,7 @@ def main() -> None:
     args_user: str = str(args.user)
 
     connectivity = filter_hosts_by_connectivity(
-        hosts_infile,
+        hosts_in_file,
         ssh_user=ssh_user,
         port=int(args.port),
         key_filename=str(args.key) if args.key is not None else None,
