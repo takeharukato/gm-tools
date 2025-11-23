@@ -36,15 +36,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gettext import gettext as _
-else:
-    import builtins
-
-    def _(message: str) -> str:
-        """組み込み _ があれば翻訳し、なければ原文を返す。"""
-        gettext_callable = getattr(builtins, "_", None)
-        if callable(gettext_callable):
-            return gettext_callable(message)
-        return message
 
 from .core_constants import DEFAULT_HOSTS_FILE, DEFAULT_PARALLEL_HOSTS, EXIT_ERR_ARGS
 from .core_path_handling import is_bare_tilde, tilde_username
