@@ -66,7 +66,7 @@ from .core_path_handling import (
     tilde_username,
     is_bare_tilde,
 )
-from .core_common import parse_hosts_file
+from .core_common import get_host_list_from_hostfile
 from .core_select import (
     enumerate_candidates_for_host,
     Plan,
@@ -554,7 +554,6 @@ def _build_plan_for_host(
     }
     return Plan(entries=entries), meta
 
-
 # ---- main --------------------------------------------------------------------
 
 
@@ -616,21 +615,20 @@ def main() -> None:
 
     # ホストファイル解析
     try:
-        hosts: List[str] = parse_hosts_file(str(args.hosts))
+        hosts: List[str] = get_host_list_from_hostfile(str(args.hosts))
 
-    except FileNotFoundError as exc:
-        print(_("No hostfile found: hostfile='{fname}' {err}").format(fname=str(args.hosts), err=str(exc)), file=sys.stderr)
+    except FileNotFoundError:
+        # ホストファイルが存在しない場合
         sys.exit(EXIT_ERR_ARGS)
+    except OSError:
+        # ホストファイルの読み取りに失敗した場合
+        sys.exit(EXIT_ERR_ARGS)
+    except ValueError:
+        # ホストファイル内にホスト名が記載されていない場合
+        sys.exit(EXIT_ERR_NO_HOSTS)
 
-    except OSError as exc:
-        print(_("Can not read hostfile: hostfile='{fname}' {err}").format(fname=str(args.hosts), err=str(exc)), file=sys.stderr)
-        sys.exit(EXIT_ERR_ARGS)
     finally:
         pass
-
-    if len(hosts) == 0:
-        print(_("No hosts found in hostfile: hostfile='{fname}'").format(fname=str(args.hosts)), file=sys.stderr)
-        sys.exit(EXIT_ERR_NO_HOSTS)
 
     ssh_user: str = str(args.ssh_user) if args.ssh_user is not None else str(args.user)
     args_user: str = str(args.user)
