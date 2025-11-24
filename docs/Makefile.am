@@ -13,7 +13,8 @@
 # 著者が修正している部分があります。
 #
 ## docs/Makefile.am for gm-tools
-
+SUBDIRS = \
+	debug
 ## ドキュメント本体は docdir 直下に配置
 doc_DATA = \
 	gm-gather-specJP.md \

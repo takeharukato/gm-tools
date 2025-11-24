@@ -88,6 +88,8 @@ AC_CONFIG_FILES([
   Dockerfiles/Makefile
   docs/Makefile
   docs/sphinx/Makefile
+  docs/debug/Makefile
+  docs/debug/vscode/Makefile
   tests/Makefile
   tests/mt/Makefile
   debug-patches/Makefile
