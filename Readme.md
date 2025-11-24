@@ -53,7 +53,7 @@ In the `po` directory, the following make targets are defined:
 - `make uninstall` removes the translated `.mo` files.
 - `make clean`, `make distclean`, `make maintainer-clean` remove generated files (`*.gmo`, `stamp-po`, etc.) according to the cleanup level.
 
-## Usage Examples
+## Example Usages
 
 ### Creating a Host File
 
@@ -66,9 +66,55 @@ localhost
 vmlinux.local
 ```
 
-### Example of Retrieving Files Using Regular Expressions
+### Retrieving Files Using Literal Names
 
-To retrieve files starting with `.zsh` under the home directory of a remote host, use `gm-gather` as follows:
+When gm-gather and gm-scatter detect the following meta characters used in Python regular expressions within the positional argument ‘SRC’, they treat the argument as a file or directory name specified with a regular expression.
+
+- ‘^’
+- ‘$’
+- ‘*’
+- ‘+’
+- ‘?’
+- ‘\\’
+- ‘|’
+- ‘{’, ‘}’, ‘[’, ‘]’, ‘(’, ‘)’
+
+However, gm-gather and gm-scatter do not use character '.' to detect regular expressions in the `SRC` parameters. Because the character ‘.’ is commonly used as a separator to denote file extensions. You can use ‘.’ without escaping when specifying filenames as literal values.
+
+To collect the `.zshrc.mine` file located under the home directory on the remote hosts and store it in the `dest` directory, use `gm-gather` as follows:
+
+```:shell
+gm-gather   “~/.zshrc.mine” dest
+```
+
+An example execution is as follows:
+
+```:shell
+$  gm-gather   “~/.zshrc.mine” dest
+timestamp=“2025-11-24T09:41:19.310+09:00” level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp=“2025-11-24T09:41:19.310+09:00” level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp=“2025-11-24T09:41:19.314+09:00” level="INFO" host="localhost" op="gather" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp=“2025-11-24T09:41:19.314+09:00” level="INFO" host="vmlinux.local" op="gather" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp=“2025-11-24T09:41:19.315+09:00” level="INFO" host="-" op="gather" phase="done" trial="2" processed="2" total="2" warnings="0" errors="0" msg="summary"
+$ tree -a dest
+dest
+|-- localhost
+|   `-- home
+|       `-- user
+|           `-- .zshrc.mine
+`-- vmlinux.local
+    `-- home
+        `-- user
+            `-- .zshrc.mine
+
+6 directories, 2 files
+```
+
+#### Retrieving Files Using Regular Expressions
+
+##### Retrieving Files Without Privilege Escalation
+
+To collect files starting with `.zsh` under the remote host's home directory and store them in the `dest` directory, use `gm-gather` as follows:
 
 ```:shell
 gm-gather “~/\.zsh.*” dest
@@ -111,6 +157,58 @@ dest
 6 directories, 8 files
 ```
 
+##### Retrieving Files With Privilege Escalation
+
+After logging into the remote host, using the administrator account (`root`), to collect files starting with ‘/etc/host’ and store them in the `dest` directory, specify the options as follows:
+
+```:shell
+gm-gather -u root --ssh-user=user --pack -v ‘/etc/^host.*’ dest
+```
+
+The meaning of each option is as follows:
+
+- Specify `-u root` to retrieve files under `/etc`
+- Since root cannot ssh login directly, log in once as `user`, then use sudo to become the privileged user and retrieve the files
+- Use `--pack` to attempt retrieval including symbolic links
+- Use `-v` to display detailed logs
+- Specify the retrieval file pattern ‘/etc/^host.*’ in `SRC`
+- Specify the output destination directory as `dest`
+
+An example of executing the above command is as follows.
+
+```:shell
+$ gm-gather -u root --ssh-user=user --pack -v ‘/etc/^host.*’ dest
+timestamp=“2025-11-24T04:18:52.171+09:00” level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="3" msg="host start"
+timestamp=“2025-11-24T04:18:52.171+09:00” level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="5" msg="host start"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="1" processed="1" total="5" seq="1" msg="processing"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="2" processed="2" total="5" seq="2" msg="processing"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="3" processed="3" total="5" seq="3" msg="processing"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="4" processed="4" total="5" seq="4" msg="processing"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="5" processed="5" total="5" seq="5" msg="processing"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="3" seq="1" msg="processing"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="2" processed="2" total="3" seq="2" msg="processing"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="3" processed="3" total="3" seq="3" msg="processing"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="INFO" host="localhost" op="gather" phase="done" trial="3" processed="3" total="3" warnings="0" errors="0" duration="0.5" msg="host done"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="INFO" host="vmlinux.local" op="gather" phase="done" trial="5" processed="5" total="5" warnings="0" errors="0" duration="0.5" msg="host done"
+timestamp=“2025-11-24T04:18:52.670+09:00” level="INFO" host="-" op="gather" phase="done" trial="8" processed="8" total="8" warnings="0" errors="0" msg="summary"
+$ tree -a dest
+dest
+|-- localhost
+|   `-- etc
+|       |-- host.conf
+|       |-- hostname
+|       `-- hosts
+`-- vmlinux.local
+    `-- etc
+        |-- host.conf
+        |-- hostname
+        |-- hosts
+        |-- hosts.allow
+        `-- hosts.deny
+
+4 directories, 8 files
+```
+
 ### Example of File Distribution Using Regular Expressions
 
 To scatter files starting with `host` from the localhost's current directory into a directory named `dest-scatter` directly under the remote host's home directory, use `gm-scatter` as follows.
@@ -124,6 +222,13 @@ If only `hostfile` exists in the current directory as a file starting with `host
 ```:shell
 $ gm-scatter ‘./host.*’ ~/dest-scatter
 $ tree -a dest-scatter
+dest-scatter
+`-- home
+    `-- user
+        `-- hostfile
+
+2 directories, 1 file
+$ ssh vmlinux.local -- tree -a dest-scatter
 dest-scatter
 `-- home
     `-- user
