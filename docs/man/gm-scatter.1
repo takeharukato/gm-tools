@@ -196,6 +196,25 @@ If a literally specified path does not exist, it is excluded without warning. Re
 
 .PP
 
+.SS Treatment of Literal Names In \fISRC\fR Positional Argument
+.PP
+When gm-gather and gm-scatter detect the following meta characters used in Python regular expressions within the positional argument \fISRC\fR, they treat the argument as a file or directory name specified with a regular expression.
+
+.RS
+.IP \(bu 2
+\'^\', \'$\', \'*\', \'+\', \'?\', \'\\\'
+.IP \(bu 2
+\'[\', \']\', \'|\'
+.IP \(bu 2
+\'{\', \'}\'
+.IP \(bu 2
+\'(\', \')\'
+.RE
+
+.PP
+However, gm-gather and gm-scatter do not use character '.' to detect regular expressions in the \fCSRC\fP parameters. Because the character ‘.’ is commonly used as a separator to denote file extensions. You can use ‘.’ without escaping when specifying filenames as literal values.
+.PP
+
 .SH Interpretation of SRC and DEST Layout
 
 .SS The interpretation of \fCSRC\fR
@@ -439,21 +458,49 @@ Create a host file named \fChostfile\fP as follows:
 localhost
 vmlinux.local
 .EE
-
-.SS Example of File Distribution Using Regular Expressions
-To scatter files starting with \fChost\fP from the localhost's current directory into a directory named \fCdest-scatter\fP directly under the remote host's home directory, use \fCgm-scatter\fP as follows.
 .PP
 
+.SS Scattering Files Using Literal Names
+.PP
+
+To scatter sample.txt in the current directory on localhost into a directory named /tmp/dest-scatter on the remote hosts, use gm-scatter as follows:
+.PP
 .EX
-gm-scatter ‘./host.*’ ~/dest-scatter
+gm-scatter './sample.txt'  /tmp/dest-scatter
+.EE
+.PP
+The execution example would be as follows:
+.PP
+.EX
+$ gm-scatter './sample.txt' /tmp/dest-scatter
+timestamp="2025-11-24T11:15:25.229+09:00" level="INFO" host="localhost" op="scatter" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T11:15:25.230+09:00" level="INFO" host="vmlinux.local" op="scatter" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T11:15:25.793+09:00" level="INFO" host="localhost" op="scatter" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.6" msg="host done"
+timestamp="2025-11-24T11:15:25.793+09:00" level="INFO" host="vmlinux.local" op="scatter" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.6" msg="host done"
+timestamp="2025-11-24T11:15:25.794+09:00" level="INFO" host="-" op="scatter" phase="done" trial="2" processed="2" total="2" warnings="0" errors="0" msg="summary"
+$ tree -a /tmp/dest-scatter
+/tmp/dest-scatter
+`-- sample.txt
+0 directories, 1 file
+$ ssh vmlinux.local -- tree -a /tmp/dest-scatter
+/tmp/dest-scatter
+`-- sample.txt
+
+1 directory, 1 file
 .EE
 
+.SS Scattering Files Using Regular Expressions
+.PP
+To scatter files starting with \fChost\fP from the localhost's current directory into a directory named \fCdest-scatter\fP directly under the remote host's home directory, use \fCgm-scatter\fP as follows.
+.PP
+.EX
+gm-scatter './host.*' ~/dest-scatter
+.EE
 .PP
 If only \fChostfile\fP exists in the current directory as a file starting with \fChost\fP, the execution example would be as follows:
 .PP
-
 .EX
-$ gm-scatter ‘./host.*’ ~/dest-scatter
+$ gm-scatter './host.*' ~/dest-scatter
 $ tree -a dest-scatter
 dest-scatter
 `-- home
@@ -469,8 +516,6 @@ dest-scatter
 
 2 directories, 1 file
 .EE
-
-.PP
 
 .SH Limitations and Notes
 .PP

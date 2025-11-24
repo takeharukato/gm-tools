@@ -66,20 +66,20 @@ localhost
 vmlinux.local
 ```
 
-### Retrieving Files Using Literal Names
+### Treatment of Literal Names In `SRC` Positional Argument
 
-When gm-gather and gm-scatter detect the following meta characters used in Python regular expressions within the positional argument ‘SRC’, they treat the argument as a file or directory name specified with a regular expression.
+When gm-gather and gm-scatter detect the following meta characters used in Python regular expressions within the positional argument `SRC`, they treat the argument as a file or directory name specified with a regular expression.
 
-- ‘^’
-- ‘$’
-- ‘*’
-- ‘+’
-- ‘?’
-- ‘\\’
-- ‘|’
-- ‘{’, ‘}’, ‘[’, ‘]’, ‘(’, ‘)’
+- `^`, `$`, `*`, `+`, `?`, `\`
+- `{`, `}`
+- `[`,`]`, `|`
+- `(`, `)`
 
 However, gm-gather and gm-scatter do not use character '.' to detect regular expressions in the `SRC` parameters. Because the character ‘.’ is commonly used as a separator to denote file extensions. You can use ‘.’ without escaping when specifying filenames as literal values.
+
+### Retrieving Files
+
+#### Example of Retrieving Files With Literal Names
 
 To collect the `.zshrc.mine` file located under the home directory on the remote hosts and store it in the `dest` directory, use `gm-gather` as follows:
 
@@ -112,7 +112,7 @@ dest
 
 #### Retrieving Files Using Regular Expressions
 
-##### Retrieving Files Without Privilege Escalation
+#### Retrieving Files Without Privilege Escalation
 
 To collect files starting with `.zsh` under the remote host's home directory and store them in the `dest` directory, use `gm-gather` as follows:
 
@@ -157,7 +157,7 @@ dest
 6 directories, 8 files
 ```
 
-##### Retrieving Files With Privilege Escalation
+#### Retrieving Files With Privilege Escalation
 
 After logging into the remote host, using the administrator account (`root`), to collect files starting with ‘/etc/host’ and store them in the `dest` directory, specify the options as follows:
 
@@ -209,7 +209,38 @@ dest
 4 directories, 8 files
 ```
 
-### Example of File Distribution Using Regular Expressions
+### Scattering Files
+
+#### Scattering Files Using Literal Names
+
+Example of File Scatter Using Literal Names
+To scatter sample.txt in the current directory on localhost into a directory named /tmp/dest-scatter on the remote hosts, use gm-scatter as follows:
+
+```:shell
+gm-scatter ‘./sample.txt’  /tmp/dest-scatter
+```
+
+The execution example would be as follows:
+
+```:shell
+$ gm-scatter './sample.txt' /tmp/dest-scatter
+timestamp="2025-11-24T11:15:25.229+09:00" level="INFO" host="localhost" op="scatter" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T11:15:25.230+09:00" level="INFO" host="vmlinux.local" op="scatter" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T11:15:25.793+09:00" level="INFO" host="localhost" op="scatter" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.6" msg="host done"
+timestamp="2025-11-24T11:15:25.793+09:00" level="INFO" host="vmlinux.local" op="scatter" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.6" msg="host done"
+timestamp="2025-11-24T11:15:25.794+09:00" level="INFO" host="-" op="scatter" phase="done" trial="2" processed="2" total="2" warnings="0" errors="0" msg="summary"
+$ tree -a /tmp/dest-scatter
+/tmp/dest-scatter
+`-- sample.txt
+0 directories, 1 file
+$ ssh vmlinux.local -- tree -a /tmp/dest-scatter
+/tmp/dest-scatter
+`-- sample.txt
+
+1 directory, 1 file
+```
+
+#### Scattering Files Using Using Regular Expressions
 
 To scatter files starting with `host` from the localhost's current directory into a directory named `dest-scatter` directly under the remote host's home directory, use `gm-scatter` as follows.
 

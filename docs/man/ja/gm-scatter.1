@@ -201,6 +201,29 @@ web02.example.com    # 任意の注記 ( 例: 設置場所 )
 .IP "\(bu" 2
 \fBパック転送\fR 使用時はローカルでディレクトリを指定した候補に末尾スラッシュを付け, tar 作成時にディレクトリ扱いであることを明示する。正規表現で一致した結果はそのまま扱う。
 
+.SS 位置引数\fISRC\fR中のリテラル名の扱い
+.PP
+gm-gather, gm-scatterは, 位置引数\fISRC\fR中に, Pythonの正規表現で使用される以下のメタ文字が含まれる場合, 対象の引数を正規表現として解釈する。
+
+.RS
+.IP \(bu 2
+\'^\', \'$\', \'*\', \'+\', \'?\', \'\\\'
+.IP \(bu 2
+\'[\', \']\', \'|\'
+.IP \(bu 2
+\'{\', \'}\'
+.IP \(bu 2
+\'(\', \')\'
+.RE
+
+.PP
+
+ただし, 文字'.'は, 拡張子を表すための区切り文字として, 一般的に使用されるため,
+gm-gather, gm-scatterは, 正規表現文字の検出に, 文字'.'は使用しない。
+このため, ファイル名を即値で指定する場合にも'.'をエスケープなしに使用することができる。
+
+.PP
+
 .SH SRC と DEST の解釈とレイアウト
 
 .IP "\(bu" 2
@@ -448,7 +471,37 @@ localhost
 vmlinux.local
 .EE
 
-.SS 正規表現によるファイルの配布の例
+.SS リテラル指定によるファイル配布
+.PP
+ローカルホストのカレントディレクトリにある\fCsample.txt\fRを,
+リモートホスト上の\fC/tmp/dest-scatter\fRというディレクトリに展開するには,
+次のように\fCgm-scatter\fRを使用する。
+.PP
+.EX
+gm-scatter './sample.txt'  /tmp/dest-scatter
+.EE
+.PP
+実行例は次のとおり:
+.PP
+.EX
+$ gm-scatter './sample.txt' /tmp/dest-scatter
+timestamp="2025-11-24T11:15:25.229+09:00" level="INFO" host="localhost" op="scatter" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T11:15:25.230+09:00" level="INFO" host="vmlinux.local" op="scatter" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T11:15:25.793+09:00" level="INFO" host="localhost" op="scatter" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.6" msg="host done"
+timestamp="2025-11-24T11:15:25.793+09:00" level="INFO" host="vmlinux.local" op="scatter" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.6" msg="host done"
+timestamp="2025-11-24T11:15:25.794+09:00" level="INFO" host="-" op="scatter" phase="done" trial="2" processed="2" total="2" warnings="0" errors="0" msg="summary"
+$ tree -a /tmp/dest-scatter
+/tmp/dest-scatter
+`-- sample.txt
+0 directories, 1 file
+$ ssh vmlinux.local -- tree -a /tmp/dest-scatter
+/tmp/dest-scatter
+`-- sample.txt
+
+1 directory, 1 file
+.EE
+
+.SS 正規表現によるファイルの配布
 .PP
 
 ローカルホストのカレントディレクトリ配下にある\fChost\fPで始まるファイルを,
@@ -461,7 +514,7 @@ gm-scatter './host.*' ~/dest-scatter
 .EE
 .PP
 カレントディレクトリに, \fChost\fPで始まるファイルとして,
-\fChostfile\fPだけが存在する場合の実行例は以下のとおり:
+\fChostfile\fPだけが存在する場合, 実行例は以下のとおりとなる:
 .PP
 
 .EX

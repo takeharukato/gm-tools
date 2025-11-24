@@ -68,25 +68,25 @@ localhost
 vmlinux.local
 ```
 
-### リテラル指定によるファイルの取得の例
+### 位置引数`SRC`内でのリテラル名の扱い
 
-gm-gather, gm-scatterは, 位置引数'SRC'中に, Pythonの正規表現で使用される以下のメタ文字が含まれる場合, 対象の引数を正規表現として解釈します。
+gm-gather, gm-scatterは, 位置引数`SRC`中に, Pythonの正規表現で使用される以下のメタ文字が含まれる場合, 対象の引数を正規表現として解釈します。
 
-- '^'
-- '$'
-- '*'
-- '+'
-- '?'
-- '\\'
-- '|'
-- '{', '}', '[',']', '(', ')'
+- `^`, `$`, `*`, `+`, `?`, `\`
+- `{`, `}`
+- `[`,`]`, `|`
+- `(`, `)`
 
 ただし, 文字'.'は, 拡張子を表すための区切り文字として, 一般的に使用されるため, 正規表現文字の検出に, 文字'.'は使用しません。このため, ファイル名を即値で指定する場合にも'.'をエスケープなしに使用することができます。
+
+### ファイルの取得の例
+
+#### リテラル指定によるファイルの取得の例
 
 リモートホストのホームディレクトリ配下にある`.zshrc.mine`ファイルを収集し, `dest`ディレクトリに格納する場合は, 以下のように`gm-gather`を使用します。
 
 ```:shell
-gm-gather   "~/.zshrc.mine" dest
+gm-gather   '~/.zshrc.mine' dest
 ```
 
 実行例は以下のようになります。
@@ -112,9 +112,9 @@ dest
 6 directories, 2 files
 ```
 
-### 正規表現によるファイルの取得の例
+#### 正規表現によるファイルの取得の例
 
-#### 権限昇格なしで, ファイルを取得する例
+##### 権限昇格なしで, ファイルを取得する例
 
 リモートホストのホームディレクトリ配下にある`.zsh`で始まるファイルを収集し, `dest`ディレクトリに格納する場合は, 以下のように`gm-gather`を使用します。
 
@@ -159,7 +159,7 @@ dest
 6 directories, 8 files
 ```
 
-#### sshログイン後, 権限昇格し, ファイルを取得する例
+##### sshログイン後, 権限昇格し, ファイルを取得する例
 
 リモートホストにログイン後, 管理者アカウント(`root`)で, '/etc/host'で始まるファイルを収集し, `dest`ディレクリ内に格納する場合, 以下のようにオプションを指定します。
 
@@ -211,9 +211,39 @@ dest
 4 directories, 8 files
 ```
 
-### 正規表現によるファイルの配布の例
+### ファイルの配布の例
 
-ローカルホストのカレントディレクトリ配下にある`host`で始まるファイルをリモートホストのホームディレクトリ直下の`dest-scatter`というディレクトリに展開する場合は, 以下のように`gm-scatter`を使用します。
+#### リテラル指定によるファイルの配布の例
+
+ローカルホストの現在のディレクトリにあるsample.txtを, リモートホスト上の/tmp/dest-scatterというディレクトリに配布するには, gm-scatterを次のように使用します:
+
+```:shell
+gm-scatter './sample.txt'  /tmp/dest-scatter
+```
+
+実行例は以下のようになります:
+
+```:shell
+$ gm-scatter './sample.txt' /tmp/dest-scatter
+timestamp="2025-11-24T11:15:25.229+09:00" level="INFO" host="localhost" op="scatter" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T11:15:25.230+09:00" level="INFO" host="vmlinux.local" op="scatter" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T11:15:25.793+09:00" level="INFO" host="localhost" op="scatter" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.6" msg="host done"
+timestamp="2025-11-24T11:15:25.793+09:00" level="INFO" host="vmlinux.local" op="scatter" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.6" msg="host done"
+timestamp="2025-11-24T11:15:25.794+09:00" level="INFO" host="-" op="scatter" phase="done" trial="2" processed="2" total="2" warnings="0" errors="0" msg="summary"
+$ tree -a /tmp/dest-scatter
+/tmp/dest-scatter
+`-- sample.txt
+0 directories, 1 file
+$ ssh vmlinux.local -- tree -a /tmp/dest-scatter
+/tmp/dest-scatter
+`-- sample.txt
+
+1 directory, 1 file
+```
+
+#### 正規表現によるファイルの配布の例
+
+ローカルホストのカレントディレクトリ配下にある`host`で始まるファイルをリモートホストのホームディレクトリ直下の`dest-scatter`というディレクトリに配布する場合は, 以下のように`gm-scatter`を使用します。
 
 ```:shell
 gm-scatter './host.*' ~/dest-scatter
