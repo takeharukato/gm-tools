@@ -16,6 +16,7 @@
 
 ## 開発環境スクリプトは配布のみ, インストール無し
 EXTRA_DIST = \
+    Readme.md \
     launch.json \
     mydbg-hostfile \
     settings.json
