@@ -92,7 +92,7 @@ gm-gather   '~/.zshrc.mine' dest
 実行例は以下のようになります。
 
 ```:shell
-$  gm-gather   "~/.zshrc.mine" dest
+$  gm-gather '~/.zshrc.mine' dest
 timestamp="2025-11-24T09:41:19.310+09:00" level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
 timestamp="2025-11-24T09:41:19.310+09:00" level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
 timestamp="2025-11-24T09:41:19.314+09:00" level="INFO" host="localhost" op="gather" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.0" msg="host done"
@@ -119,13 +119,13 @@ dest
 リモートホストのホームディレクトリ配下にある`.zsh`で始まるファイルを収集し, `dest`ディレクトリに格納する場合は, 以下のように`gm-gather`を使用します。
 
 ```:shell
-gm-gather   "~/\.zsh.*" dest
+gm-gather '~/\.zsh.*' dest
 ```
 
 実行例は以下のようになります。
 
 ```:shell
-$ gm-gather   "~/\.zsh.*" dest
+$ gm-gather '~/\.zsh.*' dest
 timestamp="2025-11-23T01:14:33.209+09:00" level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
 timestamp="2025-11-23T01:14:33.210+09:00" level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
 timestamp="2025-11-23T01:14:33.214+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"

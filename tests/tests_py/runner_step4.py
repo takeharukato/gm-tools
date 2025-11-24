@@ -621,7 +621,7 @@ def case_scatter_dest_abs_variants(cfg: Config) -> CaseResult:
     仕様整合チェック:
       - /abs         : 絶対パス -> そのまま DEST 配下に展開される
       - ~/...        : remote_home へ展開される
-      - Windows 風   : “Windows 絶対”として扱われ rc==0 となる ( レイアウトは実装依存 )
+      - Windows 風   : "Windows 絶対"として扱われ rc==0 となる ( レイアウトは実装依存 )
     検証方針:
       - /abs と ~/: 期待パスに x.txt があることまで確認
       - Windows 風: rc==0 のみ確認 ( 実装依存のため位置は検証しない )

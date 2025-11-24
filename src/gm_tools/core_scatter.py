@@ -933,7 +933,7 @@ def sftp_put_one(
         # 絶対は pack 側と同じ規則で "C/path" 等に統一
         rel_default: str = dest_rel_from_abs(ap)
 
-    # remote_rel が与えられていればそれを“ファイル”パスとして厳密化
+    # remote_rel が与えられていればそれを"ファイル"パスとして厳密化
     if remote_rel is not None and str(remote_rel).strip():
         rel_effective: str = _normalize_remote_rel_file(remote_rel)
         if not rel_effective:
