@@ -1,0 +1,50 @@
+{
+    // IntelliSense を使用して利用可能な属性を学べます。
+    // 既存の属性の説明をホバーして表示します。
+    // 詳細情報は次を確認してください: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "gm-gather (debug)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "gm_tools.gather_cli",
+            "args": [
+                "--hosts", "${workspaceFolder}/.vscode/mydbg-hostfile",
+                "--user", "ansible",
+                "--dry-run",
+                "--",  "${input:firstArg}", "dest"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "src"
+            },
+            "justMyCode": true
+        },
+        {
+            "name": "gm-scatter (debug)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "gm_tools.scatter_cli",
+            "args": [
+                "--hosts", "${workspaceFolder}/.vscode/mydbg-hostfile",
+                "--user", "ansible",
+                "--dry-run",
+                "--",  "${input:firstArg}", "/tmp/dest"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "src"
+            },
+            "justMyCode": true
+        }
+    ],
+    "inputs": [
+        {
+            "id": "firstArg",
+            "type": "promptString",
+            "description": "Enter the first argument (source path)",
+            "default": "/tmp/source"
+        }
+    ]
+}
