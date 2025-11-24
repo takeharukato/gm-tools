@@ -75,7 +75,7 @@ When gm-gather and gm-scatter detect the following meta characters used in Pytho
 - `[`,`]`, `|`
 - `(`, `)`
 
-However, gm-gather and gm-scatter do not use character '.' to detect regular expressions in the `SRC` parameters. Because the character ‘.’ is commonly used as a separator to denote file extensions. You can use ‘.’ without escaping when specifying filenames as literal values.
+However, gm-gather and gm-scatter do not use character '.' to detect regular expressions in the `SRC` parameters. Because the character '.' is commonly used as a separator to denote file extensions. You can use '.' without escaping when specifying filenames as literal values.
 
 ### Retrieving Files
 
@@ -84,18 +84,18 @@ However, gm-gather and gm-scatter do not use character '.' to detect regular exp
 To collect the `.zshrc.mine` file located under the home directory on the remote hosts and store it in the `dest` directory, use `gm-gather` as follows:
 
 ```:shell
-gm-gather   “~/.zshrc.mine” dest
+gm-gather   '~/.zshrc.mine' dest
 ```
 
 An example execution is as follows:
 
 ```:shell
-$  gm-gather   “~/.zshrc.mine” dest
-timestamp=“2025-11-24T09:41:19.310+09:00” level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
-timestamp=“2025-11-24T09:41:19.310+09:00” level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
-timestamp=“2025-11-24T09:41:19.314+09:00” level="INFO" host="localhost" op="gather" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.0" msg="host done"
-timestamp=“2025-11-24T09:41:19.314+09:00” level="INFO" host="vmlinux.local" op="gather" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.0" msg="host done"
-timestamp=“2025-11-24T09:41:19.315+09:00” level="INFO" host="-" op="gather" phase="done" trial="2" processed="2" total="2" warnings="0" errors="0" msg="summary"
+$  gm-gather '~/.zshrc.mine' dest
+timestamp="2025-11-24T09:41:19.310+09:00" level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T09:41:19.310+09:00" level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp="2025-11-24T09:41:19.314+09:00" level="INFO" host="localhost" op="gather" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp="2025-11-24T09:41:19.314+09:00" level="INFO" host="vmlinux.local" op="gather" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp="2025-11-24T09:41:19.315+09:00" level="INFO" host="-" op="gather" phase="done" trial="2" processed="2" total="2" warnings="0" errors="0" msg="summary"
 $ tree -a dest
 dest
 |-- localhost
@@ -117,26 +117,26 @@ dest
 To collect files starting with `.zsh` under the remote host's home directory and store them in the `dest` directory, use `gm-gather` as follows:
 
 ```:shell
-gm-gather “~/\.zsh.*” dest
+gm-gather '~/\.zsh.*' dest
 ```
 
 An example execution is as follows:
 
 ```:shell
-$ gm-gather “~/\.zsh.*” dest
-timestamp=“2025-11-23T01:14:33.209+09:00” level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
-timestamp=“2025-11-23T01:14:33.210+09:00” level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
-timestamp=“2025-11-23T01:14:33.214+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
-timestamp=“2025-11-23T01:14:33.214+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
-timestamp=“2025-11-23T01:14:33.218+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
-timestamp=“2025-11-23T01:14:33.218+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
-timestamp=“2025-11-23T01:14:33.221+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
-timestamp=“2025-11-23T01:14:33.222+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
-timestamp=“2025-11-23T01:14:33.225+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
-timestamp=“2025-11-23T01:14:33.225+09:00” level="INFO" host="localhost" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
-timestamp=“2025-11-23T01:14:33.225+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
-timestamp=“2025-11-23T01:14:33.225+09:00” level="INFO" host="vmlinux.local" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
-timestamp=“2025-11-23T01:14:33.226+09:00” level="INFO" host="-" op="gather" phase="done" trial="8" processed="8" total="8" warnings="0" errors="0" msg="summary"
+$ gm-gather '~/\.zsh.*' dest
+timestamp="2025-11-23T01:14:33.209+09:00" level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
+timestamp="2025-11-23T01:14:33.210+09:00" level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
+timestamp="2025-11-23T01:14:33.214+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
+timestamp="2025-11-23T01:14:33.214+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
+timestamp="2025-11-23T01:14:33.218+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
+timestamp="2025-11-23T01:14:33.218+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
+timestamp="2025-11-23T01:14:33.221+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
+timestamp="2025-11-23T01:14:33.222+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
+timestamp="2025-11-23T01:14:33.225+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
+timestamp="2025-11-23T01:14:33.225+09:00" level="INFO" host="localhost" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp="2025-11-23T01:14:33.225+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
+timestamp="2025-11-23T01:14:33.225+09:00" level="INFO" host="vmlinux.local" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp="2025-11-23T01:14:33.226+09:00" level="INFO" host="-" op="gather" phase="done" trial="8" processed="8" total="8" warnings="0" errors="0" msg="summary"
 $ tree -a dest
 dest
 |-- localhost
@@ -159,10 +159,10 @@ dest
 
 #### Retrieving Files With Privilege Escalation
 
-After logging into the remote host, using the administrator account (`root`), to collect files starting with ‘/etc/host’ and store them in the `dest` directory, specify the options as follows:
+After logging into the remote host, using the administrator account (`root`), to collect files starting with '/etc/host' and store them in the `dest` directory, specify the options as follows:
 
 ```:shell
-gm-gather -u root --ssh-user=user --pack -v ‘/etc/^host.*’ dest
+gm-gather -u root --ssh-user=user --pack '/etc/^host.*' dest
 ```
 
 The meaning of each option is as follows:
@@ -171,26 +171,26 @@ The meaning of each option is as follows:
 - Since root cannot ssh login directly, log in once as `user`, then use sudo to become the privileged user and retrieve the files
 - Use `--pack` to attempt retrieval including symbolic links
 - Use `-v` to display detailed logs
-- Specify the retrieval file pattern ‘/etc/^host.*’ in `SRC`
+- Specify the retrieval file pattern '/etc/^host.*' in `SRC`
 - Specify the output destination directory as `dest`
 
 An example of executing the above command is as follows.
 
 ```:shell
-$ gm-gather -u root --ssh-user=user --pack -v ‘/etc/^host.*’ dest
-timestamp=“2025-11-24T04:18:52.171+09:00” level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="3" msg="host start"
-timestamp=“2025-11-24T04:18:52.171+09:00” level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="5" msg="host start"
-timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="1" processed="1" total="5" seq="1" msg="processing"
-timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="2" processed="2" total="5" seq="2" msg="processing"
-timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="3" processed="3" total="5" seq="3" msg="processing"
-timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="4" processed="4" total="5" seq="4" msg="processing"
-timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="5" processed="5" total="5" seq="5" msg="processing"
-timestamp=“2025-11-24T04:18:52.669+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="3" seq="1" msg="processing"
-timestamp=“2025-11-24T04:18:52.669+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="2" processed="2" total="3" seq="2" msg="processing"
-timestamp=“2025-11-24T04:18:52.669+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="3" processed="3" total="3" seq="3" msg="processing"
-timestamp=“2025-11-24T04:18:52.669+09:00” level="INFO" host="localhost" op="gather" phase="done" trial="3" processed="3" total="3" warnings="0" errors="0" duration="0.5" msg="host done"
-timestamp=“2025-11-24T04:18:52.669+09:00” level="INFO" host="vmlinux.local" op="gather" phase="done" trial="5" processed="5" total="5" warnings="0" errors="0" duration="0.5" msg="host done"
-timestamp=“2025-11-24T04:18:52.670+09:00” level="INFO" host="-" op="gather" phase="done" trial="8" processed="8" total="8" warnings="0" errors="0" msg="summary"
+$ gm-gather -u root --ssh-user=user --pack -v '/etc/^host.*' dest
+timestamp="2025-11-24T04:18:52.171+09:00" level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="3" msg="host start"
+timestamp="2025-11-24T04:18:52.171+09:00" level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="5" msg="host start"
+timestamp="2025-11-24T04:18:52.576+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="1" processed="1" total="5" seq="1" msg="processing"
+timestamp="2025-11-24T04:18:52.576+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="2" processed="2" total="5" seq="2" msg="processing"
+timestamp="2025-11-24T04:18:52.576+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="3" processed="3" total="5" seq="3" msg="processing"
+timestamp="2025-11-24T04:18:52.576+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="4" processed="4" total="5" seq="4" msg="processing"
+timestamp="2025-11-24T04:18:52.576+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="5" processed="5" total="5" seq="5" msg="processing"
+timestamp="2025-11-24T04:18:52.669+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="3" seq="1" msg="processing"
+timestamp="2025-11-24T04:18:52.669+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="2" processed="2" total="3" seq="2" msg="processing"
+timestamp="2025-11-24T04:18:52.669+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="3" processed="3" total="3" seq="3" msg="processing"
+timestamp="2025-11-24T04:18:52.669+09:00" level="INFO" host="localhost" op="gather" phase="done" trial="3" processed="3" total="3" warnings="0" errors="0" duration="0.5" msg="host done"
+timestamp="2025-11-24T04:18:52.669+09:00" level="INFO" host="vmlinux.local" op="gather" phase="done" trial="5" processed="5" total="5" warnings="0" errors="0" duration="0.5" msg="host done"
+timestamp="2025-11-24T04:18:52.670+09:00" level="INFO" host="-" op="gather" phase="done" trial="8" processed="8" total="8" warnings="0" errors="0" msg="summary"
 $ tree -a dest
 dest
 |-- localhost
@@ -217,7 +217,7 @@ Example of File Scatter Using Literal Names
 To scatter sample.txt in the current directory on localhost into a directory named /tmp/dest-scatter on the remote hosts, use gm-scatter as follows:
 
 ```:shell
-gm-scatter ‘./sample.txt’  /tmp/dest-scatter
+gm-scatter './sample.txt'  /tmp/dest-scatter
 ```
 
 The execution example would be as follows:
@@ -245,13 +245,13 @@ $ ssh vmlinux.local -- tree -a /tmp/dest-scatter
 To scatter files starting with `host` from the localhost's current directory into a directory named `dest-scatter` directly under the remote host's home directory, use `gm-scatter` as follows.
 
 ```:shell
-gm-scatter ‘./host.*’ ~/dest-scatter
+gm-scatter './host.*' ~/dest-scatter
 ```
 
 If only `hostfile` exists in the current directory as a file starting with `host`, the execution example would be as follows:
 
 ```:shell
-$ gm-scatter ‘./host.*’ ~/dest-scatter
+$ gm-scatter './host.*' ~/dest-scatter
 $ tree -a dest-scatter
 dest-scatter
 `-- home
