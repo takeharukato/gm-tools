@@ -437,40 +437,48 @@ timestamp="..." level="INFO" host="-" op="<op>" phase="done" trial="<total>" pro
 
 .SH EXAMPLES
 .PP
-gm-scatterを使用したファイル転送の例を提示します。
-.PP
 
 .SS ホストファイルの作成
+本例では, \fClocalhost\fP, \fCvmlinux.local\fPの双方を操作対象リモートホストに設定します。本例では, 各リモートホストに, カレントユーザと同じ名前で, パスワード無しにsshログイン可能であることを前提とします。カレントユーザのユーザ名は, \fCuser\fPであること, かつ, 同じユーザがリモートホストにも存在すること, かつ, \fCuser\fPは, 各リモートホスト上で, パスワードを入力なしに, \fCsudo\fPコマンドにより管理者権限で操作可能になっていることを前提とする。
 .PP
-本例では \fIlocalhost\fP と \fIvmlinux.local\fP を操作対象のリモートホストに設定します。各リモートホストにはカレントユーザと同じ名前のユーザが存在し, パスワード無しに SSH 接続できることを前提とします。カレントユーザ名は \fIuser\fP です。
+ホストファイルを\fChostfile\fPという名前で以下のように作成する。
 .PP
-ホストファイル \fIhostfile\fP を次の内容で作成します。
-.PP
-.nf
+.EX
 localhost
 vmlinux.local
-.fi
+.EE
 
 .SS 正規表現によるファイルの配布の例
 .PP
-ローカルホストのカレントディレクトリにある \fIhost\fP で始まるファイルをリモートホストのホームディレクトリ直下 \fIdest-scatter\fP に展開する場合は次のように \fBgm-scatter\fP を使用します。
+
+ローカルホストのカレントディレクトリ配下にある\fChost\fPで始まるファイルを,
+リモートホストのホームディレクトリ直下の\fCdest-scatter\fPというディレクトリに展開する場合,
+以下のように\fCgm-scatter\fPを使用する。
 .PP
-.nf
+
+.EX
 gm-scatter './host.*' ~/dest-scatter
-.fi
+.EE
 .PP
-カレントディレクトリに \fIhost\fP で始まるファイルとして \fIhostfile\fP のみが存在する場合, 実行例は次のとおりです。
+カレントディレクトリに, \fChost\fPで始まるファイルとして,
+\fChostfile\fPだけが存在する場合の実行例は以下のとおり:
 .PP
-.nf
+
+.EX
 $ gm-scatter './host.*' ~/dest-scatter
 $ tree -a dest-scatter
 dest-scatter
 `-- home
-    `-- tkato
+    `-- user
+        `-- hostfile
+$ ssh vmlinux.local -- tree -a dest-scatter
+dest-scatter
+`-- home
+    `-- user
         `-- hostfile
 
 2 directories, 1 file
-.fi
+.EE
 
 .SH 制限と注意事項
 .PP

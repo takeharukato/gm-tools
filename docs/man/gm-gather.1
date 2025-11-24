@@ -325,49 +325,98 @@ The summary row (\fCsummary\fR) contains the following information.
 .PP
 
 .SH EXAMPLES
+
+.SS Creating a Host File
+
+.PP
+In this example, both \fClocalhost\fP and \fCvmlinux.local\fP are set as target remote hosts. This example assumes that each remote host allows SSH login without a password using the same username as the current user. It further assumes the current user's username is \fCuser\fP and that the same user exists on the remote host.
+.PP
+Create a host file named \fChostfile\fP as follows:
 .PP
 
-Here are some examples of file transfer using gm-gather.
-.PP
-
-.SS Creating the host file
-.PP
-
-This example targets the remote hosts \fIlocalhost\fP and \fIvmlinux.local\fP. It assumes that each remote host allows passwordless SSH access for the user whose name matches the local account. The current user is \fIuser\fP, and the same user exists on the remote hosts.
-.PP
-
-Create the host file \fIhostfile\fP with the following contents.
-.PP
-.nf
+.EX
 localhost
 vmlinux.local
-.fi
-.SS Gathering files with regular expressions
+.EE
+
+.SS Retrieving Files Using Literal Names
+When gm-gather and gm-scatter detect the following meta characters used in Python regular expressions within the positional argument ‘SRC’, they treat the argument as a file or directory name specified with a regular expression.
+
+.RS
+.IP \(bu 2
+\'^\', \'$\', \'*\', \'+\', \'?\', \'\\\'
+.IP \(bu 2
+\'[\', \']\', \'|\'
+.IP \(bu 2
+\'{\', \'}\'
+.IP \(bu 2
+\'(\', \')\'
+.RE
+
 .PP
-To gather files under the remote home directory whose names start with \fI.zsh\fP, use \fBgm-gather\fP as follows.
+However, gm-gather and gm-scatter do not use character '.' to detect regular expressions in the \fCSRC\fP parameters. Because the character ‘.’ is commonly used as a separator to denote file extensions. You can use ‘.’ without escaping when specifying filenames as literal values.
 .PP
-.nf
-gm-gather   "~/\e.zsh.*" dest
-.fi
+
+To collect the \fC.zshrc.mine\fP file located under the home directory on the remote hosts and store it in the \fCdest\fP directory, use \fCgm-gather\fP as follows:
 .PP
-An example run is shown below.
+
+.EX
+gm-gather   “~/.zshrc.mine” dest
+.EE
 .PP
-.nf
-$ gm-gather   "~/\e.zsh.*" dest
-timestamp="2025-11-23T01:14:33.209+09:00" level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
-timestamp="2025-11-23T01:14:33.210+09:00" level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
-timestamp="2025-11-23T01:14:33.214+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
-timestamp="2025-11-23T01:14:33.214+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
-timestamp="2025-11-23T01:14:33.218+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
-timestamp="2025-11-23T01:14:33.218+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
-timestamp="2025-11-23T01:14:33.221+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
-timestamp="2025-11-23T01:14:33.222+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
-timestamp="2025-11-23T01:14:33.225+09:00" level="DEBUG" host="localhost" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
-timestamp="2025-11-23T01:14:33.225+09:00" level="INFO" host="localhost" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
-timestamp="2025-11-23T01:14:33.225+09:00" level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
-timestamp="2025-11-23T01:14:33.225+09:00" level="INFO" host="vmlinux.local" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
-timestamp="2025-11-23T01:14:33.226+09:00" level="INFO" host="-" op="gather" phase="done" trial="8" processed="8" total="8" warnings="0" errors="0" msg="summary"
-$  tree -a dest
+An example execution is as follows:
+.PP
+
+.EX
+$  gm-gather   “~/.zshrc.mine” dest
+timestamp=“2025-11-24T09:41:19.310+09:00” level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp=“2025-11-24T09:41:19.310+09:00” level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="1" msg="host start"
+timestamp=“2025-11-24T09:41:19.314+09:00” level="INFO" host="localhost" op="gather" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp=“2025-11-24T09:41:19.314+09:00” level="INFO" host="vmlinux.local" op="gather" phase="done" trial="1" processed="1" total="1" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp=“2025-11-24T09:41:19.315+09:00” level="INFO" host="-" op="gather" phase="done" trial="2" processed="2" total="2" warnings="0" errors="0" msg="summary"
+$ tree -a dest
+dest
+|-- localhost
+|   `-- home
+|       `-- user
+|           `-- .zshrc.mine
+`-- vmlinux.local
+    `-- home
+        `-- user
+            `-- .zshrc.mine
+
+6 directories, 2 files
+.EE
+
+.SS Retrieving Files Without Privilege Escalation
+
+.PP
+To collect files starting with \fC.zsh\fP under the remote host's home directory and store them in the \fCdest\fP directory, use \fCgm-gather\fP as follows:
+.PP
+
+.EX
+gm-gather “~/\.zsh.*” dest
+.EE
+.PP
+An example execution is as follows:
+.PP
+
+.EX
+$ gm-gather “~/\.zsh.*” dest
+timestamp=“2025-11-23T01:14:33.209+09:00” level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
+timestamp=“2025-11-23T01:14:33.210+09:00” level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="4" msg="host start"
+timestamp=“2025-11-23T01:14:33.214+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
+timestamp=“2025-11-23T01:14:33.214+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="1" processed="1" total="4" seq="1" msg="processing"
+timestamp=“2025-11-23T01:14:33.218+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
+timestamp=“2025-11-23T01:14:33.218+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="2" processed="2" total="4" seq="2" msg="processing"
+timestamp=“2025-11-23T01:14:33.221+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
+timestamp=“2025-11-23T01:14:33.222+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="3" processed="3" total="4" seq="3" msg="processing"
+timestamp=“2025-11-23T01:14:33.225+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
+timestamp=“2025-11-23T01:14:33.225+09:00” level="INFO" host="localhost" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp=“2025-11-23T01:14:33.225+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="4" processed="4" total="4" seq="4" msg="processing"
+timestamp=“2025-11-23T01:14:33.225+09:00” level="INFO" host="vmlinux.local" op="gather" phase="done" trial="4" processed="4" total="4" warnings="0" errors="0" duration="0.0" msg="host done"
+timestamp=“2025-11-23T01:14:33.226+09:00” level="INFO" host="-" op="gather" phase="done" trial="8" processed="8" total="8" warnings="0" errors="0" msg="summary"
+$ tree -a dest
 dest
 |-- localhost
 |   `-- home
@@ -385,7 +434,72 @@ dest
             `-- .zshrc.proxy
 
 6 directories, 8 files
-.fi
+.EE
+
+.PP
+
+.SS Retrieving Files With Privilege Escalation
+
+.PP
+After logging into the remote host, using the administrator account (\fCroot\fP), to collect files starting with ‘\fC/etc/host\fP’ and store them in the \fCdest\fP directory, specify the options as follows:
+.PP
+
+.EX
+gm-gather -u root --ssh-user=user --pack -v ‘/etc/^host.*’ dest
+.EE
+
+.PP
+The meaning of each option is as follows:
+.IP \(bu 2
+Specify \fC-u root\fP to retrieve files under \fC/etc\fP
+.IP \(bu 2
+Since root cannot ssh login directly, log in once as \fCuser\fP, then use sudo to become the privileged user and retrieve the files
+.IP \(bu 2
+Use \fC--pack\fP to attempt retrieval including symbolic links
+.IP \(bu 2
+Use \fC-v\fP to display detailed logs
+.IP \(bu 2
+Specify the retrieval file pattern ‘\fC/etc/^host.*\fP’ in \fCSRC\fP
+.IP \(bu 2
+Specify the output destination directory as \fCdest\fP
+.PP
+
+An example of executing the above command is as follows.
+.PP
+
+.EX
+$ gm-gather -u root --ssh-user=user --pack -v ‘/etc/^host.*’ dest
+timestamp=“2025-11-24T04:18:52.171+09:00” level="INFO" host="localhost" op="gather" phase="start" trial="0" processed="0" total="3" msg="host start"
+timestamp=“2025-11-24T04:18:52.171+09:00” level="INFO" host="vmlinux.local" op="gather" phase="start" trial="0" processed="0" total="5" msg="host start"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="1" processed="1" total="5" seq="1" msg="processing"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="2" processed="2" total="5" seq="2" msg="processing"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="3" processed="3" total="5" seq="3" msg="processing"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="4" processed="4" total="5" seq="4" msg="processing"
+timestamp=“2025-11-24T04:18:52.576+09:00” level="DEBUG" host="vmlinux.local" op="gather" phase="processing" trial="5" processed="5" total="5" seq="5" msg="processing"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="1" processed="1" total="3" seq="1" msg="processing"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="2" processed="2" total="3" seq="2" msg="processing"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="DEBUG" host="localhost" op="gather" phase="processing" trial="3" processed="3" total="3" seq="3" msg="processing"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="INFO" host="localhost" op="gather" phase="done" trial="3" processed="3" total="3" warnings="0" errors="0" duration="0.5" msg="host done"
+timestamp=“2025-11-24T04:18:52.669+09:00” level="INFO" host="vmlinux.local" op="gather" phase="done" trial="5" processed="5" total="5" warnings="0" errors="0" duration="0.5" msg="host done"
+timestamp=“2025-11-24T04:18:52.670+09:00” level="INFO" host="-" op="gather" phase="done" trial="8" processed="8" total="8" warnings="0" errors="0" msg="summary"
+$ tree -a dest
+dest
+|-- localhost
+|   `-- etc
+|       |-- host.conf
+|       |-- hostname
+|       `-- hosts
+`-- vmlinux.local
+    `-- etc
+        |-- host.conf
+        |-- hostname
+        |-- hosts
+        |-- hosts.allow
+        `-- hosts.deny
+
+4 directories, 8 files
+.EE
+.PP
 
 .SH Limitations and Notes
 .PP
